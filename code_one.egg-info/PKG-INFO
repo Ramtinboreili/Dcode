@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: code-one
+Version: 0.1.0
+Summary: Terminal-based agentic coding assistant CLI
+Requires-Python: >=3.10
+Requires-Dist: openai>=1.0.0
+Requires-Dist: rich>=13.0.0
+Requires-Dist: click>=8.0.0
+Requires-Dist: prompt_toolkit>=3.0.0
+Requires-Dist: httpx>=0.24.0
+Dynamic: requires-python

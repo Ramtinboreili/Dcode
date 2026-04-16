@@ -1,0 +1,25 @@
+[build-system]
+requires = [
+  "setuptools>=64.0",
+  "wheel"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "code-one"
+version = "0.1.0"
+description = "Terminal-based agentic coding assistant CLI"
+requires-python = ">=3.10"
+dependencies = [
+  "openai>=1.0.0",
+  "rich>=13.0.0",
+  "click>=8.0.0",
+  "prompt_toolkit>=3.0.0",
+  "httpx>=0.24.0"
+]
+
+[project.scripts]
+code-one = "code_one.main:cli"
+
+[tool.setuptools]
+packages = ["code_one"]
