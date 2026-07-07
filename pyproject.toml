@@ -7,9 +7,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "code-one"
-version = "0.1.0"
-description = "Terminal-based agentic coding assistant CLI"
+description = "Terminal-based agentic coding assistant CLI for local / air-gapped LLMs"
 requires-python = ">=3.10"
+dynamic = ["version"]
+readme = "README.md"
 dependencies = [
   "openai>=1.0.0",
   "rich>=13.0.0",
@@ -18,8 +19,24 @@ dependencies = [
   "httpx>=0.24.0"
 ]
 
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0",
+  "ruff>=0.1",
+  "pyinstaller>=6.0"
+]
+
 [project.scripts]
 code-one = "code_one.main:cli"
 
 [tool.setuptools]
 packages = ["code_one"]
+
+[tool.setuptools.dynamic]
+version = { attr = "code_one.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120

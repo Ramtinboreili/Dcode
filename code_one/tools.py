@@ -1,10 +1,73 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+# --- Safety limits -----------------------------------------------------------
+# Cap outputs handed back to the model so a single tool call cannot blow up the
+# context window, memory, or token cost.
+MAX_READ_BYTES = 512 * 1024          # read_file: refuse files larger than this
+MAX_OUTPUT_CHARS = 60_000            # truncate command / listing / search output
+MAX_LIST_ENTRIES = 2_000             # cap directory listing entries
+MAX_SEARCH_MATCHES = 500             # cap search hits
+COMMAND_TIMEOUT = 60                 # seconds for run_command / git
+
+# Directories we never descend into for listing/search — noisy and huge.
+_IGNORE_DIRS = {
+    ".git", "__pycache__", "node_modules", ".venv", "venv", "env",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache", "dist", "build",
+    ".idea", ".vscode", ".tox", ".next", "target",
+}
+
+
+class WorkspaceError(Exception):
+    """Raised when a path escapes the allowed workspace root."""
+
+
+def _workspace_root() -> Path:
+    """Root that file tools are confined to (defaults to the launch cwd)."""
+    override = os.environ.get("CODE_ONE_WORKSPACE")
+    base = Path(override) if override else Path.cwd()
+    return base.expanduser().resolve()
+
+
+def _allow_outside_workspace() -> bool:
+    return os.environ.get("CODE_ONE_ALLOW_OUTSIDE_WORKSPACE", "").lower() in {"1", "true", "yes"}
+
+
+def _safe_path(value: str) -> Path:
+    """Resolve ``value`` and ensure it stays inside the workspace root.
+
+    Set CODE_ONE_ALLOW_OUTSIDE_WORKSPACE=1 to disable this sandbox.
+    """
+    resolved = Path(value).expanduser()
+    if not resolved.is_absolute():
+        resolved = _workspace_root() / resolved
+    resolved = resolved.resolve()
+    if _allow_outside_workspace():
+        return resolved
+    root = _workspace_root()
+    if resolved != root and root not in resolved.parents:
+        raise WorkspaceError(
+            f"Path '{value}' is outside the workspace ({root}). "
+            "Set CODE_ONE_ALLOW_OUTSIDE_WORKSPACE=1 to override."
+        )
+    return resolved
+
+
+def _truncate(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n... (truncated, {len(text) - limit} more chars)"
+
+
+def _skip_dir(item: Path) -> bool:
+    return any(part in _IGNORE_DIRS for part in item.parts)
 
 
 BASE_TOOL_NAMES = [
@@ -197,46 +260,56 @@ def _ensure_parent(path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
 
 
-def _path(value: str) -> Path:
-    return Path(value).expanduser()
-
-
-def _run(command: List[str], timeout: int = 60) -> subprocess.CompletedProcess[str]:
+def _run(command: List[str], timeout: int = COMMAND_TIMEOUT) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, check=False, capture_output=True, text=True, timeout=timeout)
 
 
 def execute_tool(name: str, arguments: Dict[str, Any]) -> str:
     try:
         if name == "read_file":
-            path = _path(arguments["path"])
+            path = _safe_path(arguments["path"])
             if not path.exists():
                 return f"File does not exist: {path}"
             if path.is_dir():
                 return f"Path is a directory: {path}"
-            return path.read_text()
+            size = path.stat().st_size
+            if size > MAX_READ_BYTES:
+                return (
+                    f"File is too large to read ({size} bytes, limit {MAX_READ_BYTES}). "
+                    "Use run_command with head/sed to read part of it."
+                )
+            return path.read_text(errors="replace")
 
         if name == "write_file":
-            path = _path(arguments["path"])
+            path = _safe_path(arguments["path"])
             _ensure_parent(path)
-            path.write_text(arguments["content"])
-            return f"Wrote {len(arguments['content'])} chars to {path}"
+            content = arguments["content"]
+            path.write_text(content)
+            return f"Wrote {len(content)} chars to {path}"
 
         if name == "list_files":
-            base = _path(arguments["path"])
+            base = _safe_path(arguments["path"])
             if not base.exists():
                 return f"Path does not exist: {base}"
             if not base.is_dir():
                 return f"Not a directory: {base}"
-            items = sorted([str(item.relative_to(base)) for item in base.rglob("*")])
-            return "\n".join(items) if items else "(empty)"
+            items: List[str] = []
+            for item in base.rglob("*"):
+                if _skip_dir(item.relative_to(base)):
+                    continue
+                items.append(str(item.relative_to(base)))
+                if len(items) >= MAX_LIST_ENTRIES:
+                    items.append(f"... (truncated at {MAX_LIST_ENTRIES} entries)")
+                    break
+            return "\n".join(sorted(items)) if items else "(empty)"
 
         if name == "create_directory":
-            path = _path(arguments["path"])
+            path = _safe_path(arguments["path"])
             path.mkdir(parents=True, exist_ok=True)
             return f"Created directory {path}"
 
         if name == "delete_file":
-            path = _path(arguments["path"])
+            path = _safe_path(arguments["path"])
             if not path.exists():
                 return f"Path does not exist: {path}"
             if path.is_dir():
@@ -248,25 +321,29 @@ def execute_tool(name: str, arguments: Dict[str, Any]) -> str:
             return f"Deleted {path}"
 
         if name == "search_in_files":
-            base = _path(arguments["path"])
+            base = _safe_path(arguments["path"])
             if not base.exists():
                 return f"Path does not exist: {base}"
             if not base.is_dir():
                 return f"Not a directory: {base}"
             pattern = arguments["pattern"]
-            matches = []
+            matches: List[str] = []
             for item in base.rglob("*"):
-                if not item.is_file():
+                if _skip_dir(item.relative_to(base)) or not item.is_file():
                     continue
                 try:
                     text = item.read_text(errors="ignore")
                 except Exception:
                     continue
-                if pattern in text:
-                    for line_num, line in enumerate(text.splitlines(), start=1):
-                        if pattern in line:
-                            snippet = line.strip()[:200]
-                            matches.append(f"{item}:{line_num}:{snippet}")
+                if pattern not in text:
+                    continue
+                for line_num, line in enumerate(text.splitlines(), start=1):
+                    if pattern in line:
+                        snippet = line.strip()[:200]
+                        matches.append(f"{item}:{line_num}:{snippet}")
+                        if len(matches) >= MAX_SEARCH_MATCHES:
+                            matches.append(f"... (truncated at {MAX_SEARCH_MATCHES} matches)")
+                            return "\n".join(matches)
             return "\n".join(matches) if matches else "(no matches)"
 
         if name == "run_command":
@@ -276,12 +353,13 @@ def execute_tool(name: str, arguments: Dict[str, Any]) -> str:
                 check=False,
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=COMMAND_TIMEOUT,
+                cwd=str(_workspace_root()),
             )
             output = (result.stdout or "") + (result.stderr or "")
             if result.returncode != 0:
                 output += f"\n(return code: {result.returncode})"
-            return output.strip() or "(no output)"
+            return _truncate(output.strip()) or "(no output)"
 
         if name == "git_status":
             result = _run(["git", "status"])
@@ -319,6 +397,10 @@ def execute_tool(name: str, arguments: Dict[str, Any]) -> str:
             return output.strip() or "(no output)"
 
         return f"Unknown tool: {name}"
+    except WorkspaceError as exc:
+        return f"Blocked: {exc}"
+    except subprocess.TimeoutExpired:
+        return f"Command timed out after {COMMAND_TIMEOUT}s."
     except Exception as exc:
         return "".join(traceback.format_exception_only(type(exc), exc)).strip()
 

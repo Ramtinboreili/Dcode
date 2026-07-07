@@ -1,2 +1,0 @@
-[console_scripts]
-code-one = code_one.main:cli

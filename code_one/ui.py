@@ -14,6 +14,8 @@ from rich.columns import Columns
 from rich.console import Console
 from rich.panel import Panel
 
+from code_one import __version__
+
 ORANGE = "#FF6B00"
 WHITE = "white"
 MUTED = "#888888"
@@ -124,7 +126,7 @@ def show_welcome(
     console.print(
         Panel(
             Columns([left_panel, right_panel], expand=True),
-            title="[bold #FF6B00]code-one v0.1.0[/bold #FF6B00]",
+            title=f"[bold #FF6B00]code-one v{__version__}[/bold #FF6B00]",
             border_style=ORANGE,
             expand=True,
         )

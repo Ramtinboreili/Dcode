@@ -34,6 +34,7 @@ EXPERIMENTAL_LABELS = {
     "multi_file_edit": "multi_file_edit",
     "auto_commit": "auto_commit",
     "streaming_tools": "streaming_tools",
+    "auto_approve_commands": "auto_approve_commands",
 }
 
 
@@ -81,6 +82,23 @@ class CodeOneAgent:
         else:
             self.messages.insert(0, system_message)
 
+    def _create_completion(self, **kwargs: Any) -> Any:
+        """Call chat.completions with reasoning_effort when set.
+
+        Many local / OpenAI-compatible servers (Ollama, llama.cpp, some vLLM
+        builds) reject unknown fields, so we send reasoning_effort as extra_body
+        and transparently retry without it if the server refuses.
+        """
+        effort = self.config.reasoning_effort
+        if effort in {"low", "medium", "high"}:
+            try:
+                return self.client.chat.completions.create(
+                    extra_body={"reasoning_effort": effort}, **kwargs
+                )
+            except Exception:
+                pass
+        return self.client.chat.completions.create(**kwargs)
+
     def _refresh_tools(self) -> None:
         self.tools = tool_definitions(
             permissions=self.config.permissions,
@@ -89,6 +107,7 @@ class CodeOneAgent:
         )
 
     def reset(self) -> None:
+        self._save_current_thread()
         self._reset_messages()
         self.thread_name = self._timestamp_name()
         self.thread_created_at = datetime.now(timezone.utc).isoformat()
@@ -104,7 +123,11 @@ class CodeOneAgent:
             git_summary=self.git_summary,
         )
         while True:
-            user_text = ui.prompt_input("Send a task or command", complete_commands=True)
+            try:
+                user_text = ui.prompt_input("Send a task or command", complete_commands=True)
+            except (KeyboardInterrupt, EOFError):
+                ui.console.print(f"\n[{ui.ORANGE}]Interrupted. Type /exit to quit.[/]")
+                continue
             if not user_text:
                 continue
             if user_text == "/exit":
@@ -143,7 +166,13 @@ class CodeOneAgent:
                 self._resume_thread()
                 continue
 
-            self._handle_user_task(user_text)
+            try:
+                self._handle_user_task(user_text)
+            except KeyboardInterrupt:
+                ui.console.print(f"\n[{ui.ORANGE}]Task interrupted[/]")
+
+        # Persist the in-progress conversation on the way out.
+        self._save_current_thread()
 
     def fetch_models(self) -> List[str]:
         main = import_module("code_one.main")
@@ -250,10 +279,11 @@ class CodeOneAgent:
         total_tokens = 0
         try:
             with ui.console.status(f"[{ui.ORANGE}]Reviewing changes...[/]", spinner="dots", spinner_style=ui.ORANGE):
-                stream = self.client.chat.completions.create(
+                stream = self._create_completion(
                     model=self.model,
                     messages=review_messages,
                     stream=True,
+                    stream_options={"include_usage": True},
                 )
             for chunk in stream:
                 choice = chunk.choices[0] if getattr(chunk, "choices", None) else None
@@ -380,7 +410,7 @@ class CodeOneAgent:
         try:
             while True:
                 with ui.console.status(f"[{ui.ORANGE}]Thinking...[/]", spinner="dots", spinner_style=ui.ORANGE):
-                    response = self.client.chat.completions.create(
+                    response = self._create_completion(
                         model=self.model,
                         messages=self.messages,
                         tools=self.tools,
@@ -417,6 +447,17 @@ class CodeOneAgent:
 
                     args = parse_arguments(raw_args)
                     ui.show_tool_call(name, json.dumps(args))
+
+                    if name == "run_command" and not self.config.experimental.get("auto_approve_commands"):
+                        command_text = str(args.get("command", ""))
+                        confirm = ui.prompt_input(
+                            f"Run shell command: {command_text} (y/N)", default="n"
+                        ).lower()
+                        if not confirm.startswith("y"):
+                            self._append_tool_result(tool_call, name, "Command cancelled by user.")
+                            continue
+                        self._append_tool_result(tool_call, name, execute_tool(name, args))
+                        continue
 
                     if name == "delete_file":
                         target = args.get("path", "")

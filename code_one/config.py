@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +26,9 @@ DEFAULT_EXPERIMENTAL = {
     "multi_file_edit": False,
     "auto_commit": False,
     "streaming_tools": False,
+    # When True, run_command executes without a per-command confirmation prompt.
+    # Leave OFF unless you fully trust the model and the environment.
+    "auto_approve_commands": False,
 }
 DEFAULT_SKILLS = {
     "code_review.md": False,
@@ -49,6 +53,7 @@ class AppConfig:
             "reasoning_effort": self.reasoning_effort,
             "permissions": dict(self.permissions),
             "experimental": dict(self.experimental),
+            "enabled_skills": list(self.enabled_skills),
         }
 
 
@@ -56,6 +61,8 @@ def ensure_app_dirs() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     THREADS_DIR.mkdir(parents=True, exist_ok=True)
     SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    # The config dir holds an API key in plaintext; keep it private (0700).
+    _chmod_quiet(CONFIG_DIR, 0o700)
     default_skill = SKILLS_DIR / "code_review.md"
     if not default_skill.exists():
         default_skill.write_text(
@@ -73,6 +80,14 @@ def ensure_app_dirs() -> None:
         )
 
 
+def _chmod_quiet(path: Path, mode: int) -> None:
+    """Best-effort chmod; silently ignore platforms/filesystems that reject it."""
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        pass
+
+
 def _load_json(path: Path) -> Dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
@@ -88,12 +103,36 @@ def _merge_defaults(source: Optional[Dict[str, Any]], defaults: Dict[str, bool])
     return merged
 
 
+def _apply_env_overrides(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Environment variables win over the saved config file.
+
+    This is the primary way to configure code-one in an air-gapped /
+    headless deployment where no interactive setup wizard is run.
+    """
+    env_map = {
+        "base_url": "CODE_ONE_BASE_URL",
+        "api_key": "CODE_ONE_API_KEY",
+        "model": "CODE_ONE_MODEL",
+        "reasoning_effort": "CODE_ONE_REASONING_EFFORT",
+    }
+    for key, env_name in env_map.items():
+        value = os.environ.get(env_name)
+        if value:
+            data[key] = value
+    return data
+
+
 def load_config() -> Optional[AppConfig]:
     ensure_app_dirs()
-    if not CONFIG_FILE.exists():
-        return None
+    data: Dict[str, Any] = {}
+    if CONFIG_FILE.exists():
+        try:
+            data = _load_json(CONFIG_FILE)
+        except (json.JSONDecodeError, OSError):
+            # A corrupt config must not crash startup; treat it as absent.
+            data = {}
 
-    data = _load_json(CONFIG_FILE)
+    data = _apply_env_overrides(data)
     base_url = data.get("base_url")
     api_key = data.get("api_key")
     model = data.get("model")
@@ -103,6 +142,9 @@ def load_config() -> Optional[AppConfig]:
     reasoning_effort = str(data.get("reasoning_effort") or DEFAULT_REASONING_EFFORT)
     permissions = _merge_defaults(data.get("permissions"), DEFAULT_PERMISSIONS)
     experimental = _merge_defaults(data.get("experimental"), DEFAULT_EXPERIMENTAL)
+    enabled_skills = data.get("enabled_skills")
+    if not isinstance(enabled_skills, list):
+        enabled_skills = []
     return AppConfig(
         base_url=base_url,
         api_key=api_key,
@@ -110,7 +152,7 @@ def load_config() -> Optional[AppConfig]:
         reasoning_effort=reasoning_effort,
         permissions=permissions,
         experimental=experimental,
-        enabled_skills=[],
+        enabled_skills=[str(name) for name in enabled_skills],
     )
 
 
@@ -118,6 +160,8 @@ def save_config(config: AppConfig) -> None:
     ensure_app_dirs()
     with CONFIG_FILE.open("w", encoding="utf-8") as handle:
         json.dump(config.as_dict(), handle, indent=2)
+    # The file contains an API key in plaintext; restrict to owner only.
+    _chmod_quiet(CONFIG_FILE, 0o600)
 
 
 def slugify_thread_name(name: str) -> str:
