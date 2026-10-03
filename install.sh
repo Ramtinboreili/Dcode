@@ -2,9 +2,9 @@
 
 set -euo pipefail
 
-STORAGE_BASE_URL="${CODE_ONE_STORAGE_URL:-https://ramtindev.storage.c2.liara.space/}"
+STORAGE_BASE_URL="${DCODE_STORAGE_URL:-https://ramtindev.storage.c2.liara.space/}"
 TARGET_DIR="/usr/local/bin"
-BINARY_NAME="code-one"
+BINARY_NAME="dcode"
 TMP_DIR="$(mktemp -d)"
 
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -34,12 +34,12 @@ else
   exit 1
 fi
 
-BINARY_URL="${STORAGE_BASE_URL%/}/${OS}-${ARCH}/code-one"
-TMP_BINARY="${TMP_DIR}/code-one"
+BINARY_URL="${STORAGE_BASE_URL%/}/${OS}-${ARCH}/dcode"
+TMP_BINARY="${TMP_DIR}/dcode"
 
 if ! "${DOWNLOAD[@]}" "${BINARY_URL}" -o "${TMP_BINARY}"; then
   echo "Failed to download binary: ${BINARY_URL}" >&2
-  echo "Expected uploaded artifact at: ${OS}-${ARCH}/code-one" >&2
+  echo "Expected uploaded artifact at: ${OS}-${ARCH}/dcode" >&2
   exit 1
 fi
 chmod +x "${TMP_BINARY}"
@@ -55,4 +55,4 @@ else
   fi
 fi
 
-echo "✓ Done! Run: code-one"
+echo "✓ Done! Run: dcode"

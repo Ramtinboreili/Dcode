@@ -3,19 +3,19 @@
 # Offline installer for an air-gapped server. No internet required.
 #
 # Copy this script together with EITHER:
-#   * a code-one_*.deb  (Debian/Ubuntu), or
-#   * a raw `code-one` binary
+#   * a dcode_*.deb  (Debian/Ubuntu), or
+#   * a raw `dcode` binary
 # onto the target machine, then run it.
 #
 # Usage:
 #   ./install-airgap.sh                 # auto-detect artifact in current dir
-#   ./install-airgap.sh code-one.deb    # install a specific .deb
-#   ./install-airgap.sh ./code-one      # install a specific raw binary
+#   ./install-airgap.sh dcode.deb    # install a specific .deb
+#   ./install-airgap.sh ./dcode      # install a specific raw binary
 #
 set -euo pipefail
 
 TARGET_DIR="/usr/local/bin"
-BINARY_NAME="code-one"
+BINARY_NAME="dcode"
 
 as_root() {
   if [[ "$(id -u)" -eq 0 ]]; then
@@ -32,8 +32,8 @@ ARTIFACT="${1:-}"
 if [[ -z "${ARTIFACT}" ]]; then
   # Auto-detect: prefer a .deb, fall back to a raw binary next to this script.
   HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  ARTIFACT="$(ls "${HERE}"/code-one_*.deb 2>/dev/null | head -n1 || true)"
-  [[ -z "${ARTIFACT}" && -f "${HERE}/code-one" ]] && ARTIFACT="${HERE}/code-one"
+  ARTIFACT="$(ls "${HERE}"/dcode_*.deb 2>/dev/null | head -n1 || true)"
+  [[ -z "${ARTIFACT}" && -f "${HERE}/dcode" ]] && ARTIFACT="${HERE}/dcode"
 fi
 
 if [[ -z "${ARTIFACT}" || ! -e "${ARTIFACT}" ]]; then
@@ -57,11 +57,11 @@ case "${ARTIFACT}" in
 esac
 
 echo ""
-echo "✓ code-one installed."
+echo "✓ dcode installed."
 echo ""
 echo "Point it at your local LLM (no data leaves the network):"
-echo "  export CODE_ONE_BASE_URL=http://<llm-host>:11434/v1   # Ollama example"
-echo "  export CODE_ONE_API_KEY=local"
-echo "  export CODE_ONE_MODEL=qwen2.5-coder:7b"
+echo "  export DCODE_BASE_URL=http://<llm-host>:11434/v1   # Ollama example"
+echo "  export DCODE_API_KEY=local"
+echo "  export DCODE_MODEL=qwen2.5-coder:7b"
 echo ""
-echo "Then run:  code-one"
+echo "Then run:  dcode"

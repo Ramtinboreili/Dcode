@@ -6,8 +6,8 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "code-one"
-description = "Terminal-based agentic coding assistant CLI for local / air-gapped LLMs"
+name = "dcode"
+description = "Dcode — coding agent (CLI + local web UI) for local / air-gapped LLMs"
 requires-python = ">=3.10"
 dynamic = ["version"]
 readme = "README.md"
@@ -27,16 +27,25 @@ dev = [
 ]
 
 [project.scripts]
-code-one = "code_one.main:cli"
+dcode = "dcode.main:cli"
 
 [tool.setuptools]
-packages = ["code_one"]
+packages = ["dcode"]
+
+[tool.setuptools.package-data]
+dcode = ["web/*", "skills/*.md"]
 
 [tool.setuptools.dynamic]
-version = { attr = "code_one.__version__" }
+version = { attr = "dcode.__version__" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+# Broad excepts are deliberate at tool / UI boundaries: one bad tool call or a
+# closed browser tab must never kill the agent loop.
+ignore = ["E501", "B008"]

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from code_one.main import cli
+from dcode.main import cli
 
 
 if __name__ == "__main__":

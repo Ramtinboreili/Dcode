@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# Build a self-contained code-one binary with PyInstaller.
+# Build a self-contained dcode binary with PyInstaller.
 #
 # Run this on a build machine whose OS + CPU architecture MATCH the target
 # air-gapped server (e.g. build on Ubuntu x86_64 to deploy on Ubuntu x86_64).
 # PyInstaller does not cross-compile.
 #
-# Output: dist/code-one  (a single executable with Python + all deps bundled)
+# Output: dist/dcode  (a single executable with Python + all deps bundled)
 #
 set -euo pipefail
 
@@ -29,13 +29,15 @@ rm -rf build dist
 echo ">> Building single-file binary"
 "${PYTHON}" -m PyInstaller \
   --onefile \
-  --name code-one \
+  --name dcode \
   --clean \
   --noconfirm \
   --collect-all prompt_toolkit \
   --collect-all rich \
   --collect-all openai \
-  code_one_bootstrap.py
+  --add-data "dcode/web:dcode/web" \
+  --add-data "dcode/skills:dcode/skills" \
+  dcode_bootstrap.py
 
-echo ">> Done: $(ls -lh dist/code-one | awk '{print $5, $9}')"
-echo "   Test it:  ./dist/code-one --help"
+echo ">> Done: $(ls -lh dist/dcode | awk '{print $5, $9}')"
+echo "   Test it:  ./dist/dcode --help"

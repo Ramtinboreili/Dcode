@@ -26,4 +26,5 @@ env/
 
 # Local config / secrets (never commit real keys)
 config.json
+.venv/
 *.local

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# Package the self-contained code-one binary into a .deb.
+# Package the self-contained dcode binary into a .deb.
 #
 # Prerequisites:
-#   1. Run packaging/build-binary.sh first (produces dist/code-one).
+#   1. Run packaging/build-binary.sh first (produces dist/dcode).
 #   2. dpkg-deb must be available (present on any Debian/Ubuntu machine).
 #
-# Output: dist/code-one_<version>_<arch>.deb
+# Output: dist/dcode_<version>_<arch>.deb
 #
 # The resulting .deb has NO dependencies (Python is bundled inside the binary),
 # so it installs cleanly on an air-gapped Debian/Ubuntu server with `dpkg -i`.
@@ -16,16 +16,16 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
-BINARY="dist/code-one"
+BINARY="dist/dcode"
 if [[ ! -f "${BINARY}" ]]; then
   echo "ERROR: ${BINARY} not found. Run packaging/build-binary.sh first." >&2
   exit 1
 fi
 
 # Read version straight from the package so it never drifts.
-VERSION="$(python3 -c 'import code_one; print(code_one.__version__)')"
+VERSION="$(python3 -c 'import dcode; print(dcode.__version__)')"
 ARCH="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
-PKG_NAME="code-one"
+PKG_NAME="dcode"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "${STAGE}"' EXIT
 
@@ -34,7 +34,7 @@ install -d "${STAGE}/DEBIAN"
 install -d "${STAGE}/usr/bin"
 install -d "${STAGE}/usr/share/doc/${PKG_NAME}"
 
-install -m 0755 "${BINARY}" "${STAGE}/usr/bin/code-one"
+install -m 0755 "${BINARY}" "${STAGE}/usr/bin/dcode"
 [[ -f README.md ]] && install -m 0644 README.md "${STAGE}/usr/share/doc/${PKG_NAME}/README.md"
 
 cat > "${STAGE}/DEBIAN/control" <<EOF
@@ -43,9 +43,9 @@ Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: ${ARCH}
-Maintainer: code-one <noreply@example.com>
+Maintainer: dcode <noreply@example.com>
 Description: Terminal agentic coding assistant for local / air-gapped LLMs
- code-one is a terminal-based AI coding assistant that connects to any
+ dcode is a terminal-based AI coding assistant that connects to any
  OpenAI-compatible endpoint (Ollama, vLLM, llama.cpp, LM Studio, TGI).
  Python and all dependencies are bundled, so it runs with no network
  and no system Python required.
@@ -54,11 +54,11 @@ EOF
 cat > "${STAGE}/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
-echo "code-one installed. Configure it with:"
-echo "  export CODE_ONE_BASE_URL=http://<llm-host>:11434/v1"
-echo "  export CODE_ONE_API_KEY=local"
-echo "  export CODE_ONE_MODEL=<model-name>"
-echo "Then run: code-one"
+echo "dcode installed. Configure it with:"
+echo "  export DCODE_BASE_URL=http://<llm-host>:11434/v1"
+echo "  export DCODE_API_KEY=local"
+echo "  export DCODE_MODEL=<model-name>"
+echo "Then run: dcode"
 exit 0
 EOF
 chmod 0755 "${STAGE}/DEBIAN/postinst"
