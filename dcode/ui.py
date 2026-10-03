@@ -66,6 +66,7 @@ class PromptInterrupted(Exception):
 
 COMMANDS: dict[str, str] = {
     "/help": "Show commands",
+    "/guide": "Open the user guide (English / فارسی)",
     "/ui": "Show the web UI link",
     "/model": "Switch model + reasoning effort",
     "/agents": "Sub-agent settings",

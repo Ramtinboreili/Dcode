@@ -180,6 +180,12 @@ class TerminalApp:
                 return "exit"
             if command == "/help":
                 ui.show_help()
+            elif command == "/guide":
+                if self.ui_url:
+                    ui.notice(f"Guide (English / فارسی): {self.ui_url.split('/?')[0]}/guide", "info")
+                else:
+                    ui.notice("The guide is served by the web UI; start dcode without --no-ui, "
+                              "or open dcode/web/guide.html from the source folder.", "warning")
             elif command == "/ui":
                 if self.ui_url:
                     ui.notice(f"Web UI: {self.ui_url}", "info")

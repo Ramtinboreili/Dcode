@@ -346,6 +346,8 @@ class Hub:
                         return
                 if parsed.path == "/static/logo.svg":
                     return self._static("logo.svg")
+                if parsed.path in ("/guide", "/static/guide.html") and self._host_ok():
+                    return self._static("guide.html")  # public docs: no token needed
                 if parsed.path == "/api/health":
                     return self._json({"ok": True, "app": "dcode", "version": __version__})
                 if not self._authorized():

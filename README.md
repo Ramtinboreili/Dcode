@@ -30,6 +30,8 @@ Dcode works with any OpenAI-compatible server (Ollama, vLLM, llama.cpp, LM Studi
 - **Skills.** Nine built-in playbooks: devops, developer, ui-designer, code-reviewer, artifact-creator, tester, security-auditor, docs-writer and debugger. Only names and descriptions go in the prompt; the agent loads a full skill with `skill_use` when one fits. Pin a skill to always include it. To add your own, drop a `.md` file in `~/.dcode/skills` (or a project's `.dcode/skills`), write it in Settings → Skills, or ask Dcode, which uses `skill_save`.
 - **One look.** The terminal and the web UI share the same blue palette, defined once in `dcode/theme.py`.
 
+> 📖 **User guide in English and Persian (فارسی):** [`dcode/web/guide.html`](dcode/web/guide.html). It works offline, is served at `/guide` by the web UI, and `/guide` in the terminal prints the link.
+
 ## Quick start
 
 ```bash

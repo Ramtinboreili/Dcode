@@ -181,3 +181,9 @@ def test_artifact_and_skill_api(stack):
     names = [s["name"] for s in req(stack, "GET", "/api/skills")[1]]
     assert "my-rules" in names
     assert req(stack, "DELETE", "/api/skills/my-rules")[0] == 200
+
+
+def test_guide_is_public_and_bilingual(stack):
+    status, body, _ = req(stack, "GET", "/guide", cookie=False)
+    assert status == 200 and b'lang="fa"' in body and "راهنمای Dcode".encode() in body
+    assert req(stack, "GET", "/guide", cookie=False, host="evil.example")[0] != 200

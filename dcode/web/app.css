@@ -469,6 +469,7 @@ svg.ic { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: ro
 
 /* ---------- artifacts ---------- */
 .sb-link .pill { margin-left: auto; }
+a.sb-link { text-decoration: none; }
 .artifact-card {
   display: flex; align-items: center; gap: 12px; margin: 8px 0 12px; padding: 12px 14px; border: 1px solid var(--border);
   border-radius: 14px; background: var(--surface); cursor: pointer; transition: border-color .12s, box-shadow .12s; max-width: 460px;
