@@ -1,0 +1,161 @@
+from __future__ import annotations
+
+import json
+import threading
+
+from conftest import FakeLLM, call, make_config, scripted
+
+from dcode.engine import Agent, NullHost
+from dcode.llm import AssistantTurn
+from dcode.memory import MemoryStore
+
+
+def _agent(router, host=None, memory=None, **cfg):
+    config = make_config(**cfg)
+    llm = FakeLLM(router, config)
+    return Agent(config, llm, host or NullHost(), memory), llm
+
+
+def test_tool_then_answer(isolated):
+    (isolated / "a.txt").write_text("hello")
+    agent, llm = _agent(scripted(
+        AssistantTurn(tool_calls=[call("read_file", '{"path": "a.txt"}')]),
+        AssistantTurn(content="The file says hello."),
+    ))
+    result = agent.run_turn("what is in a.txt?")
+    assert result.text == "The file says hello."
+    tool_msgs = [m for m in agent.messages if m["role"] == "tool"]
+    assert tool_msgs[0]["content"] == "1| hello"
+    types = [e["type"] for e in agent.host.events]
+    assert types.index("tool_call") < types.index("tool_result") < types.index("assistant_message")
+    assert "usage" in types
+
+
+def test_run_command_requires_approval():
+    host = NullHost(approve=False)
+    agent, _ = _agent(scripted(
+        AssistantTurn(tool_calls=[call("run_command", '{"command": "touch x"}')]),
+        AssistantTurn(content="ok"),
+    ), host=host)
+    agent.run_turn("make a file")
+    assert any(m["role"] == "tool" and "cancelled" in m["content"] for m in agent.messages)
+
+
+def test_auto_approve_flag_skips_prompt(isolated):
+    agent, _ = _agent(scripted(
+        AssistantTurn(tool_calls=[call("run_command", '{"command": "touch made.txt"}')]),
+        AssistantTurn(content="ok"),
+    ), experimental={"auto_approve_commands": True, "auto_commit": False, "multi_file_edit": False, "streaming_tools": False})
+    agent.run_turn("make a file")
+    assert (isolated / "made.txt").exists()
+
+
+def test_parallel_read_only_delegation():
+    barrier = threading.Barrier(2, timeout=5)  # both explorers must be in flight at once
+
+    def router(messages, tools):
+        system = messages[0]["content"]
+        if "exploration sub-agent" in system:
+            barrier.wait()
+            return AssistantTurn(content=f"REPORT for: {messages[1]['content']}")
+        if not any(m["role"] == "tool" for m in messages):
+            return AssistantTurn(tool_calls=[
+                call("delegate", json.dumps({"role": "explore", "task": "find auth code"}), "d1"),
+                call("delegate", json.dumps({"role": "explore", "task": "find db code"}), "d2"),
+            ])
+        return AssistantTurn(content="Both explored.")
+
+    agent, _ = _agent(router)
+    result = agent.run_turn("map the codebase")
+    assert result.text == "Both explored."
+    reports = [m["content"] for m in agent.messages if m["role"] == "tool"]
+    assert "find auth code" in reports[0] and "find db code" in reports[1]  # order preserved
+    starts = [e for e in agent.host.events if e["type"] == "agent_start"]
+    assert {e["role"] for e in starts} == {"explore"} and len(starts) == 2
+    # Sub-agent transcripts never enter the main context — only the report does.
+    assert not any("exploration sub-agent" in str(m.get("content")) for m in agent.messages)
+
+
+def test_sub_agents_get_role_tools_only():
+    agent, _ = _agent(scripted())
+    sub = Agent(agent.config, agent.llm, agent.host, None, role="explore", agent_id="explore-x")
+    names = sub.tool_names()
+    assert "read_file" in names and "write_file" not in names and "delegate" not in names
+    assert "delegate" in agent.tool_names()
+
+
+def test_delegation_disabled_hides_tool():
+    agent, _ = _agent(scripted(), agents={"enabled": False, "max_parallel": 2, "max_steps": 16})
+    assert "delegate" not in agent.tool_names()
+    assert "delegate" not in agent.system_prompt()
+
+
+def test_repeat_guard_breaks_loops(isolated):
+    (isolated / "a.txt").write_text("x")
+    same = AssistantTurn(tool_calls=[call("read_file", '{"path": "a.txt"}')])
+    agent, _ = _agent(scripted(same, same, same, AssistantTurn(content="stop")))
+    agent.run_turn("loop")
+    tool_msgs = [m["content"] for m in agent.messages if m["role"] == "tool"]
+    assert "identical arguments" in tool_msgs[-1]
+
+
+def test_step_limit_forces_wrap_up(isolated):
+    def router(messages, tools):
+        if tools is None:
+            return AssistantTurn(content="Progress report.")
+        return AssistantTurn(tool_calls=[call("list_files", json.dumps({"path": ".", "max_depth": len(messages)}))])
+
+    agent, _ = _agent(router)
+    result = agent.run_turn("go", max_steps=3)
+    assert result.text == "Progress report."
+    assert result.steps == 3
+
+
+def test_empty_reply_gets_one_nudge():
+    agent, llm = _agent(scripted(AssistantTurn(content=""), AssistantTurn(content="final")))
+    assert agent.run_turn("hi").text == "final"
+    assert len(llm.calls) == 2
+
+
+def test_memory_recall_lands_in_system_prompt(isolated):
+    store = MemoryStore(isolated)
+    store.save("deploy", "Deploy with ./scripts/ship.sh on the bastion host.")
+    seen = {}
+
+    def router(messages, tools):
+        seen["system"] = messages[0]["content"]
+        return AssistantTurn(content="ok")
+
+    agent, _ = _agent(router, memory=store)
+    agent.run_turn("how do I deploy?")
+    assert "ship.sh" in seen["system"]
+    assert "memory_save" in agent.tool_names()
+
+
+def test_memory_save_tool(isolated):
+    store = MemoryStore(isolated)
+    agent, _ = _agent(scripted(
+        AssistantTurn(tool_calls=[call("memory_save", '{"name": "style", "content": "Use black"}')]),
+        AssistantTurn(content="saved"),
+    ), memory=store)
+    agent.run_turn("remember we use black")
+    assert store.get("style").body == "Use black"
+
+
+def test_project_instructions_file_is_loaded(isolated):
+    (isolated / "AGENTS.md").write_text("Always run pytest -q.")
+    agent, _ = _agent(scripted())
+    assert "Always run pytest -q." in agent.system_prompt()
+
+
+def test_reused_tool_call_ids_are_made_unique(isolated):
+    (isolated / "a.txt").write_text("x")
+    (isolated / "b.txt").write_text("y")
+    agent, _ = _agent(scripted(
+        AssistantTurn(tool_calls=[call("read_file", '{"path": "a.txt"}', "call_0")]),
+        AssistantTurn(tool_calls=[call("read_file", '{"path": "b.txt"}', "call_0")]),
+        AssistantTurn(content="done"),
+    ))
+    agent.run_turn("read both")
+    ids = [m["tool_call_id"] for m in agent.messages if m["role"] == "tool"]
+    assert len(ids) == len(set(ids)) == 2
