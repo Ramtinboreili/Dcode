@@ -1,321 +1,155 @@
-# code-one
+# Dcode
 
-Terminal-based, agentic coding assistant CLI with OpenAI-compatible API support and built-in file / shell tools.
+A coding agent for **local and air-gapped LLMs**, with a terminal UI and a matching localhost web UI that drive the same session.
 
-## Features
+Dcode works with any OpenAI-compatible server (Ollama, vLLM, llama.cpp, LM Studio, TGI). It is built for open-source models with **small context windows (32K or less)**. It delegates work to sub-agents, keeps its own context compact, and remembers what it learns across sessions.
 
-- Interactive commands:
-  - `/exit` - quit the app
-  - `/reset` - clear the current conversation and start fresh
-  - `/model` - show current model, pick a new model, and set reasoning effort
-  - `/setup` - re-run the provider setup wizard
-  - `/permissions` - toggle agent tool permissions for the session and config
-  - `/experimental` - toggle experimental features
-  - `/skills` - enable or disable markdown skills from `~/.code-one/skills/`
-  - `/review` - review current git changes with the model
-  - `/rename` - rename the current chat thread
-  - `/new` - save the current thread and start a new one
-  - `/resume` - load and continue a saved thread
-  - `/help` - show command help
-- Tool-calling support:
-  - Filesystem tools: `read_file`, `write_file`, `list_files`, `run_command`, `create_directory`, `delete_file`, `search_in_files`
-  - Git tools: `git_status`, `git_diff`, `git_log`, `git_commit`
-- Config file at `~/.code-one/config.json`
-- Saved threads at `~/.code-one/threads/`
-- Skills directory at `~/.code-one/skills/`
-- Per-task summary with wall-clock time and token usage
+> Formerly `code-one`. Your `~/.code-one` config, threads and skills are copied to `~/.dcode` on first run, and the old `CODE_ONE_*` env vars still work.
+
+## Highlights
+
+- **Built for small contexts**
+  - Token budgeting, calibrated against the usage your server reports.
+  - Automatic compaction: old tool output is trimmed first, then older turns are summarized.
+  - Line-ranged `read_file` and exact-match `edit_file`, so the model never re-sends whole files.
+  - Tool output caps that scale with the context window.
+- **Sub-agents and multi-agent work.** The main agent calls `delegate` to hand self-contained tasks to `explore`, `code`, `review` or `test` workers. Each worker starts with a fresh context, and only a short report comes back. Read-only workers run in parallel.
+- **Memory, in layers.**
+  - *Working:* the live conversation, compacted as needed.
+  - *Episodic:* summaries of past sessions.
+  - *Semantic:* facts saved per project or globally.
+  - Retrieval is BM25 over plain Markdown files: no embedding model, fully offline.
+- **Tolerant of open-model quirks.**
+  - Recovers tool calls written as text (`<tool_call>…`, fenced JSON).
+  - Strips `<think>` blocks.
+  - Learns which optional parameters the server rejects.
+  - Makes reused tool-call ids unique.
+  - Breaks repeated-call loops.
+- **Web UI.** A hub on `127.0.0.1`, one per OS user, lists all of your live sessions and saved threads. You can watch a session stream, send tasks, approve commands, stop work, and edit every setting, memory and skill. It starts with your first `dcode` and stops after the last one exits. History stays on disk.
+- **Artifacts.** Dcode saves HTML pages, dashboards, SVG diagrams, Markdown reports, CSV tables and long code with `artifact_save`. You open them from the chat or the Artifacts library in the web UI. HTML runs in a sandboxed iframe with no network access, and every update keeps version history. Saved content becomes a short stub in the conversation, so artifacts don't fill the context.
+- **Skills.** Nine built-in playbooks: devops, developer, ui-designer, code-reviewer, artifact-creator, tester, security-auditor, docs-writer and debugger. Only names and descriptions go in the prompt; the agent loads a full skill with `skill_use` when one fits. Pin a skill to always include it. To add your own, drop a `.md` file in `~/.dcode/skills` (or a project's `.dcode/skills`), write it in Settings → Skills, or ask Dcode, which uses `skill_save`.
+- **One look.** The terminal and the web UI share the same blue palette, defined once in `dcode/theme.py`.
+
+## Quick start
+
+```bash
+pip install .            # or install the air-gapped binary, see below
+export DCODE_BASE_URL=http://127.0.0.1:11434/v1   # Ollama
+export DCODE_API_KEY=local
+export DCODE_MODEL=qwen2.5-coder:7b
+export DCODE_CONTEXT_WINDOW=32768                 # match your server's setting
+dcode
+```
+
+The welcome panel prints a link like `http://127.0.0.1:7301/?token=…#s=<session>`. Open it to control the same session from your browser. `dcode ui` reprints the link, and `dcode --no-ui` skips the web UI.
+
+## How it works
+
+```
+dcode (terminal) ──┐                       ┌── browser
+                   ▼                       ▼
+            Session  ◄── session API ◄── Hub (127.0.0.1, per user)
+       (event bus, task queue,          serves UI, settings, memory,
+        approvals, threads)             history; proxies to sessions
+                   │
+             Agent (main) ── delegate ──► sub-agents (fresh context)
+                   │
+            LLMClient ──► your OpenAI-compatible server
+```
+
+- **`engine.py`** contains the agent loop. It has no terminal or web code. It emits events, and it asks the session for approvals.
+- **`session.py`** owns the queue and event log. The terminal and the web UI are both clients of it, and an approval goes to whichever one answers first.
+- **`server.py`** holds two stdlib-only HTTP pieces: a small API server for each session, and the hub. Requests need a per-user secret token, stored in a `0600` file. The hub also checks the Host header (against DNS rebinding) and requires a custom header on every write (against CSRF).
 
 ## Project layout
 
 ```
-code_one/
-  __init__.py     # package version (single source of truth)
-  main.py         # CLI entry point + setup wizard
-  agent.py        # agent loop, tool-call handling, slash commands
-  tools.py        # sandboxed filesystem / shell / git tools
-  config.py       # config, threads, skills, env overrides
-  ui.py           # rich/prompt_toolkit terminal UI
-packaging/
-  build-binary.sh   # PyInstaller one-file build
-  build-deb.sh      # wrap the binary into a .deb
-  install-airgap.sh # offline installer (.deb or raw binary)
-tests/            # pytest suite
-pyproject.toml
+dcode/
+  main.py      CLI entry point, setup wizard, UI bootstrap
+  cli.py       terminal front-end (state-driven loop, event rendering, slash commands)
+  ui.py        terminal widgets (rich / prompt_toolkit)
+  theme.py     shared color tokens for CLI + web
+  session.py   live session: event bus, worker, approvals, persistence
+  engine.py    agent loop, tool dispatch, delegation
+  agents.py    roles, prompts, delegate/memory tool schemas
+  context.py   token budget + compaction
+  memory.py    long-term memory store (Markdown + BM25)
+  llm.py       OpenAI-compatible client wrapper
+  tools.py     sandboxed file / shell / git tools
+  server.py    session API + per-user hub
+  web/         index.html, app.css, app.js (no external assets)
+packaging/     PyInstaller binary, .deb, offline installer
+tests/         pytest suite (fake LLM, no network)
 ```
 
-## Air-gapped install + local LLM
+## Configuration
 
-`code-one` talks to **any OpenAI-compatible endpoint**, so it runs fully offline
-against a local model server. Python and all dependencies are bundled inside the
-binary — no internet, no `pip`, no system Python needed on the target box.
-
-### 1. Build on a connected machine (matching OS/arch as the server)
-
-```bash
-make deb        # produces dist/code-one_<version>_<arch>.deb  (+ dist/code-one)
-```
-
-`make deb` runs PyInstaller then `dpkg-deb`. PyInstaller does **not** cross-compile,
-so build on the same OS/CPU as the air-gapped target (e.g. Ubuntu x86_64 → Ubuntu x86_64).
-
-### 2. Move the artifact + installer to the air-gapped server
-
-Copy `dist/code-one_*.deb` (or the raw `dist/code-one`) and
-`packaging/install-airgap.sh` onto the server (USB, internal mirror, etc.).
-
-```bash
-sudo ./install-airgap.sh code-one_0.1.0_amd64.deb   # Debian/Ubuntu
-# or, on any Linux/macOS with no dpkg:
-sudo ./install-airgap.sh ./code-one                 # copies to /usr/local/bin
-```
-
-### 3. Point it at your local LLM
-
-Any local server that speaks the OpenAI API works — Ollama, vLLM, llama.cpp
-(`llama-server`), LM Studio, Text-Generation-Inference. Configure via environment
-variables (they override the saved config and need no interactive setup):
-
-```bash
-export CODE_ONE_BASE_URL=http://127.0.0.1:11434/v1   # Ollama default
-export CODE_ONE_API_KEY=local                        # any non-empty string
-export CODE_ONE_MODEL=qwen2.5-coder:7b
-code-one
-```
+Settings live in `~/.dcode/config.json` (mode `0600`). You can edit them with `/model`, `/agents`, `/context` and the other slash commands, or on the web UI's Settings page. Environment variables override the file, and the web UI shows those fields as read-only:
 
 | Env var | Purpose |
 | --- | --- |
-| `CODE_ONE_BASE_URL` | OpenAI-compatible endpoint of your local LLM |
-| `CODE_ONE_API_KEY` | Key (use any placeholder for keyless local servers) |
-| `CODE_ONE_MODEL` | Model name to request |
-| `CODE_ONE_REASONING_EFFORT` | `none` / `low` / `medium` / `high` |
-| `CODE_ONE_WORKSPACE` | Root that file tools are confined to (default: cwd) |
-| `CODE_ONE_ALLOW_OUTSIDE_WORKSPACE` | Set `1` to disable the path sandbox |
+| `DCODE_BASE_URL` | OpenAI-compatible endpoint |
+| `DCODE_API_KEY` | Key (any placeholder for keyless local servers) |
+| `DCODE_MODEL` | Model name |
+| `DCODE_CONTEXT_WINDOW` | Model context window in tokens (default 32768) |
+| `DCODE_MAX_OUTPUT_TOKENS` | Reply budget (default 4096, capped at ¼ of the window) |
+| `DCODE_REASONING_EFFORT` | `none` / `low` / `medium` / `high` |
+| `DCODE_WORKSPACE` | Root that file tools are confined to (default: cwd) |
+| `DCODE_ALLOW_OUTSIDE_WORKSPACE` | `1` disables the path sandbox |
+| `DCODE_NO_UI` | `1` disables the web UI |
+| `DCODE_HOME` | Alternative home directory (default `~/.dcode`) |
 
-> `http://` endpoints are allowed because a local/air-gapped network is trusted.
-> Nothing ever leaves that network.
+**Project instructions:** if the workspace root contains `DCODE.md`, `AGENTS.md` or `CLAUDE.md`, the first one found is added to the system prompt, trimmed to fit the context budget.
 
-## Security model
-
-`code-one` runs untrusted model output, so it is defensive by default:
-
-- **Path sandbox** — `read_file` / `write_file` / `delete_file` / `list_files` /
-  `search_in_files` are confined to the workspace root (the launch directory, or
-  `CODE_ONE_WORKSPACE`). Absolute paths and `../` escapes are blocked unless you set
-  `CODE_ONE_ALLOW_OUTSIDE_WORKSPACE=1`.
-- **Command confirmation** — every `run_command`, `delete_file`, and `git_commit`
-  prompts for `y/N` before executing. Enable the `auto_approve_commands`
-  experimental flag only in fully trusted setups.
-- **Secret hygiene** — `~/.code-one/config.json` is written `0600` and the config
-  directory `0700`. Prefer `CODE_ONE_API_KEY` over storing keys on disk.
-- **Output caps** — file reads (512 KB), command/search/listing output are bounded so
-  a single tool call cannot exhaust memory or the context window; noisy directories
-  (`.git`, `node_modules`, `.venv`, …) are skipped.
-
-## Install (single command)
-
-The distribution is a standalone binary (`code-one`) built with PyInstaller `--onefile`.
-
-```bash
-curl -L https://my-storage.com/install.sh | bash
-```
-
-The installer:
-
-- Detects Linux/macOS and architecture (`x86_64` / `arm64`)
-- Downloads the correct binary from object storage
-- Installs it to `/usr/local/bin/code-one`
-- Prints: `✓ Done! Run: code-one`
-
-You can point the installer to a different base URL with:
-
-```bash
-export CODE_ONE_STORAGE_URL=https://your-storage.example.com/
-curl -L https://my-storage.com/install.sh | bash
-```
-
-## Build release binary
-
-Use the `dist` target in `Makefile`:
-
-```bash
-make dist
-```
-
-This runs:
-
-- `python3 -m pip install -i https://mirror-pypi.runflare.com/ .`
-- `python3 -m pip install -i https://mirror-pypi.runflare.com/ pyinstaller`
-- PyInstaller one-file build from `code_one/main.py`
-- Output to `dist/code-one`
-
-Upload `dist/code-one` to your storage paths:
-
-- `linux-x86_64/code-one`
-- `linux-arm64/code-one`
-- `macos-x86_64/code-one`
-- `macos-arm64/code-one`
-
-## Setup flow
-
-After running/installing:
-
-```bash
-code-one --setup
-```
-
-This asks for:
-
-- Base URL
-- API Key
-- Model
-
-If the provider supports model listing, `code-one` fetches the list automatically. If not, you can enter the model manually.
-
-Values are saved to `~/.code-one/config.json`.
-
-## CLI usage
-
-```bash
-code-one                    # start interactive session
-code-one --setup            # rerun setup
-code-one --base-url X --api-key Y --model Z   # override config
-```
+**Parallel sub-agents** need a server that can serve concurrent requests, such as vLLM or `llama-server --parallel N`. Otherwise set *max parallel* to 1.
 
 ## Slash commands
 
-All slash commands are available from the interactive prompt.
+| Command | Does |
+| --- | --- |
+| `/ui` | Show the web UI link |
+| `/model` | Switch model and reasoning effort |
+| `/agents` | Enable or disable sub-agents, set parallelism and step limits |
+| `/context` | Show context usage, change the window size |
+| `/memory`, `/remember <text>` | List memories or save one |
+| `/permissions`, `/experimental`, `/skills` | Tool access, feature flags, prompt skills |
+| `/review` | Review the git diff in a fresh sub-agent context |
+| `/new`, `/reset`, `/rename`, `/resume` | Thread management |
+| `/setup`, `/help`, `/exit` | Setup again, show help, quit |
 
-### `/exit`
+Press `Ctrl-C` during a task to interrupt it. Interrupting leaves the saved history valid.
 
-Quit the program immediately.
+## Security model
 
-### `/reset`
+Dcode executes model output, so its defaults are defensive:
 
-Clear the current conversation history and start a fresh in-memory session.
+- **Path sandbox.** File tools are confined to the workspace. Absolute paths and `../` escapes are blocked.
+- **Approvals.** `run_command`, `delete_file` and `git_commit` ask first, in the terminal or the web UI. `auto_approve_commands` turns this off and is meant only for trusted sandboxes.
+- **Local only.** All servers bind to `127.0.0.1`. The hub needs a per-user token, so other users on a shared server can't see or drive your sessions.
+- **Secrets.** `~/.dcode` is `0700`, and the config and token files are `0600`. The web UI never shows the API key.
 
-### `/model`
+## Air-gapped install
 
-Show the current model and reasoning effort, then let you:
+PyInstaller doesn't cross-compile, so build on a machine with the same OS and CPU as the target:
 
-- Pick a new model from the provider model list when available
-- Fall back to manual model entry if model listing is unavailable
-- Set reasoning effort to `none`, `low`, `medium`, or `high`
+```bash
+make deb        # dist/dcode (single binary, includes web UI) + dist/dcode_<ver>_<arch>.deb
+make mac PYTHON=.venv/bin/python   # local macOS build, installs to /opt/homebrew/bin (no sudo)
+```
 
-The selected model and reasoning effort are saved to `~/.code-one/config.json`.
+Copy the `.deb` (or the raw binary) and `packaging/install-airgap.sh` to the server:
 
-### `/setup`
+```bash
+sudo ./install-airgap.sh dcode_0.2.0_amd64.deb   # Debian/Ubuntu
+sudo ./install-airgap.sh ./dcode                 # any Linux/macOS
+```
 
-Re-run the setup wizard for:
+For fully offline builds, prepare a wheelhouse and run `PIP_ARGS="--no-index --find-links ./wheels" make binary`.
 
-- Base URL
-- API key
-- Model
+## Development
 
-This is the fastest way to switch providers or rotate credentials.
-
-### `/permissions`
-
-Open an interactive checklist and toggle what the agent is allowed to do:
-
-- `read files`
-- `write files`
-- `run shell commands`
-- `delete files`
-- `create directories`
-- `search files`
-
-Disabled tools are removed from the agent tool list. The selection is saved to `~/.code-one/config.json`.
-
-### `/experimental`
-
-Toggle experimental features:
-
-- `multi_file_edit` - allow the model to attempt multi-file edits in one response
-- `auto_commit` - offer git commit after file writes
-- `streaming_tools` - show tool output in the terminal as tools run
-- `auto_approve_commands` - run shell commands without the per-command `y/N` prompt (trusted environments only)
-
-These flags are saved to `~/.code-one/config.json`.
-
-### `/skills`
-
-Load extra markdown instructions from `~/.code-one/skills/`.
-
-- Each `.md` file in that directory is shown in an interactive checklist
-- Enabled skills are appended to the system prompt for the current session
-- `code-one` auto-creates a default `code_review.md` skill file on first run
-
-This is useful for reusable local workflows, team rules, or review instructions.
-
-### `/review`
-
-Run a built-in review on the current git changes.
-
-`code-one` does this by:
-
-- running `git diff HEAD`
-- sending that diff to the model
-- asking: `Review these changes. Find bugs, issues, and improvements.`
-
-The review response is streamed back into the terminal.
-
-### `/rename`
-
-Rename the current chat thread. The thread name is used when saving to `~/.code-one/threads/`.
-
-### `/new`
-
-Save the current thread to `~/.code-one/threads/` and start a fresh conversation. If the thread was not renamed, `code-one` uses a timestamp-based name.
-
-### `/resume`
-
-Show saved threads from `~/.code-one/threads/`, sorted by date, then resume the selected conversation.
-
-### `/help`
-
-Show the in-app help panel with the available slash commands.
-
-## Threads
-
-Threads are stored as JSON files in `~/.code-one/threads/`.
-
-Each thread file contains:
-
-- `name`
-- `created_at`
-- `messages`
-
-This makes it easy to pause a conversation and continue it later.
-
-## Skills
-
-Skills are markdown files stored in `~/.code-one/skills/`.
-
-When enabled with `/skills`, the contents of those files are appended to the agent system prompt as extra instructions. This is a simple local extension mechanism for coding standards, custom review rules, or project-specific workflows.
-
-## Git integration
-
-When `code-one` starts inside a git repository, it adds git context to the welcome screen and system prompt:
-
-- current branch
-- last commit hash and message
-- number of modified files
-
-The built-in git tools are:
-
-- `git_status` - returns `git status`
-- `git_diff` - returns `git diff HEAD`
-- `git_log` - returns `git log --oneline -10`
-- `git_commit` - stages all changes and commits with a provided message
-
-`git_commit` always requires confirmation before the commit is created.
-
-## Dependencies
-
-Declared in `pyproject.toml`:
-
-- `openai>=1.0.0`
-- `rich>=13.0.0`
-- `click>=8.0.0`
-- `prompt_toolkit>=3.0.0`
-- `httpx>=0.24.0`
+```bash
+python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+make test      # pytest
+make lint      # ruff
+```
