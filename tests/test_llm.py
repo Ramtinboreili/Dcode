@@ -40,3 +40,18 @@ def test_finish_recovers_calls_only_when_tools_offered():
     assert turn.recovered_tool_calls and turn.tool_calls
     turn = LLMClient._finish(AssistantTurn(content='{"name":"read_file","arguments":{}}'), None)
     assert not turn.tool_calls
+
+
+def test_leaked_markup_is_stripped_from_tool_calls():
+    from dcode.llm import clean_arguments, clean_tool_name
+
+    known = ["git_diff", "git_status", "read_file"]
+    assert clean_tool_name("git_diff</｜DSML｜ parameter>\n</｜DSML｜ invoke>", known) == "git_diff"
+    assert clean_tool_name("  read_file ", known) == "read_file"
+    assert clean_tool_name("mystery", known) == "mystery"
+    assert clean_arguments('junk {"path": "a"} more junk') == '{"path": "a"}'
+    assert clean_arguments("") == "{}"
+    tools = [{"type": "function", "function": {"name": n}} for n in known]
+    turn = LLMClient._finish(AssistantTurn(tool_calls=[
+        {"id": "c1", "type": "function", "function": {"name": "git_diff</｜DSML｜ parameter>", "arguments": "{}"}}]), tools)
+    assert turn.tool_calls[0]["function"]["name"] == "git_diff"

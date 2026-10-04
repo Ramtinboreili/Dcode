@@ -117,3 +117,11 @@ def test_permissions_hide_tools():
     names = tools.allowed_tool_names({"write_file": False, "run_command": False})
     assert "write_file" not in names and "edit_file" not in names and "run_command" not in names
     assert "list_files" in names
+
+
+def test_write_file_refuses_to_erase_existing_content(isolated):
+    (isolated / "inventory.ini").write_text("[web]\n10.0.0.1\n")
+    out = tools.execute_tool("write_file", {"path": "inventory.ini", "content": ""})
+    assert out.startswith("Refused") and (isolated / "inventory.ini").read_text() == "[web]\n10.0.0.1\n"
+    assert "Missing required argument" in tools.execute_tool("write_file", {"path": "inventory.ini"})
+    assert "Wrote 0 chars" in tools.execute_tool("write_file", {"path": "new-empty.txt", "content": ""})

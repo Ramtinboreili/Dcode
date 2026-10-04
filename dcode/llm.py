@@ -46,6 +46,44 @@ _TOOL_TAG_RE = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL | re.
 _FENCE_RE = re.compile(r"```(?:json|tool_call|tool)?\s*(\{.*?\})\s*```", re.DOTALL)
 
 
+_TOOL_NAME_RE = re.compile(r"[A-Za-z_][\w.-]*")
+_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def clean_tool_name(name: str, known: Iterable[str]) -> str:
+    """Strip markup some models leak into tool names (e.g. ``git_diff</｜DSML｜ parameter>``)."""
+    known = list(known)
+    raw = (name or "").strip()
+    if raw in known:
+        return raw
+    match = _TOOL_NAME_RE.match(raw)
+    candidate = match.group(0) if match else raw
+    if candidate in known:
+        return candidate
+    for tool in sorted(known, key=len, reverse=True):
+        if raw.startswith(tool):
+            return tool
+    return candidate
+
+
+def clean_arguments(arguments: str) -> str:
+    """Keep valid JSON arguments; salvage a JSON object wrapped in junk; else ``{}``."""
+    text = (arguments or "").strip() or "{}"
+    try:
+        json.loads(text)
+        return text
+    except (json.JSONDecodeError, TypeError):
+        pass
+    match = _JSON_OBJECT_RE.search(text)
+    if match:
+        try:
+            json.loads(match.group(0))
+            return match.group(0)
+        except json.JSONDecodeError:
+            pass
+    return text
+
+
 def strip_thinking(text: str) -> str:
     text = _THINK_RE.sub("", text or "")
     # An unclosed <think> at the start means the whole thing was reasoning.
@@ -280,6 +318,12 @@ class LLMClient:
     @staticmethod
     def _finish(turn: AssistantTurn, tools: list[dict[str, Any]] | None) -> AssistantTurn:
         turn.content = strip_thinking(turn.content)
+        if tools:
+            names = [t["function"]["name"] for t in tools]
+            for call in turn.tool_calls:
+                function = call.get("function") or {}
+                function["name"] = clean_tool_name(function.get("name", ""), names)
+                function["arguments"] = clean_arguments(function.get("arguments", ""))
         if tools and not turn.tool_calls and turn.content:
             names = [t["function"]["name"] for t in tools]
             remaining, recovered = parse_text_tool_calls(turn.content, names)

@@ -346,8 +346,14 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
 
         if name == "write_file":
             path = _safe_path(arguments["path"])
+            if "content" not in arguments:
+                return "Missing required argument: 'content'. Pass the complete file content."
+            content = str(arguments.get("content") or "")
+            if not content.strip() and path.is_file() and path.stat().st_size > 0:
+                # Small models sometimes drop the payload; never let that erase a file.
+                return (f"Refused: content is empty and would erase {_rel(path)}. "
+                        "Pass the complete new content, or use edit_file for a partial change.")
             _ensure_parent(path)
-            content = str(arguments.get("content", ""))
             path.write_text(content)
             return f"Wrote {len(content)} chars to {_rel(path)}"
 
