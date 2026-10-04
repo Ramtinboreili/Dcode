@@ -189,7 +189,7 @@ footer.foot { margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--b
     <svg viewBox="0 0 64 40" class="mark" aria-hidden="true"><path class="frame" d="M11 2H53L62 11V29L53 38H11L2 29V11Z"/><path class="glyph" d="M14 12H19.5C25 12 28 15.6 28 20C28 24.4 25 28 19.5 28H14Z"/><path class="glyph" d="M33 14L39 20L33 26"/><rect class="cursor" x="42" y="25" width="8" height="3.4" rx="1.7"/></svg>
     <h1>The Dcode guide</h1>
     <p class="lead">Dcode is a coding agent that runs in your terminal, with a matching web UI. It works with your own local or private LLMs, and it's built for models with small context windows (32K or less). This guide covers installing it, connecting a model, and day-to-day use.</p>
-    <div class="badges"><span class="badge blue">v0.2.1</span><span class="badge">Air-gapped friendly</span><span class="badge">Terminal + Web UI</span><span class="badge">Any OpenAI-compatible server</span></div>
+    <div class="badges"><span class="badge blue">v0.3.0</span><span class="badge">Air-gapped friendly</span><span class="badge">Terminal + Web UI</span><span class="badge">Any OpenAI-compatible server</span></div>
   </section>
 
   <h2 id="en-what"><span class="num">1</span>What Dcode does</h2>
@@ -209,8 +209,8 @@ make mac PYTHON=.venv/bin/python      <span class="c"># installs /opt/homebrew/b
 dcode --version</pre></div>
   <h3>Linux servers (air-gapped)</h3>
   <p>Build on a <strong>connected</strong> machine with the same OS and CPU as the target (PyInstaller doesn't cross-compile), then copy two files over:</p>
-  <div class="code"><div class="bar"><span>shell — build machine</span><button>Copy</button></div><pre>make deb      <span class="c"># → dist/dcode and dist/dcode_0.2.1_&lt;arch&gt;.deb</span></pre></div>
-  <div class="code"><div class="bar"><span>shell — air-gapped server</span><button>Copy</button></div><pre>sudo ./install-airgap.sh dcode_0.2.1_amd64.deb   <span class="c"># Debian / Ubuntu</span>
+  <div class="code"><div class="bar"><span>shell — build machine</span><button>Copy</button></div><pre>make deb      <span class="c"># → dist/dcode and dist/dcode_0.3.0_&lt;arch&gt;.deb</span></pre></div>
+  <div class="code"><div class="bar"><span>shell — air-gapped server</span><button>Copy</button></div><pre>sudo ./install-airgap.sh dcode_0.3.0_amd64.deb   <span class="c"># Debian / Ubuntu</span>
 sudo ./install-airgap.sh ./dcode                 <span class="c"># any Linux, copies to /usr/local/bin</span></pre></div>
   <div class="callout tip"><span class="ic">💡</span><p>For a build machine without internet, pre-download wheels and run <code>PIP_ARGS="--no-index --find-links ./wheels" make binary</code>.</p></div>
   <h3>From source (any OS with Python 3.10+)</h3>
@@ -428,7 +428,7 @@ dcode ui                    <span class="c"># print the web UI link</span>
 make mac PYTHON=.venv/bin/python   <span class="c"># build + install on macOS</span>
 make deb                    <span class="c"># build binary + .deb (Linux build host)</span>
 make test   ·   make lint</pre></div>
-  <footer class="foot">Dcode v0.2.1 · This page works offline. Data lives in <code>~/.dcode</code>.</footer>
+  <footer class="foot">Dcode v0.3.0 · This page works offline. Data lives in <code>~/.dcode</code>.</footer>
 </article>
 
 <!-- ================================================================== -->
@@ -439,7 +439,7 @@ make test   ·   make lint</pre></div>
     <svg viewBox="0 0 64 40" class="mark" aria-hidden="true"><path class="frame" d="M11 2H53L62 11V29L53 38H11L2 29V11Z"/><path class="glyph" d="M14 12H19.5C25 12 28 15.6 28 20C28 24.4 25 28 19.5 28H14Z"/><path class="glyph" d="M33 14L39 20L33 26"/><rect class="cursor" x="42" y="25" width="8" height="3.4" rx="1.7"/></svg>
     <h1>راهنمای Dcode</h1>
     <p class="lead">Dcode یک دستیار برنامه‌نویسی هوشمند است که در ترمینال اجرا می‌شود و یک رابط وب هماهنگ هم دارد. با مدل‌های زبانی محلی یا خصوصی خودتان کار می‌کند و برای مدل‌هایی با پنجرهٔ زمینهٔ کوچک (۳۲ هزار توکن یا کمتر) ساخته شده است. در این راهنما نصب، اتصال به مدل و استفادهٔ روزمره را توضیح می‌دهیم.</p>
-    <div class="badges"><span class="badge blue">نسخهٔ ۰٫۲٫۱</span><span class="badge">مناسب شبکه‌های ایزوله</span><span class="badge">ترمینال + رابط وب</span><span class="badge">هر سرور سازگار با OpenAI</span></div>
+    <div class="badges"><span class="badge blue">نسخهٔ ۰٫۳٫۰</span><span class="badge">مناسب شبکه‌های ایزوله</span><span class="badge">ترمینال + رابط وب</span><span class="badge">هر سرور سازگار با OpenAI</span></div>
   </section>
 
   <h2 id="fa-what"><span class="num">۱</span>Dcode چه کار می‌کند؟</h2>
@@ -459,8 +459,8 @@ make mac PYTHON=.venv/bin/python      <span class="c"># installs /opt/homebrew/b
 dcode --version</pre></div>
   <h3>سرورهای لینوکس (ایزوله، بدون اینترنت)</h3>
   <p>روی یک سیستم <strong>متصل به اینترنت</strong> با همان سیستم‌عامل و پردازندهٔ سرور مقصد بسازید (PyInstaller برای معماری دیگر خروجی نمی‌سازد)، بعد دو فایل را منتقل کنید:</p>
-  <div class="code"><div class="bar"><span>shell — build machine</span><button>Copy</button></div><pre>make deb      <span class="c"># → dist/dcode and dist/dcode_0.2.1_&lt;arch&gt;.deb</span></pre></div>
-  <div class="code"><div class="bar"><span>shell — air-gapped server</span><button>Copy</button></div><pre>sudo ./install-airgap.sh dcode_0.2.1_amd64.deb   <span class="c"># Debian / Ubuntu</span>
+  <div class="code"><div class="bar"><span>shell — build machine</span><button>Copy</button></div><pre>make deb      <span class="c"># → dist/dcode and dist/dcode_0.3.0_&lt;arch&gt;.deb</span></pre></div>
+  <div class="code"><div class="bar"><span>shell — air-gapped server</span><button>Copy</button></div><pre>sudo ./install-airgap.sh dcode_0.3.0_amd64.deb   <span class="c"># Debian / Ubuntu</span>
 sudo ./install-airgap.sh ./dcode                 <span class="c"># any Linux, copies to /usr/local/bin</span></pre></div>
   <div class="callout tip"><span class="ic">💡</span><p>اگر سیستم سازنده هم اینترنت ندارد، بسته‌های wheel را از قبل دانلود کنید و این را اجرا کنید: <code>PIP_ARGS="--no-index --find-links ./wheels" make binary</code></p></div>
   <h3>از سورس (هر سیستم‌عامل با پایتون ۳٫۱۰ به بالا)</h3>
@@ -679,7 +679,7 @@ dcode ui                    <span class="c"># print the web UI link</span>
 make mac PYTHON=.venv/bin/python   <span class="c"># build + install on macOS</span>
 make deb                    <span class="c"># build binary + .deb (Linux build host)</span>
 make test   ·   make lint</pre></div>
-  <footer class="foot">Dcode نسخهٔ ۰٫۲٫۱ · این صفحه بدون اینترنت هم کار می‌کند. داده‌ها در <code>~/.dcode</code> نگه‌داری می‌شوند.</footer>
+  <footer class="foot">Dcode نسخهٔ ۰٫۳٫۰ · این صفحه بدون اینترنت هم کار می‌کند. داده‌ها در <code>~/.dcode</code> نگه‌داری می‌شوند.</footer>
 </article>
 
   </main>
