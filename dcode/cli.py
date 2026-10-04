@@ -20,7 +20,7 @@ from .agents import MODE_LABELS, MODE_SHORT, MODES
 from .config import REASONING_EFFORTS, list_skill_files, list_threads, save_config
 from .engine import git_summary
 from .session import Session
-from .theme import MUTED, PRIMARY
+from .theme import MUTED, PRIMARY, SUCCESS
 
 PERMISSION_LABELS = {
     "read_file": "read files",
@@ -62,10 +62,11 @@ class TerminalApp:
             pct = 0
         name = session.thread_name
         name = "new chat" if name[:8].isdigit() and "-" in name else name
-        left = f"{name[:40]} · ctx {pct}%"
-        mode_part = len(f"  ⏵⏵ {MODE_SHORT.get(session.mode, session.mode)} on (shift+tab to cycle) · ")
-        width = shutil.get_terminal_size((100, 24)).columns - 2 - mode_part
-        hints = ["ctrl+c ×2 exit", "ctrl+o expand", "⌥/alt+enter newline"]
+        filled = round(8 * pct / 100)
+        meter = "▰" * filled + "▱" * (8 - filled)
+        left = f"{name[:40]}  ·  {cfg.model[:32]}  ·  ctx {meter} {pct}%"
+        width = shutil.get_terminal_size((100, 24)).columns - 4
+        hints = ["shift+tab mode", "ctrl+c ×2 exit", "ctrl+o expand", "⌥/alt+enter newline"]
         while hints and len(left) + 4 + len(" · ".join(hints)) > width:
             hints.pop()  # drop the least important hint first
         right = " · ".join(hints)
@@ -138,7 +139,7 @@ class TerminalApp:
 
     def _wait_while_busy(self) -> None:
         try:
-            with ui.console.status(f"[{PRIMARY}]{self.activity}…[/]", spinner="dots", spinner_style=PRIMARY) as status:
+            with ui.console.status(f"[{PRIMARY}]{self.activity}…[/]", spinner=ui.SPINNER, spinner_style=PRIMARY) as status:
                 while (not self.session.idle) and not self.session.pending_approvals():
                     status.update(f"[{PRIMARY}]{self.activity}…[/]  [{MUTED}]ctrl-c to interrupt[/]")
                     time.sleep(0.1)
@@ -211,6 +212,8 @@ class TerminalApp:
             elif name == "edit_file" and output.startswith("Edited") and isinstance(args, dict):
                 ui.show_tool_result_brief(output, agent)
                 ui.show_edit_diff(str(args.get("old_text", "")), str(args.get("new_text", "")), agent)
+            elif name == "artifact_save" and output.startswith("Saved artifact"):
+                pass  # the "◆ Artifact saved" line already says it, with a link
             elif name in ("run_command", "git_diff", "git_status"):
                 ui.show_tool_result_lines(output, agent, lines=3)
             else:
@@ -231,7 +234,10 @@ class TerminalApp:
         elif kind == "undo":
             ui.notice(f"Undid “{event.get('label')}”: restored {', '.join(event.get('files') or []) or 'nothing'}", "success")
         elif kind == "artifact_saved":
-            ui.notice(f"Artifact saved: {event.get('title')} — open it in the web UI", "success")
+            link = self._artifact_link(str(event.get("id", "")))
+            where = f"  {ui.link(link)}" if link else ""
+            ui.console.print(f"{ui.PAD}  [{SUCCESS}]◆ Artifact saved[/] [bold]{ui._escape(str(event.get('title', '')))}[/]"
+                             f"[{MUTED}] · v{event.get('versions', 1)}[/]{where}", soft_wrap=True)
         elif kind == "skill_saved":
             ui.notice(f"Skill saved: {event.get('name')}", "success")
         elif kind == "compaction":
@@ -259,6 +265,8 @@ class TerminalApp:
                 return "exit"
             if command == "/help":
                 ui.show_help()
+            elif command == "/artifacts":
+                self._artifacts()
             elif command == "/clear":
                 session.new_thread()
                 self.last_outputs = []
@@ -393,6 +401,34 @@ class TerminalApp:
             pass
         return None
 
+    def _artifact_link(self, artifact_id: str) -> str:
+        if not self.ui_url or not artifact_id:
+            return ""
+        from .server import artifact_url
+
+        return artifact_url(self.ui_url.split("/?")[0], artifact_id)
+
+    def _artifacts(self) -> None:
+        from .artifacts import ArtifactStore
+
+        items = ArtifactStore().list()[:60]
+        if not items:
+            ui.notice("No artifacts yet. Ask for a page, diagram or report and Dcode saves it as one.")
+            return
+        kinds = {"html": "page", "svg": "diagram", "markdown": "doc", "csv": "table", "code": "code"}
+        labels = [f"{a['title']}  ·  {kinds.get(a['kind'], a['kind'])} · v{a['versions']}" for a in items]
+        picked = ui.select_one("Artifacts — enter opens in your browser", labels)
+        if picked not in labels:
+            return
+        artifact = items[labels.index(picked)]
+        link = self._artifact_link(artifact["id"])
+        if not link:
+            ui.notice("The web UI is off, so artifacts can't be opened from here. Start dcode without --no-ui.", "warning")
+            return
+        opened = ui.open_in_browser(link)
+        ui.console.print(f"{ui.PAD}[{MUTED}]{'Opened' if opened else 'Open'}[/] [bold]{ui._escape(artifact['title'])}[/]  "
+                         f"{ui.link(link)}", soft_wrap=True)
+
     def _commit(self, message: str) -> None:
         from .tools import execute_tool
 
@@ -401,7 +437,7 @@ class TerminalApp:
             ui.notice("Not a git repository.", "warning")
             return
         if not message:
-            with ui.console.status(f"[{PRIMARY}]Writing a commit message…[/]", spinner="dots", spinner_style=PRIMARY):
+            with ui.console.status(f"[{PRIMARY}]Writing a commit message…[/]", spinner=ui.SPINNER, spinner_style=PRIMARY):
                 message = session.suggest_commit_message()
             if not message:
                 ui.notice("Nothing to commit.")
@@ -427,7 +463,7 @@ class TerminalApp:
     def _switch_model(self) -> None:
         cfg = self.session.config
         try:
-            with ui.console.status(f"[{PRIMARY}]Fetching models…[/]", spinner="dots", spinner_style=PRIMARY):
+            with ui.console.status(f"[{PRIMARY}]Fetching models…[/]", spinner=ui.SPINNER, spinner_style=PRIMARY):
                 models = self.session.llm.list_models()
         except Exception as exc:
             ui.notice(f"Could not load models: {exc}", "warning")

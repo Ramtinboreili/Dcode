@@ -49,6 +49,15 @@ console = Console(
     highlight=False,
 )
 
+# Dcode's own spinner: the prompt chevrons marching, like the logo's cursor.
+try:
+    from rich.spinner import SPINNERS
+
+    SPINNERS["dcode"] = {"interval": 110, "frames": ["❯    ", "❯❯   ", "❯❯❯  ", " ❯❯❯ ", "  ❯❯❯", "   ❯❯", "    ❯", "     "]}
+    SPINNER = "dcode"
+except Exception:  # pragma: no cover - very old rich
+    SPINNER = "dots"
+
 _PROMPT_SESSION: PromptSession | None = None
 
 
@@ -69,6 +78,7 @@ class PromptInterrupted(Exception):
 COMMANDS: dict[str, str] = {
     "/help": "Show commands",
     "/clear": "Clear the screen and start a fresh chat (the old one is saved)",
+    "/artifacts": "Browse artifacts and open one in your browser",
     "/version": "Show the Dcode version",
     "/mode": "Switch mode: manual · accept edits · auto · plan",
     "/compact": "Summarize this session to free context: /compact [focus]",
@@ -338,6 +348,28 @@ def chat_input(
     def rule() -> Window:
         return Window(height=1, char="─", style=border)
 
+    def top_rule() -> Window:
+        """Dcode's signature: the brand on the left, the mode badge on the right."""
+        from prompt_toolkit.application.current import get_app
+
+        from .agents import MODE_SHORT
+
+        def fragments() -> list:
+            try:
+                cols = get_app().output.get_size().columns
+            except Exception:
+                cols = shutil.get_terminal_size((100, 24)).columns
+            current = mode() if callable(mode) else (mode or "")
+            badge = f" ◆ {MODE_SHORT.get(current, current)} " if current else ""
+            left, brand = "── ", "❯ dcode "
+            fill = max(1, cols - len(left) - len(brand) - len(badge) - 2)
+            line = border()
+            color = f"bold fg:{MODE_COLORS.get(current, PRIMARY)}" if not armed() else f"bold fg:{WARNING}"
+            return [(line, left), (f"bold fg:{PRIMARY}", "❯ "), ("bold", "dcode "), (line, "─" * fill),
+                    (color, badge), (line, "──")]
+
+        return Window(FormattedTextControl(fragments), height=1)
+
     placeholder_win = ConditionalContainer(
         Window(FormattedTextControl([(f"fg:{MUTED}", placeholder)]), height=1),
         filter=Condition(lambda: not area.text),
@@ -373,16 +405,7 @@ def chat_input(
         if armed():
             return [(f"fg:{WARNING}", "  Press Ctrl+C again to exit")]
         text = status() if callable(status) else status
-        current = mode() if callable(mode) else mode
-        parts: list = []
-        if current:
-            from .agents import MODE_SHORT
-
-            parts.append((f"fg:{MODE_COLORS.get(current, PRIMARY)}", f"  ⏵⏵ {MODE_SHORT.get(current, current)} on"))
-            parts.append((f"fg:{MUTED}", " (shift+tab to cycle)"))
-        if text:
-            parts.append((f"fg:{MUTED}", f" · {text}"))
-        return parts
+        return [(f"fg:{MUTED}", f"  {text}")] if text else []
 
     kb = KeyBindings()
 
@@ -453,7 +476,7 @@ def chat_input(
         event.app.exit(exception=ExpandRequested())
 
     root = HSplit([
-        rule(), body, rule(),
+        top_rule(), body, rule(),
         ConditionalContainer(Window(FormattedTextControl(render_suggestions), dont_extend_height=True), filter=showing),
         ConditionalContainer(Window(FormattedTextControl(status_line), height=1), filter=~showing),
     ])
@@ -753,7 +776,7 @@ def _indent(agent: str) -> str:
 
 
 def show_tool_call(tool: str, args: Any, agent: str = "main") -> None:
-    console.print(f"{_indent(agent)}[{ACCENT}]⏺[/] {_agent_tag(agent)}[bold {TEXT}]{tool}[/]  [{MUTED}]{_escape(_short_args(args))}[/]")
+    console.print(f"{_indent(agent)}[{ACCENT}]◇[/] {_agent_tag(agent)}[bold {TEXT}]{tool}[/]  [{MUTED}]{_escape(_short_args(args))}[/]")
 
 
 def show_tool_output(tool: str, output: str) -> None:
@@ -789,7 +812,7 @@ def show_tool_result_lines(output: str, agent: str = "main", lines: int = 3) -> 
     all_lines = text.splitlines()
     pad = _indent(agent)
     for index, line in enumerate(all_lines[:lines]):
-        prefix = "⎿  " if index == 0 else "   "
+        prefix = "╰─ " if index == 0 else "   "
         console.print(f"{pad}  [{MUTED}]{prefix}{_escape(line[:120])}[/]", highlight=False)
     if len(all_lines) > lines:
         console.print(f"{pad}     [{MUTED}]… +{len(all_lines) - lines} lines (ctrl+o to expand)[/]")
@@ -827,7 +850,7 @@ def show_tool_result_brief(output: str, agent: str = "main") -> None:
     first = (output or "").strip().splitlines()[:1]
     lines = len((output or "").splitlines())
     summary = (first[0][:96] if first else "(no output)") + (f"  [+{lines - 1} lines]" if lines > 1 else "")
-    console.print(f"{_indent(agent)}  [{MUTED}]⎿  {_escape(summary)}[/]")
+    console.print(f"{_indent(agent)}  [{MUTED}]╰─ {_escape(summary)}[/]")
 
 
 def show_agent_start(agent: str, role: str, task: str) -> None:
@@ -842,8 +865,24 @@ def show_agent_end(agent: str, ok: bool) -> None:
 
 
 def show_assistant(message: str) -> None:
-    if message:
-        console.print(Padding(Markdown(message, code_theme="monokai"), (1, 2, 0, 2)))
+    """Answers get a blue gutter — easy to spot when scrolling back through tool output."""
+    if not message:
+        return
+    width = max(40, console.width - 6)
+    lines = console.render_lines(Markdown(message, code_theme="monokai"), console.options.update(width=width), pad=False)
+    console.print()
+    for line in lines:
+        row = Text("  ▎ ", style=PRIMARY)
+        row.append_text(_segments_text(line))
+        console.print(row, soft_wrap=True)  # one print per line: partial lines break under live spinners
+
+
+def _segments_text(segments: list) -> Text:
+    text = Text()
+    for segment in segments:
+        if not segment.control:
+            text.append(segment.text, style=segment.style)
+    return text
 
 
 def show_note(message: str) -> None:
