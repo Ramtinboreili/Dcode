@@ -258,6 +258,7 @@ dcode</pre></div>
       <tr><td><code>/compact [focus]</code></td><td>Summarize this session to free up context; the summary is saved to memory</td></tr>
       <tr><td><code>/undo</code></td><td>Undo Dcode's file changes from the last task</td></tr>
       <tr><td><code>/diff</code> · <code>/commit [message]</code></td><td>Show uncommitted changes; commit with a generated message (asks first)</td></tr>
+      <tr><td><code>/artifacts</code> · <code>/clear</code></td><td>Browse and open artifacts; clear the screen and start a fresh chat</td></tr>
       <tr><td><code>/version</code> · <code>/guide</code></td><td>Show the version; open this guide</td></tr>
       <tr><td><code>/setup</code> · <code>/exit</code></td><td>Run setup again; quit (your chat is saved)</td></tr>
     </tbody>
@@ -320,6 +321,14 @@ dcode</pre></div>
     <li>All artifacts live in the <strong>Artifacts</strong> library in the sidebar.</li>
     <li>Kinds: web pages (HTML), diagrams (SVG), documents (Markdown), tables (CSV) and code.</li>
     <li>Pages run in a locked-down sandbox with no internet access. Every update keeps the previous version.</li>
+  </ul>
+  <h3>Managing artifacts</h3>
+  <ul>
+    <li><strong>Library:</strong> live previews, search, filter by kind and sort. Each tile's menu has Open, Open as a page, Copy link, Rename, Duplicate, Download and Delete.</li>
+    <li><strong>Viewer:</strong> Preview, Code and <strong>Edit</strong> tabs (saving creates a new version). Pick any version from the history and <em>Restore</em> it. Click the title to rename, and use the link to jump back to the chat that made it.</li>
+    <li><strong>Ask Dcode to change it:</strong> type a request in the box under the viewer and Dcode updates the same artifact as a new version.</li>
+    <li><strong>New artifact:</strong> ask Dcode to build one, write or paste one yourself, or upload a file (HTML, SVG, Markdown, CSV or any code).</li>
+    <li><strong>Links:</strong> every artifact has its own page at <code>/a/&lt;id&gt;</code>. When Dcode saves one in the terminal, the link is printed, and <code>/artifacts</code> lists them and opens one in your browser.</li>
   </ul>
   <div class="code"><div class="bar"><span>try it</span><button>Copy</button></div><pre>Make an HTML dashboard that shows the services in docker-compose.yml and their ports.</pre></div>
 
@@ -497,6 +506,7 @@ dcode</pre></div>
       <tr><td><code>/compact [focus]</code></td><td>خلاصه کردن نشست برای آزاد کردن زمینه؛ خلاصه در حافظه ذخیره می‌شود</td></tr>
       <tr><td><code>/undo</code></td><td>بازگرداندن تغییرات فایلِ آخرین کارِ Dcode</td></tr>
       <tr><td><code>/diff</code> · <code>/commit [message]</code></td><td>نمایش تغییرات commit‌نشده؛ commit با پیامی که خودکار نوشته می‌شود (اول اجازه می‌گیرد)</td></tr>
+      <tr><td><code>/artifacts</code> · <code>/clear</code></td><td>مرور و باز کردن آرتیفکت‌ها؛ پاک کردن صفحه و شروع گفتگوی تازه</td></tr>
       <tr><td><code>/version</code> · <code>/guide</code></td><td>نمایش نسخه؛ باز کردن همین راهنما</td></tr>
       <tr><td><code>/setup</code> · <code>/exit</code></td><td>راه‌اندازی دوباره؛ خروج (گفتگو ذخیره می‌شود)</td></tr>
     </tbody>
@@ -559,6 +569,14 @@ dcode</pre></div>
     <li>همهٔ آرتیفکت‌ها در کتابخانهٔ <strong>Artifacts</strong> در نوار کناری هستند.</li>
     <li>انواع: صفحهٔ وب (HTML)، نمودار (SVG)، سند (Markdown)، جدول (CSV) و کد.</li>
     <li>صفحه‌ها در یک محیط ایزوله و بدون دسترسی به اینترنت اجرا می‌شوند. هر به‌روزرسانی نسخهٔ قبلی را نگه می‌دارد.</li>
+  </ul>
+  <h3>مدیریت آرتیفکت‌ها</h3>
+  <ul>
+    <li><strong>کتابخانه:</strong> پیش‌نمایش زنده، جستجو، فیلتر بر اساس نوع و مرتب‌سازی. منوی هر کارت گزینه‌های باز کردن، باز کردن به‌صورت صفحه، کپی لینک، تغییر نام، تکثیر، دانلود و حذف را دارد.</li>
+    <li><strong>نمایشگر:</strong> زبانه‌های پیش‌نمایش، کد و <strong>ویرایش</strong> (ذخیره یک نسخهٔ جدید می‌سازد). هر نسخه‌ای را از تاریخچه انتخاب و <em>بازیابی</em> کنید. برای تغییر نام روی عنوان بزنید و با لینک کنار آن به گفتگویی که آرتیفکت را ساخته برگردید.</li>
+    <li><strong>تغییر توسط Dcode:</strong> درخواست خود را در کادر زیر نمایشگر بنویسید تا Dcode همان آرتیفکت را به‌عنوان نسخهٔ جدید به‌روز کند.</li>
+    <li><strong>آرتیفکت جدید:</strong> از Dcode بخواهید بسازد، خودتان بنویسید یا بچسبانید، یا یک فایل بارگذاری کنید (HTML، SVG، Markdown، CSV یا هر نوع کد).</li>
+    <li><strong>لینک‌ها:</strong> هر آرتیفکت صفحهٔ مخصوص خودش را در <code>/a/&lt;id&gt;</code> دارد. وقتی Dcode در ترمینال یک آرتیفکت ذخیره می‌کند لینکش چاپ می‌شود، و <code>/artifacts</code> فهرست آن‌ها را نشان می‌دهد و هر کدام را در مرورگر باز می‌کند.</li>
   </ul>
   <div class="code"><div class="bar"><span>try it</span><button>Copy</button></div><pre>Make an HTML dashboard that shows the services in docker-compose.yml and their ports.</pre></div>
   <p>می‌توانید درخواست را به فارسی هم بنویسید؛ مثلاً: «یک داشبورد HTML بساز که سرویس‌های docker-compose.yml و پورت‌هایشان را نشان دهد.»</p>

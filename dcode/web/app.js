@@ -121,6 +121,7 @@
     diagram: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M6.5 10v4a3 3 0 0 0 3 3H14"/>',
     doc: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
     table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/>',
+    link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
     external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
   };
   const svg = (name) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${P[name] || P.info}</svg>`;
@@ -128,7 +129,7 @@
   // Fill static placeholders: <span class="i" data-icon="...">
   $$("[data-icon]").forEach((el) => (el.innerHTML = svg(el.dataset.icon)));
   [["#sb-close", "sidebar"], ["#sb-open", "sidebar"], ["#btn-review", "review"], ["#send", "up"], ["#stop", "stop"],
-    ["#pane-copy", "copy"], ["#pane-download", "download"], ["#pane-close", "x"]]
+    ["#pane-copy", "copy"], ["#pane-download", "download"], ["#pane-close", "x"], ["#pane-link", "link"], ["#pane-page", "external"]]
     .forEach(([sel, name]) => ($(sel).innerHTML = svg(name)));
   $$("[data-close]").forEach((el) => { if (el.classList.contains("icon-btn")) el.innerHTML = svg("x"); });
 
@@ -1235,12 +1236,19 @@
   const KIND = {
     html: ["page", "Web page"], svg: ["diagram", "Diagram"], markdown: ["doc", "Document"], csv: ["table", "Table"], code: ["code", "Code"],
   };
+  const EXT_KIND = { html: "html", htm: "html", svg: "svg", md: "markdown", markdown: "markdown", txt: "markdown", csv: "csv" };
   const kindIcon = (k) => (KIND[k] || KIND.code)[0];
   const kindLabel = (k, lang) => k === "code" && lang ? `${lang} code` : (KIND[k] || KIND.code)[1];
+  const artifactLink = (id) => `${location.origin}/a/${encodeURIComponent(id)}`;
+  const liveSession = () => S.mode === "session" && !S.ended;
+
   function artifactCard(meta, target) {
     target.append(h("div", { class: "artifact-card", role: "button", tabindex: "0", onclick: () => openArtifact(meta.id) },
       h("span", { class: "art-ico" }, icon(kindIcon(meta.kind))),
-      h("div", { class: "art-meta" }, h("div", { class: "art-title" }, meta.title), h("div", { class: "art-sub" }, `${kindLabel(meta.kind)} · click to open`)),
+      h("div", { class: "art-meta" }, h("div", { class: "art-title" }, meta.title),
+        h("div", { class: "art-sub" }, `${kindLabel(meta.kind)} · click to open`)),
+      h("a", { class: "icon-btn", href: artifactLink(meta.id), target: "_blank", rel: "noopener", title: "Open as a page",
+        html: svg("external"), onclick: (e) => e.stopPropagation() }),
       h("span", { class: "btn sm" }, "Open")));
     scrollDown();
   }
@@ -1250,6 +1258,11 @@
     if (kind === "svg") return `<!doctype html><html><head><meta charset="utf-8">${CSP}<style>html,body{margin:0;height:100%;background:#fff}body{display:grid;place-items:center;padding:16px;box-sizing:border-box}svg{max-width:100%;max-height:100%;height:auto}</style></head><body>${content}</body></html>`;
     if (/<head[^>]*>/i.test(content)) return content.replace(/<head[^>]*>/i, (m) => m + CSP);
     return `<!doctype html><html><head><meta charset="utf-8">${CSP}</head><body>${content}</body></html>`;
+  }
+  function sandboxFrame(kind, content, title) {
+    const frame = h("iframe", { sandbox: "allow-scripts allow-modals", title: title || "artifact", referrerpolicy: "no-referrer" });
+    frame.srcdoc = sandboxDoc(kind, content);
+    return frame;
   }
   function parseCSV(text) {
     const rows = []; let row = [], cell = "", q = false;
@@ -1264,43 +1277,96 @@
     if (cell || row.length) { row.push(cell); rows.push(row); }
     return rows;
   }
-  async function openArtifact(id, tab) {
+  function csvTable(content) {
+    const [headRow, ...rest] = parseCSV(content).slice(0, 2000);
+    return h("div", { class: "csv-wrap" }, h("table", { class: "csv" },
+      h("thead", {}, h("tr", {}, ...(headRow || []).map((c) => h("th", {}, c)))),
+      h("tbody", {}, ...rest.map((r) => h("tr", {}, ...r.map((c) => h("td", {}, c)))))));
+  }
+
+  // ---------- viewer pane ----------
+  async function openArtifact(id, tab, version) {
     let a;
-    try { a = await api("GET", "/api/artifacts/" + encodeURIComponent(id)); }
+    try { a = await api("GET", `/api/artifacts/${encodeURIComponent(id)}${version ? `?version=${version}` : ""}`); }
     catch (e) { return toast("That artifact is gone: " + e.message, true); }
     closeModals();
     const visual = ["html", "svg", "markdown", "csv"].includes(a.kind);
-    S.pane = { id, tab: tab || (visual ? "preview" : "code"), data: a };
+    const older = version && version !== a.versions;
+    S.pane = { id, tab: tab || (visual ? "preview" : "code"), data: a, version: older ? version : null };
+    if (older && S.pane.tab === "edit") S.pane.tab = visual ? "preview" : "code";
     app.classList.add("pane-open");
     $("#artifact-pane").hidden = false;
     $("#pane-ico").replaceChildren(icon(kindIcon(a.kind)));
     $("#pane-title").textContent = a.title;
     $("#pane-sub").textContent = `${kindLabel(a.kind, a.language)} · v${a.versions} · ${ago(a.updated)}`;
+    // Link back to the chat that made it (live session if it's still open, else the saved thread).
+    const chat = $("#pane-chat");
+    const liveFor = S.sessions.find((x) => a.thread && x.thread_name === a.thread);
+    chat.hidden = !a.thread;
+    if (a.thread) {
+      chat.textContent = ` · from “${prettyThread(a.thread)}”`;
+      chat.href = liveFor ? `#s=${liveFor.id}` : `#t=${threadId(a.thread)}`;
+    }
+    const sel = $("#pane-version");
+    sel.hidden = a.history.length < 2;
+    sel.replaceChildren(...a.history.slice().reverse().map((v) => h("option", { value: v.version },
+      `v${v.version}${v.current ? " · latest" : ""} · ${ago(v.updated)}`)));
+    sel.value = String(older ? version : a.versions);
+    const banner = $("#pane-banner");
+    banner.hidden = !older;
+    if (older) banner.replaceChildren(icon("refresh"), h("span", { class: "grow" }, `Viewing v${version} of ${a.versions}.`),
+      h("button", { class: "btn sm primary", onclick: async () => {
+        try { await api("POST", `/api/artifacts/${encodeURIComponent(id)}/restore`, { version }); toast(`Restored v${version} as a new version`); openArtifact(id); refreshArtifactCount(); }
+        catch (e) { toast(e.message, true); }
+      } }, "Restore this version"),
+      h("button", { class: "btn sm ghost", onclick: () => openArtifact(id, S.pane.tab) }, "Back to latest"));
     $("#pane-download").href = `/api/artifacts/${encodeURIComponent(id)}/raw`;
+    $("#pane-page").href = artifactLink(id);
     const tabs = $("#pane-tabs");
-    tabs.hidden = !visual;
-    tabs.replaceChildren();
-    if (visual) tabs.append(...["preview", "code"].map((t) => h("button", { type: "button", class: S.pane.tab === t ? "on" : "", onclick: () => openArtifact(id, t) }, t === "preview" ? "Preview" : "Code")));
+    const names = (visual ? ["preview", "code"] : ["code"]).concat(older ? [] : ["edit"]);
+    tabs.replaceChildren(...names.map((t) => h("button", { type: "button", class: S.pane.tab === t ? "on" : "",
+      onclick: () => openArtifact(id, t, S.pane.version) }, { preview: "Preview", code: "Code", edit: "Edit" }[t])));
     const body = $("#pane-body");
     body.replaceChildren();
-    if (S.pane.tab === "code" || !visual) body.append(h("pre", { class: "code" }, h("code", {}, a.content)));
+    if (S.pane.tab === "edit") {
+      const ta = h("textarea", { class: "pane-editor", spellcheck: "false" }, a.content);
+      body.append(h("div", { class: "pane-edit" }, ta, h("div", { class: "pane-edit-bar" },
+        h("span", { class: "grow muted" }, "Saving creates a new version; older ones stay in the history."),
+        h("button", { class: "btn sm ghost", onclick: () => openArtifact(id, visual ? "preview" : "code") }, "Cancel"),
+        h("button", { class: "btn sm primary", onclick: async () => {
+          try { await api("PUT", `/api/artifacts/${encodeURIComponent(id)}/content`, { content: ta.value }); toast("Saved as a new version"); openArtifact(id, visual ? "preview" : "code"); }
+          catch (e) { toast(e.message, true); }
+        } }, "Save"))));
+      ta.focus();
+    } else if (S.pane.tab === "code" || !visual) body.append(h("pre", { class: "code" }, h("code", {}, a.content)));
     else if (a.kind === "markdown") body.append(h("div", { class: "md", html: md(a.content) }));
-    else if (a.kind === "csv") {
-      const rows = parseCSV(a.content).slice(0, 2000);
-      const [headRow, ...rest] = rows;
-      body.append(h("div", { class: "csv-wrap" }, h("table", { class: "csv" },
-        h("thead", {}, h("tr", {}, ...(headRow || []).map((c) => h("th", {}, c)))),
-        h("tbody", {}, ...rest.map((r) => h("tr", {}, ...r.map((c) => h("td", {}, c))))))));
-    } else {
-      const frame = h("iframe", { sandbox: "allow-scripts allow-modals", title: a.title, referrerpolicy: "no-referrer" });
-      frame.srcdoc = sandboxDoc(a.kind, a.content);
-      body.append(frame);
-    }
+    else if (a.kind === "csv") body.append(csvTable(a.content));
+    else body.append(sandboxFrame(a.kind, a.content, a.title));
+    $("#pane-ask").hidden = !liveSession() || !!older;
   }
   function closePane() { S.pane = null; $("#artifact-pane").hidden = true; app.classList.remove("pane-open"); }
   $("#pane-close").addEventListener("click", closePane);
   $("#pane-copy").addEventListener("click", () => S.pane && copyText(S.pane.data.content));
+  $("#pane-link").addEventListener("click", () => S.pane && copyText(artifactLink(S.pane.id)));
+  $("#pane-version").addEventListener("change", (e) => S.pane && openArtifact(S.pane.id, S.pane.tab, Number(e.target.value)));
+  $("#pane-title").addEventListener("click", () => S.pane && renameArtifact(S.pane.id, S.pane.data.title));
+  $("#pane-ask").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const inp = $("#pane-ask-input");
+    const ask = inp.value.trim();
+    if (!ask || !S.pane) return;
+    inp.value = "";
+    sendText(`Update the artifact "${S.pane.data.title}" (id: ${S.pane.id}): ${ask}. Read it with artifact_get, then save it with artifact_save using the same id.`);
+    toast("Sent to Dcode — the artifact updates when it's done");
+  });
+  async function renameArtifact(id, current) {
+    const title = prompt("Rename artifact", current);
+    if (!title || title.trim() === current) return;
+    try { await api("PATCH", `/api/artifacts/${encodeURIComponent(id)}`, { title: title.trim() }); if (S.pane?.id === id) openArtifact(id, S.pane.tab); refreshArtifactCount().then(renderArtifactGrid); }
+    catch (e) { toast(e.message, true); }
+  }
 
+  // ---------- library ----------
   async function refreshArtifactCount() {
     try { S.artifacts = await api("GET", "/api/artifacts"); } catch (_) { return; }
     const pill = $("#artifact-count");
@@ -1312,31 +1378,141 @@
     await refreshArtifactCount();
     renderArtifactGrid();
   }
+  const thumbCache = new Map();
+  const thumbObserver = "IntersectionObserver" in window ? new IntersectionObserver((entries) => {
+    for (const entry of entries) if (entry.isIntersecting) { thumbObserver.unobserve(entry.target); fillThumb(entry.target); }
+  }, { rootMargin: "120px" }) : null;
+  async function fillThumb(el) {
+    const { id, kind } = el.dataset;
+    let content = thumbCache.get(id);
+    if (content === undefined) {
+      try { content = (await api("GET", `/api/artifacts/${encodeURIComponent(id)}`)).content; } catch (_) { return; }
+      thumbCache.set(id, content);
+    }
+    if (kind === "html" || kind === "svg") {
+      const frame = sandboxFrame(kind, content, "preview");
+      frame.className = "thumb-frame";
+      frame.tabIndex = -1;
+      el.replaceChildren(frame);
+    } else {
+      el.replaceChildren(h("pre", { class: "thumb-text" }, content.slice(0, 600)));
+    }
+  }
+  function tileMenu(a) {
+    const close = () => menu.remove();
+    const item = (ic, label, fn, danger) => h("button", { type: "button", class: "menu-item" + (danger ? " danger" : ""),
+      onclick: (e) => { e.stopPropagation(); close(); fn(); } }, icon(ic), label);
+    const menu = h("div", { class: "menu tile-menu" },
+      item("eye", "Open", () => openArtifact(a.id)),
+      item("external", "Open as a page", () => window.open(artifactLink(a.id), "_blank", "noopener")),
+      item("copy", "Copy link", () => copyText(artifactLink(a.id))),
+      item("pencil", "Rename", () => renameArtifact(a.id, a.title)),
+      item("plus", "Duplicate", async () => { await api("POST", `/api/artifacts/${encodeURIComponent(a.id)}/duplicate`, {}); toast("Duplicated"); await refreshArtifactCount(); renderArtifactGrid(); }),
+      item("download", "Download", () => { location.href = `/api/artifacts/${encodeURIComponent(a.id)}/raw`; }),
+      h("div", { class: "menu-sep" }),
+      item("trash", "Delete", async () => {
+        if (!confirm(`Delete “${a.title}” and all its versions?`)) return;
+        await api("DELETE", `/api/artifacts/${encodeURIComponent(a.id)}`);
+        if (S.pane?.id === a.id) closePane();
+        thumbCache.delete(a.id);
+        await refreshArtifactCount(); renderArtifactGrid();
+      }, true));
+    setTimeout(() => document.addEventListener("click", close, { once: true }), 0);
+    return menu;
+  }
   function renderArtifactGrid() {
     const q = $("#artifact-filter").value.trim().toLowerCase();
     const kind = $("#artifact-kind").value;
+    const sort = $("#artifact-sort").value;
     const grid = $("#artifact-grid");
     grid.replaceChildren();
-    const items = (S.artifacts || []).filter((a) => (!kind || a.kind === kind) && (!q || `${a.title} ${a.id}`.toLowerCase().includes(q)));
+    let items = (S.artifacts || []).filter((a) => (!kind || a.kind === kind) && (!q || `${a.title} ${a.id} ${a.thread}`.toLowerCase().includes(q)));
+    items = items.slice().sort((x, y) => sort === "name" ? x.title.localeCompare(y.title)
+      : sort === "created" ? String(y.created).localeCompare(String(x.created)) : String(y.updated).localeCompare(String(x.updated)));
     if (!items.length) grid.append(h("div", { class: "empty-state", style: "grid-column:1/-1" }, icon("sparkles"),
-      (S.artifacts || []).length ? "No artifacts match." : "No artifacts yet. Ask Dcode for a page, diagram or report and it shows up here."));
+      (S.artifacts || []).length ? "No artifacts match." : "No artifacts yet. Click New, or ask Dcode in any chat for a page, diagram or report."));
     for (const a of items) {
-      grid.append(h("button", { class: "art-tile", onclick: () => openArtifact(a.id) },
-        h("div", { class: "art-thumb" }, icon(kindIcon(a.kind))),
+      const thumb = h("div", { class: "art-thumb", "data-id": a.id, "data-kind": a.kind }, icon(kindIcon(a.kind)));
+      const more = h("button", { type: "button", class: "icon-btn", title: "More", "aria-label": "More actions", html: svg("chevron") });
+      const tile = h("div", { class: "art-tile", role: "button", tabindex: "0", onclick: () => openArtifact(a.id) },
+        thumb,
         h("div", { class: "art-tile-body" },
-          h("div", { class: "art-meta" }, h("div", { class: "art-title" }, a.title), h("div", { class: "art-sub" }, `${kindLabel(a.kind, a.language)} · ${ago(a.updated)}`)),
-          h("span", { class: "icon-btn", title: "Delete", "aria-label": "Delete", html: svg("trash"), onclick: async (e) => {
-            e.stopPropagation();
-            if (!confirm(`Delete “${a.title}”?`)) return;
-            await api("DELETE", "/api/artifacts/" + encodeURIComponent(a.id));
-            if (S.pane?.id === a.id) closePane();
-            await refreshArtifactCount(); renderArtifactGrid();
-          } }))));
+          h("span", { class: "art-ico small" }, icon(kindIcon(a.kind))),
+          h("div", { class: "art-meta" }, h("div", { class: "art-title" }, a.title),
+            h("div", { class: "art-sub" }, `${kindLabel(a.kind, a.language)} · v${a.versions} · ${ago(a.updated)}`)),
+          more));
+      more.addEventListener("click", (e) => { e.stopPropagation(); $$(".tile-menu").forEach((m) => m.remove()); tile.append(tileMenu(a)); });
+      grid.append(tile);
+      if (thumbObserver) thumbObserver.observe(thumb); else fillThumb(thumb);
     }
   }
   $("#artifact-filter").addEventListener("input", renderArtifactGrid);
   $("#artifact-kind").addEventListener("change", renderArtifactGrid);
+  $("#artifact-sort").addEventListener("change", renderArtifactGrid);
   $("#open-artifacts").addEventListener("click", openArtifacts);
+
+  // ---------- new artifact ----------
+  let newTab = "ask";
+  function openNewArtifact(tab) {
+    newTab = tab || newTab;
+    openModal("#new-artifact-modal");
+    renderNewArtifact();
+  }
+  function renderNewArtifact() {
+    $$("#new-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === newTab));
+    const body = $("#new-body");
+    body.replaceChildren();
+    const kindSel = (value) => h("select", { class: "select" }, ...Object.entries(KIND).map(([k, [, label]]) => {
+      const o = h("option", { value: k }, label); if (k === value) o.selected = true; return o;
+    }));
+    if (newTab === "ask") {
+      const live = liveSession() || S.sessions.length;
+      const what = h("textarea", { class: "textarea", rows: 5, placeholder: "e.g. A dashboard of the services in docker-compose.yml with their ports and health checks" });
+      const kind = kindSel("html");
+      body.append(
+        h("p", { class: "lead" }, live ? "Describe what you want. Dcode builds it in the current session and it appears in your library." : "Start dcode in a terminal to have it build artifacts."),
+        field("What should Dcode build?", what), field("Kind", kind),
+        h("div", { class: "with-btn", style: "justify-content:flex-end" },
+          h("button", { class: "btn primary", disabled: live ? null : true, onclick: async () => {
+            const text = what.value.trim(); if (!text) return toast("Describe the artifact first", true);
+            if (!liveSession()) location.hash = "s=" + S.sessions[0].id;
+            closeModals();
+            setTimeout(() => sendText(`Create a new ${KIND[kind.value][1].toLowerCase()} artifact (kind: ${kind.value}) with artifact_save: ${text}. Make it polished and self-contained.`), liveSession() ? 0 : 600);
+            toast("Dcode is building it — watch the chat");
+          } }, icon("sparkles"), "Build it")));
+      setTimeout(() => what.focus(), 30);
+    } else if (newTab === "write") {
+      const title = textInput("", () => {}, { placeholder: "Title" });
+      const kind = kindSel("markdown");
+      const lang = textInput("", () => {}, { placeholder: "e.g. python (for code)" });
+      const content = h("textarea", { class: "textarea mono", rows: 12, placeholder: "Paste or write the content…", spellcheck: "false" });
+      body.append(field("Title", title), h("div", { class: "grid2" }, field("Kind", kind), field("Language", lang)), field("Content", content),
+        h("div", { class: "with-btn", style: "justify-content:flex-end" },
+          h("button", { class: "btn primary", onclick: () => createArtifact(title.value, kind.value, lang.value, content.value) }, "Create")));
+      setTimeout(() => title.focus(), 30);
+    } else {
+      const file = h("input", { type: "file", class: "input", accept: ".html,.htm,.svg,.md,.markdown,.txt,.csv,.json,.yaml,.yml,.py,.js,.ts,.sh,.go,.rs,.java,.tf,.sql,.css,.xml,.ini,.toml,.conf" });
+      const hint = h("p", { class: "lead" }, "Pick a file from your computer. HTML, SVG, Markdown and CSV get a live preview; anything else is stored as code.");
+      body.append(hint, field("File", file), h("div", { class: "with-btn", style: "justify-content:flex-end" },
+        h("button", { class: "btn primary", onclick: async () => {
+          const f = file.files && file.files[0];
+          if (!f) return toast("Choose a file first", true);
+          if (f.size > 2_000_000) return toast("That file is larger than 2 MB", true);
+          const ext = (f.name.split(".").pop() || "").toLowerCase();
+          const kind = EXT_KIND[ext] || "code";
+          createArtifact(f.name.replace(/\.[^.]+$/, ""), kind, kind === "code" ? ext : "", await f.text());
+        } }, "Upload")));
+    }
+  }
+  async function createArtifact(title, kind, language, content) {
+    if (!content.trim()) return toast("The content is empty", true);
+    try {
+      const meta = await api("POST", "/api/artifacts", { title: title.trim() || "Untitled", kind, language: language.trim(), content });
+      closeModals(); toast("Artifact created"); await refreshArtifactCount(); openArtifact(meta.id);
+    } catch (e) { toast(e.message, true); }
+  }
+  $$("#new-tabs button").forEach((b) => b.addEventListener("click", () => { newTab = b.dataset.tab; renderNewArtifact(); }));
+  $("#artifact-new").addEventListener("click", () => openNewArtifact("ask"));
 
   // =====================================================================
   // Boot

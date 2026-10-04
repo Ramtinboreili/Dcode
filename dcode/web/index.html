@@ -99,13 +99,27 @@
     <aside class="artifact-pane" id="artifact-pane" hidden>
       <div class="pane-head">
         <span class="pane-ico" id="pane-ico"></span>
-        <div class="pane-meta"><div class="pane-title" id="pane-title"></div><div class="pane-sub" id="pane-sub"></div></div>
-        <div class="seg" id="pane-tabs"></div>
-        <button class="icon-btn" id="pane-copy" title="Copy" aria-label="Copy"></button>
-        <a class="icon-btn" id="pane-download" title="Download" aria-label="Download"></a>
+        <div class="pane-meta">
+          <button class="pane-title" id="pane-title" title="Click to rename"></button>
+          <div class="pane-sub"><span id="pane-sub"></span><a id="pane-chat" hidden></a></div>
+        </div>
         <button class="icon-btn" id="pane-close" title="Close" aria-label="Close"></button>
       </div>
+      <div class="pane-tools">
+        <div class="seg" id="pane-tabs"></div>
+        <select class="select pane-version" id="pane-version" title="Version history" hidden></select>
+        <span class="grow"></span>
+        <button class="icon-btn" id="pane-link" title="Copy link" aria-label="Copy link"></button>
+        <a class="icon-btn" id="pane-page" title="Open as a page" aria-label="Open as a page" target="_blank" rel="noopener"></a>
+        <button class="icon-btn" id="pane-copy" title="Copy content" aria-label="Copy content"></button>
+        <a class="icon-btn" id="pane-download" title="Download" aria-label="Download"></a>
+      </div>
+      <div class="pane-banner" id="pane-banner" hidden></div>
       <div class="pane-body" id="pane-body"></div>
+      <form class="pane-ask" id="pane-ask" hidden>
+        <input id="pane-ask-input" placeholder="Ask Dcode to change this artifact…" autocomplete="off">
+        <button class="btn primary sm" type="submit">Send</button>
+      </form>
     </aside>
   </div>
 
@@ -116,15 +130,35 @@
         <button class="icon-btn" data-close aria-label="Close"></button>
       </div>
       <div class="dialog-body column">
-        <p class="lead">Pages, diagrams, reports and code Dcode made for you. Ask for one in any chat, for example “make an HTML dashboard of …”.</p>
         <div class="mem-tools">
           <div class="field-search"><span class="i" data-icon="search"></span><input id="artifact-filter" placeholder="Search artifacts" autocomplete="off"></div>
           <select id="artifact-kind" class="select">
             <option value="">All kinds</option><option value="html">Web pages</option><option value="svg">Diagrams</option>
             <option value="markdown">Documents</option><option value="csv">Tables</option><option value="code">Code</option>
           </select>
+          <select id="artifact-sort" class="select" style="width:180px">
+            <option value="recent">Recently updated</option><option value="created">Newest first</option><option value="name">Name A–Z</option>
+          </select>
+          <button class="btn primary" id="artifact-new"><span class="i" data-icon="plus"></span>New</button>
         </div>
         <div id="artifact-grid" class="art-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="new-artifact-modal" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="new-artifact-title" style="width:min(640px,100%)">
+      <div class="dialog-head">
+        <h2 id="new-artifact-title">New artifact</h2>
+        <button class="icon-btn" data-close aria-label="Close"></button>
+      </div>
+      <div class="dialog-body column" style="overflow-y:auto">
+        <div class="seg new-tabs" id="new-tabs">
+          <button type="button" data-tab="ask" class="on">Ask Dcode to build it</button>
+          <button type="button" data-tab="write">Write or paste</button>
+          <button type="button" data-tab="upload">Upload a file</button>
+        </div>
+        <div id="new-body" style="margin-top:16px"></div>
       </div>
     </div>
   </div>
