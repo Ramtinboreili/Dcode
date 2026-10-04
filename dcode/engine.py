@@ -44,6 +44,11 @@ REPEAT_LIMIT = 3
 PREVIEW_CHARS = 4000
 MAX_FOLLOW_UPS = 2
 MAX_ARTIFACT_SAVES = 3  # per artifact per task (appends don't count)
+
+
+def _norm_title(title: str) -> str:
+    """'nginx-setup — Repo Activity Report' == 'Nginx setup: repo activity report'."""
+    return " ".join(re.findall(r"[a-z0-9\u0600-\u06ff]+", title.lower()))
 # "make an artifact", "an html page", "a dashboard", "draw a diagram", "as an svg"…
 ARTIFACT_REQUEST = re.compile(
     r"\bartifacts?\b|\b(html|web)\s*(page|report|file|dashboard|version)?\b|\bdashboard\b|\bdiagram\b|\bsvg\b"
@@ -418,6 +423,21 @@ class Agent:
         elif name == "artifact_save" and output.startswith("Saved artifact"):
             activity["artifacts"].append(str(args.get("title") or "artifact"))
 
+    def _match_artifact(self, title: str) -> str | None:
+        """One artifact per chat: find the one a save without an id should update.
+
+        Same (normalized) title in this chat → that artifact. No title / "Untitled" → the
+        chat's most recent artifact. Otherwise a genuinely new artifact (None).
+        """
+        thread = str(getattr(self.host, "thread_name", "") or "")
+        mine = [a for a in self.artifacts.list() if a["id"] in self._artifact_saves or (thread and a.get("thread") == thread)]
+        if not mine:
+            return None
+        wanted = _norm_title(title)
+        if not wanted or wanted == "untitled":
+            return mine[0]["id"]  # list() is newest first
+        return next((a["id"] for a in mine if _norm_title(a["title"]) == wanted), None)
+
     def _checkpoint(self, path: str) -> None:
         if self.checkpoints is None or not path:
             return
@@ -606,13 +626,10 @@ class Agent:
         if name == "artifact_save":
             saves = self._artifact_saves  # per-task: id -> number of saves
             artifact_id = str(args.get("id") or "") or None
-            if not artifact_id and saves:
-                title = str(args.get("title") or "").strip()
-                if not title:
-                    artifact_id = list(saves)[-1]  # untitled follow-up save = update the artifact being built
-                else:  # same title again in this task = update, not a duplicate
-                    artifact_id = next((aid for aid in saves
-                                        if (self.artifacts.get(aid) or {}).get("title") == title), None)
+            if artifact_id and self.artifacts.get(artifact_id) is None:
+                artifact_id = None  # unknown id: treat as a new save (matched below)
+            if not artifact_id:
+                artifact_id = self._match_artifact(str(args.get("title") or ""))
             if artifact_id and saves.get(artifact_id, 0) >= MAX_ARTIFACT_SAVES:
                 record = self.artifacts.get(artifact_id) or {}
                 return (f"Not saved again: artifact '{record.get('title', artifact_id)}' (id: {artifact_id}) was "
@@ -633,7 +650,8 @@ class Agent:
             preview = " ".join(content[:80].split())
             return (f"Saved artifact '{meta['title']}' (id: {meta['id']}, kind: {meta['kind']}, "
                     f"version {meta['versions']}). Received and stored {len(content)} chars, starting "
-                    f"\"{preview}…\". The save worked — don't save it again unless the user asks for changes. "
+                    f"\"{preview}…\". The save worked — don't save it again unless the user asks for changes; "
+                    f"to change it later, pass id \"{meta['id']}\" so it stays one artifact. "
                     "The user can open it in the web UI.")
         if name == "artifact_get":
             artifact_id = str(args.get("id") or "").strip()

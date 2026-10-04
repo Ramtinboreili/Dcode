@@ -36,11 +36,11 @@ ORANGE = PRIMARY
 console = Console(
     theme=Theme(
         {
-            "markdown.code": f"bold {ACCENT}",
+            "markdown.code": "bold",
             "markdown.code_block": TEXT,
-            "markdown.h1": f"bold {PRIMARY_SOFT}",
-            "markdown.h2": f"bold {PRIMARY_SOFT}",
-            "markdown.h3": f"bold {PRIMARY}",
+            "markdown.h1": "bold underline",
+            "markdown.h2": "bold",
+            "markdown.h3": "bold",
             "markdown.link": PRIMARY_SOFT,
             "markdown.item.bullet": PRIMARY,
             "markdown.block_quote": MUTED,
@@ -218,12 +218,13 @@ def show_help() -> None:
     table.add_column(style=TEXT)
     for command, meta in COMMANDS.items():
         table.add_row(command, meta)
-    console.print(Panel(table, title=f"[bold {PRIMARY_SOFT}]Commands[/]", title_align="left", border_style=PRIMARY))
+    console.print(Panel(table, title="[bold]Commands[/]", title_align="left", border_style=MUTED))
 
 
 def notice(text: str, level: str = "info") -> None:
-    color = {"info": PRIMARY_SOFT, "warning": WARNING, "error": DANGER, "success": SUCCESS}.get(level, PRIMARY_SOFT)
-    console.print(f"{PAD}[{color}]● {_escape(text)}[/]")
+    dot = {"info": PRIMARY, "warning": WARNING, "error": DANGER, "success": SUCCESS}.get(level, PRIMARY)
+    body = {"warning": WARNING, "error": DANGER}.get(level, TEXT)  # info/success text stays white
+    console.print(f"{PAD}[{dot}]●[/] [{body}]{_escape(text)}[/]")
 
 
 # --- input -----------------------------------------------------------------------------------
@@ -256,7 +257,7 @@ def interrupt_prompt() -> None:
 
 def _render_prompt_input(field: str | None, default: str, password: bool, completer: Completer | None) -> str:
     if field:
-        console.print(f"[{PRIMARY_SOFT}]{field}[/]")
+        console.print(f"[bold]{field}[/]")
     with _prompt_lock, patch_stdout(raw=True):
         return _prompt_session().prompt(
             [("class:prompt", "❯ ")],
@@ -342,9 +343,8 @@ def chat_input(
         if armed():
             return f"fg:{WARNING}"
         if area.text.startswith("/"):
-            return f"fg:{ACCENT}"
-        current = mode() if callable(mode) else mode
-        return f"fg:{MODE_COLORS.get(current, PRIMARY)}"
+            return f"fg:{PRIMARY}"  # a hint that this is a command
+        return f"fg:{MUTED}"
 
     def rule() -> Window:
         return Window(height=1, char="─", style=border)
@@ -399,7 +399,7 @@ def chat_input(
         for index, (command, meta) in enumerate(items):
             active = index == selected
             rows.append((f"bold fg:{PRIMARY}" if active else "", f"  {command.ljust(width)}"))
-            rows.append((f"fg:{PRIMARY}" if active else f"fg:{MUTED}", meta + "\n"))
+            rows.append(("" if active else f"fg:{MUTED}", meta + "\n"))
         return rows
 
     def status_line() -> list:
@@ -629,14 +629,15 @@ def _selector(
             rows.append((f"fg:{MUTED}", f"    ↑ {start} more\n"))
         for position, index in enumerate(window, start=start):
             active = position == cursor
-            rows.append((f"bold fg:{PRIMARY}" if active else "", f"  {'❯' if active else ' '} {options[index]}\n"))
+            rows.append((f"bold fg:{PRIMARY}" if active else "", f"  {'❯' if active else ' '} "))
+            rows.append(("bold" if active else "", f"{options[index]}\n"))
         remaining = len(items) - (start + len(window))
         if remaining > 0:
             rows.append((f"fg:{MUTED}", f"    ↓ {remaining} more\n"))
         return rows
 
     keys = hint_text or ("↑↓ move · enter select · esc cancel" + (" · type to search" if filterable else ""))
-    header = Window(height=1, content=FormattedTextControl(text=[(f"bold fg:{PRIMARY_SOFT}", title)]))
+    header = Window(height=1, content=FormattedTextControl(text=[("bold", title)]))
     body = Window(content=FormattedTextControl(text=render), wrap_lines=True)
     hint = Window(height=1, content=FormattedTextControl(text=[(f"fg:{MUTED}", keys)]))
     if not erase:
@@ -724,12 +725,13 @@ def checklist_prompt(title: str, items: Sequence[tuple], hint_text: str = "↑�
         for index in range(start, min(len(labels), start + limit)):
             active = index == cursor
             box = "◉" if values[index] else "○"
-            rows.append((f"bold fg:{PRIMARY}" if active else "", f"  {'❯' if active else ' '} {box} {labels[index]}\n"))
+            rows.append((f"bold fg:{PRIMARY}" if active else "", f"  {'❯' if active else ' '} {box} "))
+            rows.append(("bold" if active else "", f"{labels[index]}\n"))
         if start + limit < len(labels):
             rows.append((f"fg:{MUTED}", f"    ↓ {len(labels) - start - limit} more\n"))
         return rows
 
-    header = Window(height=1, content=FormattedTextControl(text=[(f"bold fg:{PRIMARY_SOFT}", title)]))
+    header = Window(height=1, content=FormattedTextControl(text=[("bold", title)]))
     body = Window(content=FormattedTextControl(text=render_rows))
     hint = Window(height=1, content=FormattedTextControl(text=[(f"fg:{MUTED}", hint_text)]))
     console.print()
@@ -876,7 +878,8 @@ def show_assistant(message: str) -> None:
     lines = console.render_lines(Markdown(message, code_theme="monokai"), console.options.update(width=width), pad=False)
     console.print()
     for line in lines:
-        row = Text("  ▎ ", style=PRIMARY)
+        row = Text()
+        row.append("  ▎ ", style=PRIMARY)  # only the gutter is blue; the answer stays white
         row.append_text(_segments_text(line))
         console.print(row, soft_wrap=True)  # one print per line: partial lines break under live spinners
 

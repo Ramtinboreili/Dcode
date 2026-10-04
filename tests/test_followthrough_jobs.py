@@ -120,3 +120,27 @@ def test_artifact_resave_loop_is_stopped_and_untitled_saves_update():
     assert results[-1].startswith("Not saved again") and "IS stored" in results[-1]
     updates = [e.get("update") for e in agent.host.events if e["type"] == "artifact_saved"]
     assert updates == [False, True, True]
+
+
+def test_one_artifact_per_chat_across_tasks():
+    """Reproduces the screenshot: each new request in the same chat created another 'Untitled'."""
+    host = NullHost()
+    host.thread_name = "Ok make an artifact out all"
+    page = "<html><body>report</body></html>"
+    turns = [
+        AssistantTurn(tool_calls=[call("artifact_save", json.dumps({"title": "nginx-setup — Repo Activity Report", "kind": "html", "content": page}), "a")]),
+        AssistantTurn(content="Saved."),
+        AssistantTurn(tool_calls=[call("artifact_save", json.dumps({"content": page + "<p>v2</p>"}), "b")]),  # untitled, next task
+        AssistantTurn(content="Updated."),
+        AssistantTurn(tool_calls=[call("artifact_save", json.dumps({"title": "Nginx setup: repo activity report", "content": page + "<p>v3</p>"}), "c")]),
+        AssistantTurn(content="Updated again."),
+        AssistantTurn(tool_calls=[call("artifact_save", json.dumps({"title": "Deploy checklist", "kind": "markdown", "content": "- [ ] tag"}), "d")]),
+        AssistantTurn(content="New one."),
+    ]
+    agent = _agent(scripted(*turns), host=host)
+    for request in ("make an artifact of the repo", "where is it? save it", "update the report", "also a deploy checklist artifact"):
+        agent.run_turn(request)
+    items = ArtifactStore().list()
+    assert len(items) == 2 and not any(a["title"] == "Untitled" for a in items)
+    report = next(a for a in items if "repo activity report" in a["title"].lower())
+    assert report["versions"] == 3 and ArtifactStore().get(report["id"])["content"].endswith("<p>v3</p>")

@@ -162,7 +162,7 @@ class TerminalApp:
         head.add_column(overflow="ellipsis", no_wrap=True)
         label, since = self.main_step or ("Thinking", self.turn_started or now)
         head.add_row(Spinner(ui.SPINNER, style=PRIMARY),
-                     Text.from_markup(f"[{PRIMARY}]{ui._escape(label)}…[/] [{MUTED}]{ago(since)} · ctrl-c to interrupt[/]"))
+                     Text.from_markup(f"{ui._escape(label)}… [{MUTED}]{ago(since)} · ctrl-c to interrupt[/]"))
         rows = [head]
         for agent, info in list(self.running.items()):
             step = info.get("step") or "thinking"
@@ -537,7 +537,7 @@ class TerminalApp:
             ui.notice("Not a git repository.", "warning")
             return
         if not message:
-            with ui.console.status(f"[{PRIMARY}]Writing a commit message…[/]", spinner=ui.SPINNER, spinner_style=PRIMARY):
+            with ui.console.status("Writing a commit message…", spinner=ui.SPINNER, spinner_style=PRIMARY):
                 message = session.suggest_commit_message()
             if not message:
                 ui.notice("Nothing to commit.")
@@ -563,7 +563,7 @@ class TerminalApp:
     def _switch_model(self) -> None:
         cfg = self.session.config
         try:
-            with ui.console.status(f"[{PRIMARY}]Fetching models…[/]", spinner=ui.SPINNER, spinner_style=PRIMARY):
+            with ui.console.status("Fetching models…", spinner=ui.SPINNER, spinner_style=PRIMARY):
                 models = self.session.llm.list_models()
         except Exception as exc:
             ui.notice(f"Could not load models: {exc}", "warning")
