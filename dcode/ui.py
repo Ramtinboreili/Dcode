@@ -762,6 +762,8 @@ def _short_args(args: Any, limit: int = 100) -> str:
             text = f"{args.get('role', '')}: {args['task']}"
         elif "title" in args:
             text = str(args["title"])
+        elif "content" in args:  # e.g. an untitled artifact_save: don't dump the payload
+            text = f"({len(str(args['content']))} chars)"
         elif "name" in args:
             text = str(args["name"])
         else:

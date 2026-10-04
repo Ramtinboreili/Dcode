@@ -702,8 +702,15 @@
         finishStep(step, ev.output);
         if (step.activity) updateActivity(step.activity);
         if (ev.name === "artifact_save") {
-          const m = /Saved artifact '(.*)' \(id: ([a-z0-9-]+), kind: (\w+)/.exec(ev.output || "");
-          if (m) artifactCard({ title: m[1], id: m[2], kind: m[3] }, sub ? sub.body : ensureTurn().body);
+          const m = /Saved artifact '(.*)' \(id: ([a-z0-9-]+), kind: (\w+), version (\d+)/.exec(ev.output || "");
+          if (m) {
+            const existing = S.cards && S.cards[m[2]];
+            if (existing && existing.isConnected) {  // same artifact saved again: refresh its card, no new one
+              existing.querySelector(".art-sub").textContent = `${kindLabel(m[3])} · v${m[4]} · click to open`;
+            } else {
+              (S.cards ||= {})[m[2]] = artifactCard({ title: m[1], id: m[2], kind: m[3], version: m[4] }, sub ? sub.body : ensureTurn().body);
+            }
+          }
         }
         break;
       }
@@ -1254,14 +1261,16 @@
   const liveSession = () => S.mode === "session" && !S.ended;
 
   function artifactCard(meta, target) {
-    target.append(h("div", { class: "artifact-card", role: "button", tabindex: "0", onclick: () => openArtifact(meta.id) },
+    const card = h("div", { class: "artifact-card", role: "button", tabindex: "0", onclick: () => openArtifact(meta.id) },
       h("span", { class: "art-ico" }, icon(kindIcon(meta.kind))),
       h("div", { class: "art-meta" }, h("div", { class: "art-title" }, meta.title),
-        h("div", { class: "art-sub" }, `${kindLabel(meta.kind)} · click to open`)),
+        h("div", { class: "art-sub" }, `${kindLabel(meta.kind)}${meta.version ? ` · v${meta.version}` : ""} · click to open`)),
       h("a", { class: "icon-btn", href: artifactLink(meta.id), target: "_blank", rel: "noopener", title: "Open as a page",
         html: svg("external"), onclick: (e) => e.stopPropagation() }),
-      h("span", { class: "btn sm" }, "Open")));
+      h("span", { class: "btn sm" }, "Open"));
+    target.append(card);
     scrollDown();
+    return card;
   }
   // Sandboxed preview: no same-origin access, no network (CSP), scripts allowed for interactivity.
   const CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src data:">`;

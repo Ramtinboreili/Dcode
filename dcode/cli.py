@@ -251,7 +251,8 @@ class TerminalApp:
                 self.main_step = (step, time.time())
             elif agent in self.running:
                 self.running[agent]["step"] = step
-            ui.show_tool_call(event.get("name", ""), event.get("args"), agent)
+            if event.get("name") != "artifact_save":  # the "◆ Artifact" line says it (one line per save)
+                ui.show_tool_call(event.get("name", ""), event.get("args"), agent)
         elif kind == "tool_result":
             name, args = self._calls.pop(f"{agent}/{event.get('id', '')}", (event.get("name", ""), {}))
             if agent == "main":
@@ -265,8 +266,12 @@ class TerminalApp:
             elif name == "edit_file" and output.startswith("Edited") and isinstance(args, dict):
                 ui.show_tool_result_brief(output, agent)
                 ui.show_edit_diff(str(args.get("old_text", "")), str(args.get("new_text", "")), agent)
-            elif name == "artifact_save" and output.startswith("Saved artifact"):
-                pass  # the "◆ Artifact saved" line already says it, with a link
+            elif name == "artifact_save":
+                if output.startswith(("Not saved again", "You called artifact_save with identical")):
+                    ui.console.print(f"{ui.PAD}  [{MUTED}]↻ already saved — skipped[/]")
+                elif not output.startswith("Saved artifact"):  # real failures still show
+                    ui.show_tool_call(name, args, agent)
+                    ui.show_tool_result_brief(output, agent)
             elif name in ("run_command", "git_diff", "git_status"):
                 ui.show_tool_result_lines(output, agent, lines=3)
             else:
@@ -296,10 +301,13 @@ class TerminalApp:
         elif kind == "undo":
             ui.notice(f"Undid “{event.get('label')}”: restored {', '.join(event.get('files') or []) or 'nothing'}", "success")
         elif kind == "artifact_saved":
-            link = self._artifact_link(str(event.get("id", "")))
-            where = f"  {ui.link(link)}" if link else ""
-            ui.console.print(f"{ui.PAD}  [{SUCCESS}]◆ Artifact saved[/] [bold]{ui._escape(str(event.get('title', '')))}[/]"
-                             f"[{MUTED}] · v{event.get('versions', 1)}[/]{where}", soft_wrap=True)
+            if event.get("update"):  # same artifact again in this task: one quiet line, no link
+                ui.console.print(f"{ui.PAD}  [{MUTED}]↻ updated · v{event.get('versions', 1)}[/]")
+            else:
+                short, full = self._artifact_links(str(event.get("id", "")))
+                where = f"  {ui.link(full, short)}" if full else ""
+                ui.console.print(f"{ui.PAD}[{SUCCESS}]◆ Artifact[/] [bold]{ui._escape(str(event.get('title', '')))}[/]"
+                                 f"[{MUTED}] · v{event.get('versions', 1)}[/]{where}", soft_wrap=True)
         elif kind == "skill_saved":
             ui.notice(f"Skill saved: {event.get('name')}", "success")
         elif kind == "compaction":
@@ -483,11 +491,22 @@ class TerminalApp:
                 ui.notice(f"Stopped job #{job.id}.", "success")
 
     def _artifact_link(self, artifact_id: str) -> str:
+        """Full link (logs the browser in on first use) — for opening in the browser."""
         if not self.ui_url or not artifact_id:
             return ""
         from .server import artifact_url
 
         return artifact_url(self.ui_url.split("/?")[0], artifact_id)
+
+    def _artifact_links(self, artifact_id: str) -> tuple[str, str]:
+        """(short display link, link to follow). Short = http://host/a/<id>; the login cookie lasts 30 days."""
+        full = self._artifact_link(artifact_id)
+        if not full:
+            return "", ""
+        short = f"{self.ui_url.split('/?')[0]}/a/{artifact_id}"
+        # Terminals with clickable links show the short text but follow the full (login) link;
+        # elsewhere print the short link, which works once the browser has opened the web UI.
+        return short, (full if ui.supports_hyperlinks() else short)
 
     def _artifacts(self) -> None:
         from .artifacts import ArtifactStore

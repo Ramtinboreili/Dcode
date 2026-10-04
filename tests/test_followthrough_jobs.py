@@ -97,3 +97,26 @@ def test_background_command_through_the_session():
     finally:
         session.close()
     assert not session.jobs.running()  # closing the session stops its jobs
+
+
+def test_artifact_resave_loop_is_stopped_and_untitled_saves_update():
+    """Reproduces the reported loop: the model kept re-saving and then created 'Untitled' copies."""
+    page = "<!DOCTYPE html><html><body>" + "x" * 3000 + "</body></html>"
+    titled = json.dumps({"title": "Repo report", "kind": "html", "content": page})
+    untitled = json.dumps({"content": page})
+    agent = _agent(scripted(
+        AssistantTurn(tool_calls=[call("artifact_save", titled, "c1")]),
+        AssistantTurn(tool_calls=[call("artifact_save", titled, "c2")]),
+        AssistantTurn(tool_calls=[call("artifact_save", untitled, "c3")]),
+        AssistantTurn(tool_calls=[call("artifact_save", untitled, "c4")]),
+        AssistantTurn(content="It's ready."),
+    ))
+    agent.run_turn("make an html report artifact")
+    items = ArtifactStore().list()
+    assert len(items) == 1 and items[0]["title"] == "Repo report"  # no "Untitled" copies
+    assert items[0]["versions"] == 3  # third save capped the rest
+    results = [m["content"] for m in agent.messages if m["role"] == "tool"]
+    assert f"Received and stored {len(page)} chars" in results[0] and "don't save it again" in results[0]
+    assert results[-1].startswith("Not saved again") and "IS stored" in results[-1]
+    updates = [e.get("update") for e in agent.host.events if e["type"] == "artifact_saved"]
+    assert updates == [False, True, True]

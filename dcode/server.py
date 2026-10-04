@@ -357,7 +357,8 @@ class Hub:
                             nxt = "/"  # never redirect off this host
                         self.send_response(302)
                         self.send_header(
-                            "Set-Cookie", f"{COOKIE}={outer.token}; Path=/; HttpOnly; SameSite=Strict"
+                            "Set-Cookie",
+                            f"{COOKIE}={outer.token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={30 * 24 * 3600}"
                         )
                         self.send_header("Location", nxt)
                         self.end_headers()

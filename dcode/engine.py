@@ -43,6 +43,7 @@ MAIN_MAX_STEPS = 60
 REPEAT_LIMIT = 3
 PREVIEW_CHARS = 4000
 MAX_FOLLOW_UPS = 2
+MAX_ARTIFACT_SAVES = 3  # per artifact per task (appends don't count)
 # "make an artifact", "an html page", "a dashboard", "draw a diagram", "as an svg"…
 ARTIFACT_REQUEST = re.compile(
     r"\bartifacts?\b|\b(html|web)\s*(page|report|file|dashboard|version)?\b|\bdashboard\b|\bdiagram\b|\bsvg\b"
@@ -119,6 +120,7 @@ class Agent:
         self.budget = ContextBudget(config.context_window, config.max_output_tokens)
         self.recalled = ""
         self.current_task = ""
+        self._artifact_saves: dict[str, int] = {}
         self._repeat: list[str] = []
         configure_limits(config.context_window)
         self.artifacts = ArtifactStore()
@@ -248,6 +250,7 @@ class Agent:
         self.current_task = user_text
         self._repeat = []
         self._activity = {"files": [], "commands": 0, "commands_failed": 0, "helpers": 0, "artifacts": []}
+        self._artifact_saves: dict[str, int] = {}
         if self.is_main and self.checkpoints is not None:
             self.checkpoints.begin(user_text)
 
@@ -551,7 +554,10 @@ class Agent:
             for key in ("content", "instructions"):
                 value = args.get(key)
                 if isinstance(value, str) and len(value) > 240:
-                    args[key] = f"[{len(value)} chars — saved, see tool result]"
+                    # Make it unmistakable that the payload arrived; a vague stub made models
+                    # believe the save failed and re-save placeholders in a loop.
+                    args[key] = (f"[{len(value)} characters — delivered and stored successfully; "
+                                 "omitted from history only to save context]")
             function["arguments"] = json.dumps(args)
         self.messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "name": name, "content": output})
         self.host.emit(
@@ -598,18 +604,37 @@ class Agent:
                     f"version {meta['versions']}). Appended {len(str(args.get('content') or ''))} chars; "
                     f"total {meta['size']} chars.")
         if name == "artifact_save":
+            saves = self._artifact_saves  # per-task: id -> number of saves
+            artifact_id = str(args.get("id") or "") or None
+            if not artifact_id and saves:
+                title = str(args.get("title") or "").strip()
+                if not title:
+                    artifact_id = list(saves)[-1]  # untitled follow-up save = update the artifact being built
+                else:  # same title again in this task = update, not a duplicate
+                    artifact_id = next((aid for aid in saves
+                                        if (self.artifacts.get(aid) or {}).get("title") == title), None)
+            if artifact_id and saves.get(artifact_id, 0) >= MAX_ARTIFACT_SAVES:
+                record = self.artifacts.get(artifact_id) or {}
+                return (f"Not saved again: artifact '{record.get('title', artifact_id)}' (id: {artifact_id}) was "
+                        f"already saved {saves[artifact_id]} times in this task and its content IS stored "
+                        f"({len(record.get('content', ''))} chars). Stop re-saving; tell the user it's ready.")
+            content = str(args.get("content") or "")
             meta = self.artifacts.save(
-                title=str(args.get("title") or "Untitled"),
-                content=str(args.get("content") or ""),
+                title=str(args.get("title") or "") or (self.artifacts.get(artifact_id) or {}).get("title", "Untitled"),
+                content=content,
                 kind=str(args.get("kind") or ""),
                 language=str(args.get("language") or ""),
-                artifact_id=str(args.get("id") or "") or None,
+                artifact_id=artifact_id,
                 cwd=str(workspace_root()),
                 thread=str(getattr(self.host, "thread_name", "") or ""),
             )
-            self.host.emit("artifact_saved", agent=self.agent_id, **meta)
+            saves[meta["id"]] = saves.get(meta["id"], 0) + 1
+            self.host.emit("artifact_saved", agent=self.agent_id, update=saves[meta["id"]] > 1, **meta)
+            preview = " ".join(content[:80].split())
             return (f"Saved artifact '{meta['title']}' (id: {meta['id']}, kind: {meta['kind']}, "
-                    f"version {meta['versions']}). The user can open it in the web UI.")
+                    f"version {meta['versions']}). Received and stored {len(content)} chars, starting "
+                    f"\"{preview}…\". The save worked — don't save it again unless the user asks for changes. "
+                    "The user can open it in the web UI.")
         if name == "artifact_get":
             artifact_id = str(args.get("id") or "").strip()
             if not artifact_id:

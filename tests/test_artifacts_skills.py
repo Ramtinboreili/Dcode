@@ -89,7 +89,7 @@ def test_artifact_tool_saves_and_compacts_context():
     assert ArtifactStore().get(saved[0]["id"])["content"] == big
     # The 5K payload must not stay in the (small) context window.
     call_args = next(m for m in agent.messages if m.get("tool_calls"))["tool_calls"][0]["function"]["arguments"]
-    assert "x" * 300 not in call_args and "chars" in call_args
+    assert "x" * 300 not in call_args and "stored successfully" in call_args
     assert any(e["type"] == "artifact_saved" for e in agent.host.events)
 
 
