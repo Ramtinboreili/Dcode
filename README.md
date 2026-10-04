@@ -142,7 +142,7 @@ make mac PYTHON=.venv/bin/python   # local macOS build, installs to /opt/homebre
 Copy the `.deb` (or the raw binary) and `packaging/install-airgap.sh` to the server:
 
 ```bash
-sudo ./install-airgap.sh dcode_0.3.0_amd64.deb   # Debian/Ubuntu
+sudo ./install-airgap.sh dcode_0.3.1_amd64.deb   # Debian/Ubuntu
 sudo ./install-airgap.sh ./dcode                 # any Linux/macOS
 ```
 

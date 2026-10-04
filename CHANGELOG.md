@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1
+
+### Artifacts
+- **One artifact per chat.** A save without an id updates the artifact this chat already made: same title, ignoring case and punctuation, or no title. This works across tasks and after resuming, so there are no more `Untitled` copies.
+- Fixed a re-save loop. Saved content is now clearly confirmed to the model (size and a preview), and an artifact is saved at most 3 times per task.
+- The terminal prints one `◆ Artifact` line with a short `/a/<id>` link, then `↻ updated` lines. The web UI refreshes the existing card instead of adding a new one. The login cookie lasts 30 days, so short links work.
+
+### Terminal
+- Calmer colors: text is white, and blue is used only for structure (prompt, answer gutter, bullets, links, logo, mode badge). The input rules are gray.
+
 ## 0.3.0 — Phase 2: artifacts, follow-through, background jobs
 
 ### Artifacts
