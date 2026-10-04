@@ -218,7 +218,11 @@
       case "write_file": return ["filePlus", `Writing ${c(a.path)}`, `Wrote ${c(a.path)}`];
       case "list_files": return ["folder", `Looking around ${where}`, `Looked around ${where}`];
       case "search_in_files": return ["search", `Searching for ${c(a.pattern)}`, `Searched for ${c(a.pattern)}`];
-      case "run_command": return ["terminal", `Running ${c(a.command)}`, `Ran ${c(a.command)}`];
+      case "run_command": return a.background
+        ? ["terminal", `Starting ${c(a.command)} in the background`, `Started ${c(a.command)} in the background`]
+        : ["terminal", `Running ${c(a.command)}`, `Ran ${c(a.command)}`];
+      case "job_status": return ["terminal", `Checking job #${esc(a.id ?? "")}`, a.id ? `Checked job #${esc(a.id)}` : "Listed background jobs"];
+      case "job_stop": return ["terminal", `Stopping job #${esc(a.id)}`, `Stopped job #${esc(a.id)}`];
       case "create_directory": return ["folder", `Creating ${c(a.path)}`, `Created folder ${c(a.path)}`];
       case "delete_file": return ["trash", `Deleting ${c(a.path)}`, `Deleted ${c(a.path)}`];
       case "git_status": return ["git", "Checking git status", "Checked git status"];
@@ -822,6 +826,13 @@
             ev.decision === "keep" ? "Kept planning" : "Approved — implementing"));
           S.planCard = null;
         }
+        break;
+      case "job_started":
+        eventLine("", "terminal", `Background job #${ev.id} started: ${short(ev.command, 90)}`);
+        break;
+      case "job_exited":
+        eventLine(String(ev.state).startsWith("exited (0)") || ev.state === "stopped" ? "success" : "warning", "terminal",
+          `Background job #${ev.id} ${ev.state}: ${short(ev.command, 80)}`);
         break;
       case "undo":
         eventLine("success", "refresh", `Undid “${ev.label}”: restored ${(ev.files || []).join(", ") || "nothing"}`);

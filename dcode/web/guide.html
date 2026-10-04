@@ -259,6 +259,7 @@ dcode</pre></div>
       <tr><td><code>/undo</code></td><td>Undo Dcode's file changes from the last task</td></tr>
       <tr><td><code>/diff</code> · <code>/commit [message]</code></td><td>Show uncommitted changes; commit with a generated message (asks first)</td></tr>
       <tr><td><code>/artifacts</code> · <code>/clear</code></td><td>Browse and open artifacts; clear the screen and start a fresh chat</td></tr>
+      <tr><td><code>/jobs</code></td><td>Background jobs (servers, watchers): see their output, stop them</td></tr>
       <tr><td><code>/version</code> · <code>/guide</code></td><td>Show the version; open this guide</td></tr>
       <tr><td><code>/setup</code> · <code>/exit</code></td><td>Run setup again; quit (your chat is saved)</td></tr>
     </tbody>
@@ -278,6 +279,7 @@ dcode</pre></div>
   <ul>
     <li>Command output shows the first few lines. Press <kbd>Ctrl</kbd>+<kbd>O</kbd> at the input box to see the full output of the last task.</li>
     <li>Each edit shows a red/green preview of what changed.</li>
+    <li>While Dcode works, a live panel shows the current step, every running helper and background jobs, each with a timer. Long-running commands (servers, watchers) run as <strong>background jobs</strong>; the status line counts them and <code>/jobs</code> manages them. They stop when you exit.</li>
     <li>Every task saves a checkpoint. <code>/undo</code> puts the files back as they were, even outside git.</li>
     <li><code>/diff</code> shows your uncommitted changes, and <code>/commit</code> writes a commit message from the diff and asks before committing.</li>
   </ul>
@@ -507,6 +509,7 @@ dcode</pre></div>
       <tr><td><code>/undo</code></td><td>بازگرداندن تغییرات فایلِ آخرین کارِ Dcode</td></tr>
       <tr><td><code>/diff</code> · <code>/commit [message]</code></td><td>نمایش تغییرات commit‌نشده؛ commit با پیامی که خودکار نوشته می‌شود (اول اجازه می‌گیرد)</td></tr>
       <tr><td><code>/artifacts</code> · <code>/clear</code></td><td>مرور و باز کردن آرتیفکت‌ها؛ پاک کردن صفحه و شروع گفتگوی تازه</td></tr>
+      <tr><td><code>/jobs</code></td><td>کارهای پس‌زمینه (سرورها، watcherها): دیدن خروجی و متوقف کردن</td></tr>
       <tr><td><code>/version</code> · <code>/guide</code></td><td>نمایش نسخه؛ باز کردن همین راهنما</td></tr>
       <tr><td><code>/setup</code> · <code>/exit</code></td><td>راه‌اندازی دوباره؛ خروج (گفتگو ذخیره می‌شود)</td></tr>
     </tbody>
@@ -526,6 +529,7 @@ dcode</pre></div>
   <ul>
     <li>خروجی دستورها فقط چند خط اول را نشان می‌دهد. با <kbd>Ctrl</kbd>+<kbd>O</kbd> در کادر ورودی، خروجی کامل آخرین کار را ببینید.</li>
     <li>هر ویرایش یک پیش‌نمایش قرمز/سبز از تغییرات نشان می‌دهد.</li>
+    <li>وقتی Dcode کار می‌کند، یک پنل زنده مرحلهٔ فعلی، دستیارهای در حال کار و کارهای پس‌زمینه را با زمان‌سنج نشان می‌دهد. دستورهای طولانی (سرورها، watcherها) به‌صورت <strong>کار پس‌زمینه</strong> اجرا می‌شوند؛ خط وضعیت تعدادشان را نشان می‌دهد و با <code>/jobs</code> مدیریت می‌شوند. با خروج از Dcode متوقف می‌شوند.</li>
     <li>هر کار یک نقطهٔ بازگشت ذخیره می‌کند. <code>/undo</code> فایل‌ها را به حالت قبل برمی‌گرداند، حتی بیرون از git.</li>
     <li><code>/diff</code> تغییرات commit‌نشده را نشان می‌دهد و <code>/commit</code> از روی diff یک پیام commit می‌نویسد و قبل از commit اجازه می‌گیرد.</li>
   </ul>

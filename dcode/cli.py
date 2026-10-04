@@ -15,12 +15,14 @@ import time
 from importlib import import_module
 from typing import Any
 
+from rich.text import Text
+
 from . import __version__, ui
 from .agents import MODE_LABELS, MODE_SHORT, MODES
 from .config import REASONING_EFFORTS, list_skill_files, list_threads, save_config
 from .engine import git_summary
 from .session import Session
-from .theme import MUTED, PRIMARY, SUCCESS
+from .theme import ACCENT, MUTED, PRIMARY, SUCCESS, WARNING
 
 PERMISSION_LABELS = {
     "read_file": "read files",
@@ -49,6 +51,10 @@ class TerminalApp:
         self.activity = "Thinking"
         self.last_outputs: list[tuple[str, Any, str]] = []  # (tool, args, output) of the last task, for Ctrl+O
         self._calls: dict[str, tuple[str, Any]] = {}
+        # Live activity: the main agent's current step and every running helper.
+        self.main_step: tuple[str, float] | None = None
+        self.turn_started: float | None = None
+        self.running: dict[str, dict[str, Any]] = {}
 
     # --- main loop -------------------------------------------------------------------------
     def status_text(self) -> str:
@@ -65,6 +71,9 @@ class TerminalApp:
         filled = round(8 * pct / 100)
         meter = "▰" * filled + "▱" * (8 - filled)
         left = f"{name[:40]}  ·  {cfg.model[:32]}  ·  ctx {meter} {pct}%"
+        running_jobs = len(session.jobs.running())
+        if running_jobs:
+            left += f"  ·  ⚙ {running_jobs} job{'s' if running_jobs > 1 else ''}"
         width = shutil.get_terminal_size((100, 24)).columns - 4
         hints = ["shift+tab mode", "ctrl+c ×2 exit", "ctrl+o expand", "⌥/alt+enter newline"]
         while hints and len(left) + 4 + len(" · ".join(hints)) > width:
@@ -137,12 +146,43 @@ class TerminalApp:
         while time.time() < deadline and not self.session.busy and not self.session.idle:
             time.sleep(0.02)
 
+    def _activity_view(self):
+        """Live panel while Dcode works: the current step, each running helper, background jobs."""
+        from rich.console import Group
+        from rich.spinner import Spinner
+        from rich.table import Table
+
+        now = time.time()
+
+        def ago(since: float) -> str:
+            return ui._fmt_elapsed(max(0.0, now - since))
+
+        head = Table.grid(padding=(0, 1))
+        head.add_column(no_wrap=True)
+        head.add_column(overflow="ellipsis", no_wrap=True)
+        label, since = self.main_step or ("Thinking", self.turn_started or now)
+        head.add_row(Spinner(ui.SPINNER, style=PRIMARY),
+                     Text.from_markup(f"[{PRIMARY}]{ui._escape(label)}…[/] [{MUTED}]{ago(since)} · ctrl-c to interrupt[/]"))
+        rows = [head]
+        for agent, info in list(self.running.items()):
+            step = info.get("step") or "thinking"
+            rows.append(Text.from_markup(
+                f"{ui.PAD}  [{ACCENT}]◆ {agent}[/] [{MUTED}]{ui._escape(step[:90])} · {ago(info['since'])}[/]",
+                overflow="ellipsis"))
+        for job in self.session.jobs.running():
+            rows.append(Text.from_markup(
+                f"{ui.PAD}  [{WARNING}]⚙ job #{job.id}[/] [{MUTED}]{ui._escape(job.command[:80])} · running {ago(job.started)}[/]",
+                overflow="ellipsis"))
+        return Group(*rows)
+
     def _wait_while_busy(self) -> None:
+        from rich.live import Live
+
         try:
-            with ui.console.status(f"[{PRIMARY}]{self.activity}…[/]", spinner=ui.SPINNER, spinner_style=PRIMARY) as status:
+            with Live(self._activity_view(), console=ui.console, refresh_per_second=8, transient=True) as live:
                 while (not self.session.idle) and not self.session.pending_approvals():
-                    status.update(f"[{PRIMARY}]{self.activity}…[/]  [{MUTED}]ctrl-c to interrupt[/]")
-                    time.sleep(0.1)
+                    live.update(self._activity_view())
+                    time.sleep(0.12)
         except KeyboardInterrupt:
             self.session.interrupt(source="cli")
             # Give the worker a moment to unwind before re-rendering.
@@ -193,6 +233,8 @@ class TerminalApp:
         experimental = self.session.config.experimental
         if kind == "user_message":
             self.last_outputs = []
+            self.turn_started = time.time()
+            self.main_step = None
             if event.get("source") not in ("cli", "history"):
                 ui.show_user_echo(event.get("text", ""), event.get("source", "web"))
         elif kind == "assistant_note" and agent == "main":
@@ -202,9 +244,20 @@ class TerminalApp:
         elif kind == "tool_call":
             self.activity = f"{agent + ' · ' if agent != 'main' else ''}{event.get('name')}"
             self._calls[f"{agent}/{event.get('id', '')}"] = (event.get("name", ""), event.get("args") or {})
+            step = f"{event.get('name', '')} {ui._short_args(event.get('args'), 70)}".strip()
+            if event.get("name") == "delegate":
+                step = "Waiting for helpers"
+            if agent == "main":
+                self.main_step = (step, time.time())
+            elif agent in self.running:
+                self.running[agent]["step"] = step
             ui.show_tool_call(event.get("name", ""), event.get("args"), agent)
         elif kind == "tool_result":
             name, args = self._calls.pop(f"{agent}/{event.get('id', '')}", (event.get("name", ""), {}))
+            if agent == "main":
+                self.main_step = None
+            elif agent in self.running:
+                self.running[agent]["step"] = ""
             output = event.get("output", "")
             self.last_outputs.append((name, args, output))
             if experimental.get("streaming_tools"):
@@ -220,9 +273,18 @@ class TerminalApp:
                 ui.show_tool_result_brief(output, agent)
             self.activity = "Thinking"
         elif kind == "agent_start":
+            self.running[agent] = {"role": event.get("role", ""), "task": event.get("task", ""), "since": time.time(), "step": ""}
             ui.show_agent_start(agent, event.get("role", ""), event.get("task", ""))
         elif kind == "agent_end":
-            ui.show_agent_end(agent, bool(event.get("ok")))
+            info = self.running.pop(agent, None)
+            ui.show_agent_end(agent, bool(event.get("ok")), time.time() - info["since"] if info else None)
+        elif kind == "job_started":
+            ui.console.print(f"{ui.PAD}  [{WARNING}]⚙ background job #{event.get('id')} started[/] "
+                             f"[{MUTED}]· {ui._escape(str(event.get('command', ''))[:90])} · /jobs to manage[/]")
+        elif kind == "job_exited":
+            state = event.get("state", "")
+            level = "success" if state.startswith("exited (0)") or state == "stopped" else "warning"
+            ui.notice(f"Background job #{event.get('id')} {state}: {str(event.get('command', ''))[:80]}", level)
         elif kind == "approval_resolved" and event.get("by") == "web":
             ui.notice(f"{'Approved' if event.get('approved') else 'Denied'} from the web UI", "info")
         elif kind == "usage" and agent == "main":
@@ -265,6 +327,8 @@ class TerminalApp:
                 return "exit"
             if command == "/help":
                 ui.show_help()
+            elif command == "/jobs":
+                self._jobs()
             elif command == "/artifacts":
                 self._artifacts()
             elif command == "/clear":
@@ -400,6 +464,23 @@ class TerminalApp:
         except (KeyboardInterrupt, ui.PromptInterrupted):
             pass
         return None
+
+    def _jobs(self) -> None:
+        jobs = self.session.jobs.list()
+        if not jobs:
+            ui.notice("No background jobs. Dcode starts one when a command should keep running (servers, watchers).")
+            return
+        labels = [f"#{j.id}  {j.state():<12}  {ui._fmt_elapsed(j.elapsed()):>7}  {j.command[:70]}" for j in jobs]
+        picked = ui.select_one("Background jobs", labels)
+        if picked not in labels:
+            return
+        job = jobs[labels.index(picked)]
+        ui.show_expanded([(f"job #{job.id} · {job.state()}", {"command": job.command}, job.tail(60) or "(no output yet)")])
+        if job.running:
+            choice = ui.select_one(f"Job #{job.id} is running", ["Keep it running", "Stop it"], "Keep it running")
+            if choice == "Stop it":
+                self.session.jobs.stop(job.id)
+                ui.notice(f"Stopped job #{job.id}.", "success")
 
     def _artifact_link(self, artifact_id: str) -> str:
         if not self.ui_url or not artifact_id:

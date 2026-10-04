@@ -79,6 +79,7 @@ COMMANDS: dict[str, str] = {
     "/help": "Show commands",
     "/clear": "Clear the screen and start a fresh chat (the old one is saved)",
     "/artifacts": "Browse artifacts and open one in your browser",
+    "/jobs": "Background jobs: see output, stop them",
     "/version": "Show the Dcode version",
     "/mode": "Switch mode: manual · accept edits · auto · plan",
     "/compact": "Summarize this session to free context: /compact [focus]",
@@ -752,7 +753,7 @@ def _agent_tag(agent: str) -> str:
 def _short_args(args: Any, limit: int = 100) -> str:
     if isinstance(args, dict):
         if "command" in args:
-            text = str(args["command"])
+            text = str(args["command"]) + ("  (background)" if args.get("background") else "")
         elif "path" in args and len(args) <= 3:
             text = str(args["path"]) + (
                 f":{args.get('start_line')}-{args.get('end_line', '')}" if args.get("start_line") else ""
@@ -858,9 +859,10 @@ def show_agent_start(agent: str, role: str, task: str) -> None:
     console.print(f"{PAD}[{ACCENT}]◆ {agent}[/]  [{MUTED}]{_escape(_short_args(task, 110))}[/]")
 
 
-def show_agent_end(agent: str, ok: bool) -> None:
+def show_agent_end(agent: str, ok: bool, elapsed: float | None = None) -> None:
     color = SUCCESS if ok else WARNING
-    console.print(f"{PAD}[{color}]◆ {agent} {'finished' if ok else 'stopped'}[/]")
+    took = f" [{MUTED}]· {_fmt_elapsed(elapsed)}[/]" if elapsed is not None else ""
+    console.print(f"{PAD}[{color}]◆ {agent} {'finished' if ok else 'stopped'}[/]{took}")
     console.print()
 
 
