@@ -21,9 +21,10 @@ from typing import Any
 
 from .agents import DEFAULT_MODE, MODES
 from .checkpoints import CheckpointStore
-from .config import AppConfig, load_config, load_thread, save_thread, thread_path, threads_dir
+from .config import AppConfig, load_config, load_thread, run_dir, save_thread, thread_path, threads_dir
 from .context import ContextBudget
 from .engine import Agent, git_summary
+from .jobs import JobManager
 from .llm import Interrupted, LLMClient
 from .memory import MemoryStore
 from .tools import _truncate, configure_limits, workspace_root
@@ -145,6 +146,7 @@ class Session:
         self.git = git_summary()
         self.mode = "auto" if config.experimental.get("auto_approve_commands") else DEFAULT_MODE
         self.checkpoints = CheckpointStore()
+        self.jobs = JobManager(run_dir() / "jobs", on_exit=self._job_exited)
         self.plan_pending = False
         self.agent = Agent(config, self.llm, self, self.memory, git=self.git)
         self.thread_name = self._timestamp()
@@ -394,6 +396,7 @@ class Session:
             "git": self.git,
             "agents_enabled": bool(self.config.agents.get("enabled", True)),
             "mode": self.mode,
+            "jobs": [job.as_dict() for job in self.jobs.list()],
             "plan_pending": self.plan_pending,
             "can_undo": self.checkpoints.latest() is not None,
         }
@@ -409,9 +412,13 @@ class Session:
             extra={"cwd": self.cwd, "model": self.config.model, "summary": self.last_summary},
         )
 
+    def _job_exited(self, job) -> None:
+        self.emit("job_exited", id=job.id, command=job.command, state=job.state(), exit_code=job.exit_code)
+
     def close(self) -> None:
         if self._closed.is_set():
             return
+        self.jobs.stop_all()
         self._stop.set()
         self._closed.set()
         self._queue.put(None)

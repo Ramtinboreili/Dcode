@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import re
 import subprocess
 import threading
 import time
@@ -41,6 +42,21 @@ PROJECT_INSTRUCTION_FILES = ("DCODE.md", "AGENTS.md", "CLAUDE.md")
 MAIN_MAX_STEPS = 60
 REPEAT_LIMIT = 3
 PREVIEW_CHARS = 4000
+MAX_FOLLOW_UPS = 2
+# "make an artifact", "an html page", "a dashboard", "draw a diagram", "as an svg"…
+ARTIFACT_REQUEST = re.compile(
+    r"\bartifacts?\b|\b(html|web)\s*(page|report|file|dashboard|version)?\b|\bdashboard\b|\bdiagram\b|\bsvg\b"
+    r"|آرتیفکت|داشبورد|نمودار",
+    re.IGNORECASE,
+)
+# A reply that promises work instead of doing it: "Building the artifact now.", "Doing it now", "I'll create…"
+PROMISE = re.compile(
+    r"(doing it now|building (it|the \w+)( now)?|creating (it|the \w+) now|saving (it|the \w+) now"
+    r"|\bi(?:'|’)?ll (now )?(create|build|save|write|make|generate|run|add|update)\b"
+    r"|\blet me (now )?(create|build|save|write|make|generate|run|add|update)\b"
+    r"|\bnow (i(?:'|’)?ll|i will) |\bi will (now )?(create|build|save|write|make|generate))",
+    re.IGNORECASE,
+)
 COMPACT_ARG_TOOLS = {"artifact_save", "skill_save"}
 
 
@@ -135,6 +151,8 @@ class Agent:
             wanted = roles.ROLE_TOOLS.get(self.role, roles.ROLE_TOOLS["explore"])
             ungated = {n for n in roles.UNGATED_TOOLS if n != "memory_search" or memory_on}
             names = [n for n in wanted if n in allowed or n in ungated]
+        if "run_command" in names and getattr(self.host, "jobs", None) is not None:
+            names += roles.JOB_TOOL_NAMES
         if self.mode == "plan":
             names = [n for n in names if n not in roles.PLAN_BLOCKED_TOOLS]
         return names
@@ -179,6 +197,8 @@ class Agent:
             parts.append(roles.ARTIFACT_PROMPT)
         if self.mode == "plan":
             parts.append(roles.PLAN_PROMPT)
+        elif getattr(self.host, "jobs", None) is not None and self.config.permissions.get("run_command", True):
+            parts.append(roles.JOBS_PROMPT)
         skills = self._skills_block(max_chars=int(window * 3.5 * 0.05))
         if skills:
             parts.append(skills)
@@ -242,6 +262,7 @@ class Agent:
 
         steps = 0
         nudged = False
+        follow_ups = 0
         final = ""
         while True:
             if self.host.should_stop():
@@ -278,6 +299,13 @@ class Agent:
                     nudged = True
                     self.messages.append({"role": "user", "content": "Continue. If you are done, give your final answer."})
                     continue
+                reminder = self._follow_up(turn, user_text) if tools and steps < max_steps else ""
+                if reminder and follow_ups < MAX_FOLLOW_UPS:
+                    # The model announced an action (or skipped a requested artifact) but called no tool.
+                    follow_ups += 1
+                    self.host.emit("notice", agent=self.agent_id, level="info", text="Reminding the model to follow through")
+                    self.messages.append({"role": "user", "content": reminder})
+                    continue
                 final = turn.content.strip()
                 break
 
@@ -304,6 +332,26 @@ class Agent:
             **usage,
         )
         return TurnResult(text=final, usage=usage, elapsed=elapsed, steps=steps)
+
+    def _follow_up(self, turn: Any, user_text: str) -> str:
+        """Why the model must keep going although it sent no tool call ('' = it's really done)."""
+        if turn.finish_reason == "length":
+            return ("Your reply was cut off by the output limit. Continue exactly where you stopped. For long "
+                    "content, save it in parts (artifact_save with append=true, or write_file then edit_file).")
+        if not self.is_main:
+            return ""
+        activity = getattr(self, "_activity", {})
+        wants_artifact = (self.config.artifacts.get("enabled", True) and ARTIFACT_REQUEST.search(user_text)
+                          and not activity.get("artifacts"))
+        if wants_artifact:
+            return ("The user asked for an artifact, but you haven't saved one. Call artifact_save NOW with the "
+                    "complete content (kind html for a page). If it's long, save the first part, then call "
+                    "artifact_save again with the same id and append=true. Don't describe it — save it.")
+        tail = turn.content.strip()[-400:]
+        if PROMISE.search(tail):
+            return ("You said you would do something but didn't call any tool. Do it now with the tools — "
+                    "don't just describe it. If everything is already done, give your final report.")
+        return ""
 
     REPORT_REQUEST = (
         "The work is finished. Write a short report for the user (no tool calls): what you did, "
@@ -540,6 +588,15 @@ class Agent:
         experimental = self.config.experimental
         if name == "delegate":
             return self._delegate(str(args.get("role") or "explore"), str(args.get("task") or ""))
+        if name == "artifact_save" and args.get("append") and args.get("id"):
+            existing = self.artifacts.get(str(args["id"]))
+            if existing is None:
+                return f"No artifact with id '{args['id']}' to append to. Save the first part without append."
+            meta = self.artifacts.append(str(args["id"]), str(args.get("content") or ""))
+            self.host.emit("artifact_saved", agent=self.agent_id, **meta)
+            return (f"Saved artifact '{meta['title']}' (id: {meta['id']}, kind: {meta['kind']}, "
+                    f"version {meta['versions']}). Appended {len(str(args.get('content') or ''))} chars; "
+                    f"total {meta['size']} chars.")
         if name == "artifact_save":
             meta = self.artifacts.save(
                 title=str(args.get("title") or "Untitled"),
@@ -602,9 +659,34 @@ class Agent:
 
         if name == "run_command":
             command = str(args.get("command", ""))
-            if not (auto or experimental.get("auto_approve_commands")) and not self._approve("run_command", command):
+            background = bool(args.get("background")) and getattr(self.host, "jobs", None) is not None
+            detail = f"{command}   (background)" if background else command
+            if not (auto or experimental.get("auto_approve_commands")) and not self._approve("run_command", detail):
                 return "Command cancelled by user."
+            if background:
+                job = self.host.jobs.start(command, str(workspace_root()))
+                self.host.emit("job_started", agent=self.agent_id, **job.as_dict())
+                time.sleep(1.0)  # catch instant failures and first output
+                state = job.state()
+                return (f"Started background job #{job.id} (pid {job.process.pid}), {state}. "
+                        f"Check it with job_status {job.id}; stop it with job_stop {job.id}.\n"
+                        f"First output:\n{job.tail(15) or '(none yet)'}")
             return execute_tool(name, args)
+
+        if name in ("job_status", "job_stop"):
+            jobs = getattr(self.host, "jobs", None)
+            if jobs is None:
+                return "Background jobs are not available."
+            if name == "job_stop":
+                ok = jobs.stop(int(args.get("id") or 0))
+                return f"Stopped job #{args.get('id')}." if ok else f"Job #{args.get('id')} is not running."
+            if args.get("id") in (None, "", 0):
+                listed = jobs.list()
+                return "\n".join(f"#{j.id} [{j.state()}] {j.command}" for j in listed) or "(no background jobs)"
+            job = jobs.get(int(args["id"]))
+            if job is None:
+                return f"No job #{args['id']}."
+            return _truncate(f"#{job.id} [{job.state()}, {int(job.elapsed())}s] {job.command}\n{job.tail()}")
 
         if name == "delete_file":
             target = str(args.get("path", ""))

@@ -33,6 +33,7 @@ class AssistantTurn:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     usage: dict[str, int] = field(default_factory=lambda: {"prompt": 0, "completion": 0, "total": 0})
     recovered_tool_calls: bool = False
+    finish_reason: str = ""  # "stop", "tool_calls", "length" (hit the output limit), …
 
     def as_message(self) -> dict[str, Any]:
         message: dict[str, Any] = {"role": "assistant", "content": self.content or ""}
@@ -212,7 +213,8 @@ class LLMClient:
             raise Interrupted()
         response = self._create(**kwargs)
         message = response.choices[0].message
-        turn = AssistantTurn(content=getattr(message, "content", None) or "")
+        turn = AssistantTurn(content=getattr(message, "content", None) or "",
+                             finish_reason=str(getattr(response.choices[0], "finish_reason", "") or ""))
         for call in getattr(message, "tool_calls", None) or []:
             data = call.model_dump(exclude_none=True) if hasattr(call, "model_dump") else dict(call)
             function = data.get("function") or {}
@@ -272,6 +274,9 @@ class LLMClient:
                 choices = getattr(chunk, "choices", None) or []
                 if not choices:
                     continue
+                reason = getattr(choices[0], "finish_reason", None)
+                if reason:
+                    turn.finish_reason = str(reason)
                 delta = getattr(choices[0], "delta", None)
                 if delta is None:
                     continue

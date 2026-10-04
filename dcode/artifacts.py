@@ -142,6 +142,18 @@ class ArtifactStore:
         items.sort(key=lambda m: m.get("updated", ""), reverse=True)
         return items
 
+    def append(self, artifact_id: str, content: str) -> dict[str, Any]:
+        """Add to the current content in place (for building long artifacts across several replies)."""
+        record = self.get(artifact_id)
+        if record is None:
+            raise ValueError("artifact not found")
+        record["content"] = record["content"] + content
+        if len(record["content"]) > MAX_CONTENT:
+            raise ValueError(f"artifact is too large (limit {MAX_CONTENT} chars)")
+        record["updated"] = _now()
+        write_private_json(self._path(artifact_id), record)
+        return self.meta(record)
+
     def versions(self, record: dict[str, Any]) -> list[dict[str, Any]]:
         """Version list, oldest first; the last entry is the current content."""
         history = record.get("history") or []

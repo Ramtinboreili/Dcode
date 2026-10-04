@@ -152,8 +152,9 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "delete_file": _fn("delete_file", "Delete a file or empty directory.", {"path": _S}, ["path"]),
     "run_command": _fn(
         "run_command",
-        "Run a shell command in the workspace root. Output is truncated.",
-        {"command": _S},
+        "Run a shell command in the workspace root. Output is truncated. "
+        "background=true starts a long-running process (server, watcher) and returns at once.",
+        {"command": _S, "background": {"type": "boolean"}},
         ["command"],
     ),
     "git_status": _fn("git_status", "git status --short.", {}, []),

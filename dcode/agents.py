@@ -24,7 +24,12 @@ MODE_LABELS = {
 }
 MODE_SHORT = {"manual": "manual mode", "accept_edits": "accept edits", "auto": "auto mode", "plan": "plan mode"}
 FILE_CHANGE_TOOLS = {"write_file", "edit_file", "create_directory", "delete_file"}
-PLAN_BLOCKED_TOOLS = FILE_CHANGE_TOOLS | {"run_command", "git_commit"}
+PLAN_BLOCKED_TOOLS = FILE_CHANGE_TOOLS | {"run_command", "git_commit", "job_stop"}
+JOB_TOOL_NAMES = ["job_status", "job_stop"]
+JOBS_PROMPT = (
+    "For long-running commands (dev servers, watchers, long builds) use run_command with background=true, "
+    "then check them with job_status and stop them with job_stop."
+)
 PLAN_PROMPT = (
     "PLAN MODE is on: you must not modify files or run commands (those tools are disabled). "
     "Investigate with read-only tools (and explore/review helpers), then present a concise, numbered plan: "
@@ -105,7 +110,9 @@ Do small, obvious things yourself."""
 ARTIFACT_PROMPT = (
     "Artifacts: put standalone deliverables the user will view (HTML pages/dashboards, SVG diagrams, "
     "Markdown reports, CSV tables, long code files) in artifact_save instead of the chat, then reply with "
-    "a one-line summary. HTML must be self-contained (inline CSS/JS, no internet). To revise, pass the same id."
+    "a one-line summary. Never just say you will create it: call artifact_save in the same reply. "
+    "HTML must be self-contained (inline CSS/JS, no internet). To revise, pass the same id. If the content is "
+    "long, save a first part, then call artifact_save again with the same id and append=true."
 )
 
 SKILLS_PROMPT = (
@@ -138,9 +145,26 @@ EXTRA_TOOL_SCHEMAS = {
                     "content": {"type": "string"},
                     "language": {"type": "string", "description": "for kind=code"},
                     "id": {"type": "string", "description": "existing artifact id to update"},
+                    "append": {"type": "boolean", "description": "add content to the end of artifact `id` (build long ones in parts)"},
                 },
                 "required": ["title", "kind", "content"],
             },
+        },
+    },
+    "job_status": {
+        "type": "function",
+        "function": {
+            "name": "job_status",
+            "description": "State and latest output of a background job (or all jobs if id is omitted).",
+            "parameters": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": []},
+        },
+    },
+    "job_stop": {
+        "type": "function",
+        "function": {
+            "name": "job_stop",
+            "description": "Stop a background job.",
+            "parameters": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]},
         },
     },
     "artifact_get": {
