@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dcode — presentation</title>
+<meta name="description" content="Dcode: the coding agent for air-gapped teams and local LLMs. Feature presentation.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M11 14H53L62 23V41L53 50H11L2 41V23Z' fill='%232563EB'/%3E%3Cg fill='none' stroke='%23fff' stroke-width='3.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 24H19.5C25 24 28 27.6 28 32C28 36.4 25 40 19.5 40H14Z'/%3E%3Cpath d='M33 26L39 32L33 38'/%3E%3C/g%3E%3Crect x='42' y='37' width='8' height='3.6' rx='1.8' fill='%23BFDBFE'/%3E%3C/svg%3E">
+<style>
+/* Dcode palette (from dcode/theme.py) */
+:root {
+  --bg: #FFFFFF; --soft: #F7F9FC; --surface-2: #F1F4F9; --border: #E4E9F0; --border-strong: #CED6E2;
+  --text: #0F172A; --text-2: #334155; --muted: #64748B;
+  --primary: #2563EB; --primary-deep: #1D4ED8; --primary-soft: #EEF3FF; --accent: #0891B2;
+  --success: #16A34A; --warning: #B45309; --violet: #7C3AED; --danger: #DC2626;
+  --ink: #0F1218; --ink-2: #171C26; --ink-border: #252C3A; --ink-text: #E8ECF4; --ink-muted: #8B95A8;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #0b0e14; overflow: hidden; }
+body { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; color: var(--text); }
+code, pre, .mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
+
+/* Fixed 1280×720 stage, scaled to fit the window */
+#stage { position: absolute; left: 50%; top: 50%; width: 1280px; height: 720px; transform-origin: 50% 50%; }
+.slide { position: absolute; inset: 0; padding: 64px 80px; background: var(--bg); border-radius: 6px; overflow: hidden;
+  opacity: 0; visibility: hidden; transition: opacity .35s ease, transform .35s ease; transform: translateX(24px); display: flex; flex-direction: column; }
+.slide.active { opacity: 1; visibility: visible; transform: none; }
+.slide.past { transform: translateX(-24px); }
+.slide.dark { background: var(--ink); color: var(--ink-text); }
+.slide.soft { background: var(--soft); }
+
+/* Typography */
+.kicker { font-size: 14px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--primary); margin-bottom: 14px; }
+.dark .kicker { color: #6AA1FF; }
+h1 { font-size: 64px; line-height: 1.05; letter-spacing: -.03em; margin: 0 0 18px; }
+h2 { font-size: 42px; line-height: 1.12; letter-spacing: -.02em; margin: 0 0 14px; }
+h3 { font-size: 20px; margin: 0 0 6px; letter-spacing: -.01em; }
+p.lead { font-size: 22px; line-height: 1.5; color: var(--text-2); margin: 0 0 26px; max-width: 900px; }
+.dark p.lead { color: var(--ink-muted); }
+.muted { color: var(--muted); }
+.dark .muted { color: var(--ink-muted); }
+strong { font-weight: 700; }
+.blue { color: var(--primary); }
+.dark .blue { color: #6AA1FF; }
+.grow { flex: 1; min-height: 0; }
+
+/* Layout helpers */
+.row { display: flex; gap: 28px; }
+.col { display: flex; flex-direction: column; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.card { background: var(--bg); border: 1px solid var(--border); border-radius: 18px; padding: 20px 22px; }
+.soft .card { background: #fff; }
+.dark .card { background: var(--ink-2); border-color: var(--ink-border); }
+.card p { margin: 0; font-size: 15.5px; line-height: 1.5; color: var(--text-2); }
+.dark .card p { color: var(--ink-muted); }
+.ico { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; background: var(--primary-soft); color: var(--primary); font-size: 21px; margin-bottom: 12px; }
+.dark .ico { background: #17233D; color: #8DB6FF; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 30px; font-size: 14px; font-weight: 600; background: var(--primary-soft); color: var(--primary-deep); }
+.pill.gray { background: var(--surface-2); color: var(--text-2); }
+.dark .pill { background: #17233D; color: #8DB6FF; }
+ul.ticks { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
+ul.ticks li { position: relative; padding-left: 30px; font-size: 18px; line-height: 1.45; color: var(--text-2); }
+ul.ticks li::before { content: "✓"; position: absolute; left: 0; top: 0; width: 20px; height: 20px; border-radius: 50%; background: var(--primary-soft); color: var(--primary); font-size: 12px; font-weight: 800; display: grid; place-items: center; margin-top: 3px; }
+.dark ul.ticks li { color: var(--ink-muted); }
+.dark ul.ticks li::before { background: #17233D; color: #8DB6FF; }
+kbd { font-family: inherit; font-size: .82em; padding: 2px 8px; border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 7px; background: #fff; color: var(--text); }
+.dark kbd { background: var(--ink-2); border-color: var(--ink-border); color: var(--ink-text); }
+code.k { font-size: .85em; background: var(--surface-2); padding: 2px 7px; border-radius: 6px; color: var(--text); }
+.dark code.k { background: #1D2330; color: var(--ink-text); }
+
+/* Screenshots */
+.shot { border-radius: 14px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 1px 2px rgba(15,23,42,.06), 0 24px 60px -24px rgba(15,23,42,.35); background: #fff; }
+.dark .shot { border-color: var(--ink-border); box-shadow: 0 30px 70px -30px #000; }
+.shot img { display: block; width: 100%; height: auto; }
+.shot.term { background: #1e1e1e; }
+.caption { font-size: 13.5px; color: var(--muted); margin-top: 10px; text-align: center; }
+.dark .caption { color: var(--ink-muted); }
+
+/* Logo */
+.mark .frame { fill: var(--primary-soft); stroke: var(--primary); stroke-width: 2.4; stroke-linejoin: round; }
+.mark .glyph { fill: none; stroke: var(--primary); stroke-width: 3.4; stroke-linecap: round; stroke-linejoin: round; }
+.mark .cursor { fill: var(--accent); animation: blink 1.1s steps(1) infinite; }
+.mark .sweep { fill: none; stroke: var(--accent); stroke-width: 2.6; stroke-linecap: round; stroke-dasharray: 22 178; animation: sweep 1.8s linear infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes sweep { to { stroke-dashoffset: -200; } }
+
+/* Title slide */
+.title-bg { position: absolute; inset: 0; background:
+  radial-gradient(900px 500px at 85% 15%, rgba(37,99,235,.12), transparent 60%),
+  radial-gradient(700px 400px at 10% 95%, rgba(8,145,178,.10), transparent 60%); pointer-events: none; }
+.ascii { font-family: ui-monospace, Menlo, monospace; font-size: 22px; line-height: 1.2; color: var(--primary); white-space: pre; }
+
+/* Architecture diagram */
+.arch { position: relative; flex: 1; }
+.node { position: absolute; border-radius: 14px; padding: 12px 16px; border: 1.5px solid var(--border-strong); background: #fff; font-size: 15px; line-height: 1.35; box-shadow: 0 6px 18px -10px rgba(15,23,42,.25); }
+.node b { display: block; font-size: 16px; margin-bottom: 2px; }
+.node span { color: var(--muted); font-size: 13px; }
+.node.blue { border-color: var(--primary); background: var(--primary-soft); }
+.node.ink { background: var(--ink); color: var(--ink-text); border-color: var(--ink); }
+.node.ink span { color: var(--ink-muted); }
+.arch svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.arch line, .arch path { stroke: var(--border-strong); stroke-width: 2; fill: none; marker-end: url(#arrow); }
+
+/* Context meter graphic */
+.meter { height: 30px; border-radius: 10px; overflow: hidden; display: flex; border: 1px solid var(--border); margin: 6px 0 4px; }
+.meter i { display: block; height: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13.5px; color: var(--muted); }
+.legend b { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+/* Modes */
+.mode { border-radius: 18px; padding: 20px; border: 1.5px solid var(--border); background: #fff; }
+.mode .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; vertical-align: 1px; }
+.mode h3 { display: flex; align-items: center; }
+.mode p { margin: 6px 0 0; font-size: 15px; line-height: 1.5; color: var(--text-2); }
+
+/* Stats */
+.stat { text-align: left; }
+.stat .n { font-size: 56px; font-weight: 800; letter-spacing: -.03em; color: var(--primary); line-height: 1; }
+.stat .l { font-size: 16px; color: var(--muted); margin-top: 8px; }
+
+/* Steps */
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; counter-reset: s; }
+.step { position: relative; padding: 22px 20px 20px; border-radius: 18px; background: var(--ink-2); border: 1px solid var(--ink-border); counter-increment: s; }
+.step::before { content: counter(s); position: absolute; top: -14px; left: 20px; width: 30px; height: 30px; border-radius: 50%; background: var(--primary); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 14px; }
+.step h3 { color: var(--ink-text); margin-top: 6px; }
+.step pre { margin: 10px 0 0; font-size: 12.5px; line-height: 1.55; color: #9CC2FF; white-space: pre-wrap; word-break: break-all; }
+.step p { margin: 6px 0 0; color: var(--ink-muted); font-size: 14.5px; line-height: 1.45; }
+
+/* Roadmap */
+.timeline { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; position: relative; margin-top: 10px; }
+.timeline::before { content: ""; position: absolute; left: 4%; right: 4%; top: 15px; height: 3px; background: linear-gradient(90deg, var(--success) 0 26%, var(--primary) 26% 52%, var(--border-strong) 52%); border-radius: 3px; }
+.tl { padding: 0 14px; position: relative; }
+.tl .d { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 800; margin-bottom: 14px; position: relative; z-index: 1; font-size: 14px; }
+.tl h3 { font-size: 18px; } .tl p { margin: 4px 0 0; font-size: 14.5px; line-height: 1.5; color: var(--text-2); }
+
+/* Chrome: progress, counter, help */
+#progress { position: fixed; left: 0; top: 0; height: 3px; background: var(--primary); transition: width .3s ease; z-index: 10; }
+#hud { position: fixed; right: 18px; bottom: 14px; display: flex; gap: 8px; align-items: center; z-index: 10; font-size: 13px; color: #8B95A8; }
+#hud button { background: rgba(255,255,255,.08); color: #C2CAD8; border: 1px solid rgba(255,255,255,.12); border-radius: 9px; height: 30px; min-width: 30px; padding: 0 9px; cursor: pointer; font: inherit; }
+#hud button:hover { background: rgba(255,255,255,.16); }
+.footer { position: absolute; left: 80px; right: 80px; bottom: 26px; display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); }
+.dark .footer { color: var(--ink-muted); }
+.footer .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.footer svg { width: 26px; height: 17px; }
+
+/* Overview (press O) */
+body.overview { overflow: auto; }
+body.overview #stage { position: static; transform: none !important; width: auto; height: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 18px; padding: 24px; }
+body.overview .slide { position: relative; inset: auto; opacity: 1; visibility: visible; transform: scale(1); width: 1280px; height: 720px; zoom: .25; cursor: pointer; outline: 6px solid transparent; }
+body.overview .slide.active { outline-color: var(--primary); }
+
+@media print {
+  @page { size: 1280px 720px; margin: 0; }
+  html, body { overflow: visible; background: #fff; }
+  #stage { position: static; transform: none !important; }
+  .slide { position: relative; opacity: 1 !important; visibility: visible !important; transform: none !important; page-break-after: always; break-after: page; border-radius: 0; width: 1280px; height: 720px; }
+  #progress, #hud { display: none; }
+}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="logo" viewBox="0 0 64 40"><path class="frame" d="M11 2H53L62 11V29L53 38H11L2 29V11Z"/><path class="glyph" d="M14 12H19.5C25 12 28 15.6 28 20C28 24.4 25 28 19.5 28H14Z"/><path class="glyph" d="M33 14L39 20L33 26"/><rect class="cursor" x="42" y="25" width="8" height="3.4" rx="1.7"/></symbol>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#94A3B8"/></marker>
+</defs></svg>
+
+<div id="stage">
+
+<!-- 1 · Title -->
+<section class="slide" data-title="Dcode">
+  <div class="title-bg"></div>
+  <div class="row" style="align-items:center; flex:1; gap:60px">
+    <div style="flex:1.2">
+      <svg class="mark" viewBox="0 0 64 40" style="width:150px;height:94px;margin-bottom:26px"><path class="frame" d="M11 2H53L62 11V29L53 38H11L2 29V11Z"/><path class="sweep" pathLength="200" d="M11 2H53L62 11V29L53 38H11L2 29V11Z"/><path class="glyph" d="M14 12H19.5C25 12 28 15.6 28 20C28 24.4 25 28 19.5 28H14Z"/><path class="glyph" d="M33 14L39 20L33 26"/><rect class="cursor" x="42" y="25" width="8" height="3.4" rx="1.7"/></svg>
+      <h1>Dcode</h1>
+      <p class="lead" style="font-size:26px">The coding agent for <strong class="blue">air-gapped teams</strong> and <strong class="blue">local LLMs</strong> — built for open-source models with small context windows.</p>
+      <div class="row" style="gap:10px; flex-wrap:wrap">
+        <span class="pill">v0.3.1</span><span class="pill gray">Terminal + Web UI</span><span class="pill gray">Any OpenAI-compatible server</span><span class="pill gray">100% offline</span>
+      </div>
+    </div>
+    <div style="flex:.8">
+      <div class="shot term"><img src="{{IMG:cli_session}}" alt="A Dcode terminal session"></div>
+    </div>
+  </div>
+</section>
+
+<!-- 2 · Problem -->
+<section class="slide soft" data-title="The problem">
+  <div class="kicker">The problem</div>
+  <h2>AI coding tools assume the cloud.<br>Many teams can't use the cloud.</h2>
+  <div class="grid3" style="margin-top:28px">
+    <div class="card"><div class="ico">🔒</div><h3>Code can't leave</h3><p>Banks, government, defense, telecom and regulated industries run on air-gapped or restricted networks. Source code must stay inside.</p></div>
+    <div class="card"><div class="ico">🧠</div><h3>Local models are small</h3><p>Self-hosted 7B–32B models usually have 8K–32K of context — a fraction of what cloud agents are designed for.</p></div>
+    <div class="card"><div class="ico">🧩</div><h3>And they're sloppy</h3><p>Open models write tool calls as text, leak markup, stop mid-task, announce work they never do, and loop. Agents built for frontier models fall apart.</p></div>
+  </div>
+  <p class="lead" style="margin-top:34px">Dcode is built from the ground up for exactly this environment.</p>
+</section>
+
+<!-- 3 · Meet Dcode -->
+<section class="slide" data-title="Meet Dcode">
+  <div class="kicker">Meet Dcode</div>
+  <h2>One binary. Your model. Your network.</h2>
+  <p class="lead">Ask in plain language — <em>"fix the failing test"</em>, <em>"add a health endpoint"</em>, <em>"explain this repo"</em>. Dcode reads your code, edits files, runs commands and checks git, showing every step and asking before anything risky.</p>
+  <div class="grid4">
+    <div class="card"><div class="ico">⌨️</div><h3>Terminal agent</h3><p>Fast, keyboard-first CLI with modes, approvals and a live activity panel.</p></div>
+    <div class="card"><div class="ico">🖥️</div><h3>Web UI</h3><p>A private localhost UI per user, controlling the <em>same</em> live sessions.</p></div>
+    <div class="card"><div class="ico">🔌</div><h3>Any server</h3><p>Ollama, vLLM, llama.cpp, LM Studio, TGI — anything OpenAI-compatible.</p></div>
+    <div class="card"><div class="ico">📦</div><h3>Air-gap ready</h3><p>Single self-contained binary or <code class="k">.deb</code>. No internet, no pip, no system Python.</p></div>
+  </div>
+</section>
+
+<!-- 4 · Architecture -->
+<section class="slide" data-title="How it works">
+  <div class="kicker">How it works</div>
+  <h2>Terminal and browser drive the same session</h2>
+  <div class="arch">
+    <svg>
+      <line x1="230" y1="110" x2="415" y2="188"/>
+      <line x1="1030" y1="88" x2="1030" y2="128"/>
+      <line x1="860" y1="190" x2="785" y2="196"/>
+      <line x1="600" y1="250" x2="600" y2="302"/>
+      <line x1="740" y1="345" x2="875" y2="345"/>
+      <line x1="600" y1="390" x2="600" y2="438"/>
+    </svg>
+    <div class="node ink" style="left:20px; top:40px; width:210px"><b>⌨️ dcode</b><span>terminal, one per project</span></div>
+    <div class="node ink" style="left:930px; top:18px; width:200px"><b>🌐 Browser</b><span>http://127.0.0.1:7301</span></div>
+    <div class="node" style="left:862px; top:130px; width:300px; border-style:dashed"><b>Per-user hub</b><span>web UI · settings · memory · skills · artifacts · proxies to live sessions · token-protected</span></div>
+    <div class="node blue" style="left:420px; top:150px; width:362px"><b>Session</b><span>event bus · task queue · approvals (first answer wins) · modes · checkpoints · jobs · chat history</span></div>
+    <div class="node" style="left:460px; top:302px; width:280px"><b>Agent</b><span>loop · tools · compaction · follow-through · reports</span></div>
+    <div class="node" style="left:877px; top:302px; width:285px"><b>Helpers</b><span>explore · code · review · test — fresh context each</span></div>
+    <div class="node ink" style="left:430px; top:438px; width:340px"><b>Your model</b><span>Ollama · vLLM · llama.cpp · LM Studio · TGI</span></div>
+  </div>
+</section>
+
+<!-- 5 · Small context -->
+<section class="slide soft" data-title="Built for small models">
+  <div class="kicker">Built for small context windows</div>
+  <h2>Every token of a 32K window counts</h2>
+  <div class="row" style="margin-top:14px; gap:40px">
+    <div style="flex:1.05">
+      <ul class="ticks">
+        <li><strong>Read only what's needed</strong> — numbered line ranges, regex search, depth-limited listing.</li>
+        <li><strong>Edit, don't rewrite</strong> — exact-match <code class="k">edit_file</code> instead of re-sending whole files.</li>
+        <li><strong>Output caps scale with the window</strong> — about 12% per tool result; long command output keeps head and tail.</li>
+        <li><strong>Helpers explore elsewhere</strong> — only a short report returns to the main conversation.</li>
+        <li><strong>Index, don't inline</strong> — skills and memories appear as one-liners; full text loads on demand.</li>
+        <li><strong>Automatic compaction</strong> at ~75%: trim old tool output first, then summarize older turns.</li>
+      </ul>
+    </div>
+    <div style="flex:.95" class="col">
+      <div class="card">
+        <h3>Where a 32K window goes</h3>
+        <p class="muted" style="margin-bottom:10px">Typical turn on a 7B model, Dcode vs. a naive agent</p>
+        <div style="font-size:13px; font-weight:700; margin-top:6px">Dcode</div>
+        <div class="meter"><i style="width:9%;background:#2563EB"></i><i style="width:8%;background:#0891B2"></i><i style="width:22%;background:#93C5FD"></i><i style="width:13%;background:#C7D2FE"></i><i style="width:48%;background:#F1F4F9"></i></div>
+        <div style="font-size:13px; font-weight:700; margin-top:14px">Naive agent</div>
+        <div class="meter"><i style="width:14%;background:#2563EB"></i><i style="width:20%;background:#0891B2"></i><i style="width:58%;background:#93C5FD"></i><i style="width:8%;background:#FCA5A5"></i></div>
+        <div class="legend" style="margin-top:10px"><span><b style="background:#2563EB"></b>prompt + tools</span><span><b style="background:#0891B2"></b>memory / skills</span><span><b style="background:#93C5FD"></b>file & tool output</span><span><b style="background:#C7D2FE"></b>reply budget</span><span><b style="background:#F1F4F9;border:1px solid #E4E9F0"></b>free</span><span><b style="background:#FCA5A5"></b>overflow</span></div>
+        <p class="muted" style="margin-top:12px; font-size:12.5px">Illustrative proportions.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 6 · Robust -->
+<section class="slide" data-title="Robust with open models">
+  <div class="kicker">Robust with real open models</div>
+  <h2>Small models make mistakes. Dcode absorbs them.</h2>
+  <div class="grid3" style="margin-top:22px">
+    <div class="card"><h3>🔁 Follow-through</h3><p>"Building the artifact now." — and it stops? Dcode reminds the model to actually do it (capped, never loops).</p></div>
+    <div class="card"><h3>🧾 Text tool calls</h3><p>Recovers calls written as <code class="k">&lt;tool_call&gt;</code> or fenced JSON when the server doesn't parse them.</p></div>
+    <div class="card"><h3>🧹 Leaked markup</h3><p>Cleans tags models leak into tool names (e.g. DeepSeek <code class="k">｜DSML｜</code>) and salvages arguments.</p></div>
+    <div class="card"><h3>💭 Hidden reasoning</h3><p>Strips <code class="k">&lt;think&gt;</code> blocks so reasoning never refills the context.</p></div>
+    <div class="card"><h3>✂️ Cut-off replies</h3><p>Hits the output limit? Dcode asks it to continue; big artifacts can be built in parts.</p></div>
+    <div class="card"><h3>🛡️ Guard rails</h3><p>Refuses empty writes that would erase a file, breaks repeated-call loops, nudges silent stops, caps re-saves.</p></div>
+  </div>
+  <p class="muted" style="margin-top:22px; font-size:16px">It learns server quirks too — which optional parameters a backend rejects — and stops sending them.</p>
+</section>
+
+<!-- 7 · Helpers -->
+<section class="slide dark" data-title="Helpers">
+  <div class="kicker">Multi-agent</div>
+  <h2>Helpers do the legwork — in their own context</h2>
+  <div class="row" style="gap:36px; margin-top:16px">
+    <div style="flex:1">
+      <div class="grid2">
+        <div class="card"><h3>🧭 Explorer</h3><p>Finds and reads code; reports facts with file:line references. Read-only.</p></div>
+        <div class="card"><h3>💻 Coder</h3><p>Makes one well-defined change with minimal edits.</p></div>
+        <div class="card"><h3>👁 Reviewer</h3><p>Reviews code or a diff for real bugs and security issues. Read-only.</p></div>
+        <div class="card"><h3>🧪 Tester</h3><p>Writes and runs focused tests; reports pass/fail.</p></div>
+      </div>
+      <p class="lead" style="font-size:18px; margin-top:22px">Read-only helpers run <strong style="color:#E8ECF4">in parallel</strong>. Only a capped report reaches the main conversation — exploration that would burn 20K tokens costs ~500.</p>
+    </div>
+    <div style="flex:.95">
+      <div class="card mono" style="font-size:14px; line-height:1.8; background:#0B0E14">
+        <div><span style="color:#E8ECF4;font-weight:700">❯ map the auth and db layers</span></div>
+        <div>&nbsp;&nbsp;<span style="color:#38BDF8">◇</span> <b style="color:#E8ECF4">delegate</b> <span style="color:#8B95A8">explore: find auth code</span></div>
+        <div>&nbsp;&nbsp;<span style="color:#38BDF8">◇</span> <b style="color:#E8ECF4">delegate</b> <span style="color:#8B95A8">explore: find db code</span></div>
+        <div style="color:#6AA1FF">&nbsp;❯❯❯ <span style="color:#E8ECF4">Waiting for helpers…</span> <span style="color:#8B95A8">4.2s</span></div>
+        <div>&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#38BDF8">◆ explore-1</span> <span style="color:#8B95A8">read_file auth/jwt.py · 3.1s</span></div>
+        <div>&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#38BDF8">◆ explore-2</span> <span style="color:#8B95A8">search_in_files "Session(" · 2.4s</span></div>
+        <div>&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#FBBF24">⚙ job #1</span> <span style="color:#8B95A8">npm run dev · running 2m</span></div>
+        <div>&nbsp;&nbsp;<span style="color:#34D399">◆ explore-1 finished</span> <span style="color:#8B95A8">· 5.8s</span></div>
+        <div>&nbsp;&nbsp;<span style="color:#34D399">✓</span> <span style="color:#8B95A8">Done in 9.4s · 2 helpers</span></div>
+      </div>
+      <div class="caption">The live panel shows every running helper and background job, with timers.</div>
+    </div>
+  </div>
+</section>
+
+<!-- 8 · Modes -->
+<section class="slide soft" data-title="Modes">
+  <div class="kicker">You stay in control</div>
+  <h2>Four modes — <kbd>Shift</kbd>+<kbd>Tab</kbd> to switch</h2>
+  <div class="grid4" style="margin-top:24px">
+    <div class="mode"><h3><span class="dot" style="background:#2563EB"></span>Accept edits</h3><p><strong>Default.</strong> Edits files freely; asks before commands, deletions and commits.</p></div>
+    <div class="mode"><h3><span class="dot" style="background:#16A34A"></span>Auto</h3><p>Never asks. For trusted, sandboxed projects only.</p></div>
+    <div class="mode"><h3><span class="dot" style="background:#7C3AED"></span>Plan</h3><p>Read-only. Investigates and writes a plan, then asks <em>"Ready to implement this plan?"</em></p></div>
+    <div class="mode"><h3><span class="dot" style="background:#64748B"></span>Manual</h3><p>Asks before every edit (with a diff preview) and every command.</p></div>
+  </div>
+  <div class="row" style="margin-top:30px; gap:26px; align-items:stretch">
+    <div class="card" style="flex:1"><h3>Approvals, your way</h3><p><strong>Allow</strong> · <strong>Allow for this session</strong> · <strong>Deny</strong> — from the terminal menu (<kbd>y</kbd> <kbd>a</kbd> <kbd>n</kbd>) or a card in the web UI. Whichever answers first wins; the menu then shrinks to a single line.</p></div>
+    <div class="card" style="flex:1"><h3>Undo anything Dcode changed</h3><p>Every task saves a checkpoint. <code class="k">/undo</code> restores the files — even outside git — and tells the model it was undone.</p></div>
+  </div>
+</section>
+
+<!-- 9 · Terminal -->
+<section class="slide dark" data-title="The terminal">
+  <div class="kicker">The terminal</div>
+  <h2>Keyboard-first, calm, and informative</h2>
+  <div class="row" style="gap:30px; margin-top:6px; flex:1; min-height:0">
+    <div style="flex:1.25"><div class="shot term"><img src="{{IMG:cli_colors}}" alt="Dcode terminal session"></div></div>
+    <div style="flex:.75">
+      <ul class="ticks">
+        <li>Input pinned to the bottom with a labeled <span class="mono" style="color:#E8ECF4">── ❯ dcode ── ◆ mode ──</span> rule</li>
+        <li>White text; blue only for structure — answers get a blue gutter</li>
+        <li><code class="k">/</code> suggestions below the input · <kbd>Ctrl</kbd>+<kbd>O</kbd> expands output</li>
+        <li>Every task ends with a report: files changed, commands run</li>
+        <li>Inline red/green diffs for edits</li>
+        <li><kbd>Ctrl</kbd>+<kbd>C</kbd> stops a task · twice exits</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 10 · Web UI -->
+<section class="slide" data-title="The web UI">
+  <div class="kicker">The web UI</div>
+  <h2>A private, ChatGPT-style UI for every user</h2>
+  <div class="row" style="gap:30px; flex:1; min-height:0; margin-top:6px">
+    <div style="flex:1.45"><div class="shot"><img src="{{IMG:web-light}}" alt="Dcode web UI"></div></div>
+    <div style="flex:.55">
+      <ul class="ticks">
+        <li>Opens with your first <code class="k">dcode</code>; closes after the last one</li>
+        <li>All live sessions and past chats, dated and searchable</li>
+        <li>Send tasks, approve commands, stop work — in the same session as the terminal</li>
+        <li>Pick the model and mode; edit every setting</li>
+        <li>Token-protected, localhost-only</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 11 · Dark & bilingual -->
+<section class="slide soft" data-title="Dark mode & bilingual">
+  <div class="kicker">For everyone</div>
+  <h2>Light, dark, and English / فارسی</h2>
+  <div class="grid2" style="margin-top:14px; flex:1; min-height:0">
+    <div><div class="shot"><img src="{{IMG:web-dark}}" alt="Dark mode"></div><div class="caption">Light · dark · follows the system</div></div>
+    <div><div class="shot"><img src="{{IMG:guide-fa}}" alt="Persian guide"></div><div class="caption">Bilingual user guide with full right-to-left layout — works offline</div></div>
+  </div>
+</section>
+
+<!-- 12 · Artifacts -->
+<section class="slide" data-title="Artifacts">
+  <div class="kicker">Artifacts</div>
+  <h2>Pages, diagrams and reports — saved, versioned, linked</h2>
+  <div class="row" style="gap:26px; flex:1; min-height:0; margin-top:6px">
+    <div style="flex:1.1"><div class="shot"><img src="{{IMG:web-library}}" alt="Artifact library"></div><div class="caption">Library with live previews, search, filter and sort</div></div>
+    <div style="flex:.9" class="col">
+      <div class="shot" style="margin-bottom:14px"><img src="{{IMG:web-artifact-page}}" alt="Artifact page"></div>
+      <ul class="ticks" style="gap:8px">
+        <li style="font-size:16px">HTML · SVG · Markdown · CSV · code, sandboxed and offline</li>
+        <li style="font-size:16px">Version history with restore; edit in place</li>
+        <li style="font-size:16px">"Ask Dcode to change this" · one artifact per chat</li>
+        <li style="font-size:16px">Own page at <code class="k">/a/&lt;id&gt;</code>; terminal prints the link</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 13 · Memory & skills -->
+<section class="slide soft" data-title="Memory & skills">
+  <div class="kicker">Memory & skills</div>
+  <h2>It remembers your project — and follows your playbooks</h2>
+  <div class="row" style="gap:30px; margin-top:10px; flex:1; min-height:0">
+    <div style="flex:.85" class="col">
+      <div class="card" style="margin-bottom:14px"><h3>🧠 Three layers of memory</h3><p><strong>Working</strong> — the live chat, compacted. <strong>Episodic</strong> — summaries of past sessions. <strong>Semantic</strong> — saved facts per project or global. Plain Markdown, searched offline (BM25), recalled automatically.</p></div>
+      <div class="card"><h3>⚡ Skills</h3><p>Nine built in: <em>devops, developer, ui-designer, code-reviewer, artifact-creator, tester, security-auditor, docs-writer, debugger</em>. Dcode picks the right one; pin favorites. Create your own by asking Dcode, in the UI, or with a <code class="k">.md</code> file — shareable per project via git.</p></div>
+    </div>
+    <div style="flex:1.15"><div class="shot"><img src="{{IMG:web-skills}}" alt="Skills settings"></div></div>
+  </div>
+</section>
+
+<!-- 14 · Workflow -->
+<section class="slide" data-title="Everyday workflow">
+  <div class="kicker">Everyday workflow</div>
+  <h2>Git-aware, and honest about what it did</h2>
+  <div class="grid3" style="margin-top:22px">
+    <div class="card"><h3><code class="k">/diff</code> · <code class="k">/commit</code></h3><p>See uncommitted changes in color; commit with a message Dcode writes from the diff — after you confirm.</p></div>
+    <div class="card"><h3><code class="k">/undo</code></h3><p>Roll back the files Dcode changed in the last task, git or not.</p></div>
+    <div class="card"><h3><code class="k">/compact</code></h3><p>Summarize a long session into a short memory and free the context window.</p></div>
+    <div class="card"><h3>⚙ Background jobs</h3><p>Servers and watchers run in the background; <code class="k">/jobs</code> shows output or stops them.</p></div>
+    <div class="card"><h3>📋 Task reports</h3><p>Every task ends with what changed, which commands ran, and what's left.</p></div>
+    <div class="card"><h3>🏷️ Named chats</h3><p>Chats are titled from your first message; <code class="k">/resume</code> or the web UI brings them back.</p></div>
+  </div>
+</section>
+
+<!-- 15 · Security -->
+<section class="slide dark" data-title="Safe by default">
+  <div class="kicker">Safe by default</div>
+  <h2>An agent that runs model output needs guard rails</h2>
+  <div class="grid3" style="margin-top:22px">
+    <div class="card"><div class="ico">📁</div><h3>Workspace sandbox</h3><p>File tools can't escape the project folder (absolute paths and <code class="k">../</code> are blocked).</p></div>
+    <div class="card"><div class="ico">✋</div><h3>Approvals</h3><p>Commands, deletions and commits ask first; empty writes that would erase files are refused.</p></div>
+    <div class="card"><div class="ico">🔑</div><h3>Private web UI</h3><p>127.0.0.1 only, per-user secret token, CSRF and DNS-rebinding protection. Other users on a shared server can't see your sessions.</p></div>
+    <div class="card"><div class="ico">🧱</div><h3>Sandboxed artifacts</h3><p>Rendered in isolated iframes with no network access (CSP <code class="k">default-src 'none'</code>).</p></div>
+    <div class="card"><div class="ico">🗝️</div><h3>Secrets</h3><p><code class="k">~/.dcode</code> is owner-only (0700/0600); the UI never shows your API key.</p></div>
+    <div class="card"><div class="ico">↩️</div><h3>Reversible</h3><p>Checkpoints for every task; nothing is pushed or committed without you.</p></div>
+  </div>
+</section>
+
+<!-- 16 · Deploy -->
+<section class="slide dark" data-title="Deploy air-gapped">
+  <div class="kicker">Deploy</div>
+  <h2>From build machine to air-gapped server in four steps</h2>
+  <div class="steps" style="margin-top:34px">
+    <div class="step"><h3>Build</h3><p>On a connected machine with the same OS/CPU:</p><pre>make deb</pre></div>
+    <div class="step"><h3>Copy</h3><p>USB or internal mirror:</p><pre>dcode_0.3.1_amd64.deb
+install-airgap.sh</pre></div>
+    <div class="step"><h3>Install</h3><p>No internet, no pip:</p><pre>sudo ./install-airgap.sh \
+  dcode_0.3.1_amd64.deb</pre></div>
+    <div class="step"><h3>Point &amp; run</h3><p>At your local model:</p><pre>export DCODE_BASE_URL=\
+  http://gpu:8000/v1
+export DCODE_MODEL=\
+  qwen2.5-coder
+dcode</pre></div>
+  </div>
+  <p class="lead" style="margin-top:34px; font-size:19px">Configuration lives in <code class="k">~/.dcode/config.json</code> or environment variables (env wins — handy for shared servers). Old <code class="k">CODE_ONE_*</code> settings still work.</p>
+</section>
+
+<!-- 17 · Numbers -->
+<section class="slide soft" data-title="By the numbers">
+  <div class="kicker">By the numbers</div>
+  <h2>Small, tested, dependency-light</h2>
+  <div class="grid4" style="margin-top:34px; row-gap:40px">
+    <div class="stat"><div class="n">0</div><div class="l">internet needed at runtime — stdlib HTTP, no CDNs</div></div>
+    <div class="stat"><div class="n">110</div><div class="l">automated tests, incl. replays of real bugs</div></div>
+    <div class="stat"><div class="n">22</div><div class="l">real-terminal end-to-end checks against the binary</div></div>
+    <div class="stat"><div class="n">≤32K</div><div class="l">context windows it's designed for</div></div>
+    <div class="stat"><div class="n">4</div><div class="l">helper roles, read-only ones in parallel</div></div>
+    <div class="stat"><div class="n">4</div><div class="l">permission modes, switched with Shift+Tab</div></div>
+    <div class="stat"><div class="n">9</div><div class="l">built-in skills, plus your own</div></div>
+    <div class="stat"><div class="n">2</div><div class="l">languages in the user guide — English & فارسی</div></div>
+  </div>
+</section>
+
+<!-- 18 · Roadmap -->
+<section class="slide" data-title="Roadmap">
+  <div class="kicker">Roadmap</div>
+  <h2>Where we are — and the honest path to 1.0</h2>
+  <div class="timeline" style="margin-top:40px">
+    <div class="tl"><div class="d" style="background:var(--success)">✓</div><h3>Phase 1 · 0.2</h3><p>Dcode core: small-context engine, helpers, memory, web UI, modes, undo, reports.</p></div>
+    <div class="tl"><div class="d" style="background:var(--success)">✓</div><h3>Phase 2 · 0.3</h3><p>Artifacts: library, versions, links; follow-through; background jobs; live panel.</p></div>
+    <div class="tl"><div class="d" style="background:var(--primary)">→</div><h3>1.0 RC · validation</h3><p>Linux <code class="k">.deb</code> on a real air-gapped box; Ollama, vLLM, llama.cpp with 7B–32B models; CI; tuning.</p></div>
+    <div class="tl"><div class="d" style="background:#94A3B8">1.0</div><h3>1.0 · stable</h3><p>Frozen config and commands, fixes from validation, then the stable release.</p></div>
+  </div>
+  <div class="card" style="margin-top:44px; background:var(--soft)"><p><strong>Honest status:</strong> feature-complete beta, well tested on macOS against mock and hosted models. Not yet validated on the real target — air-gapped Linux with local models — which is what 1.0 will prove.</p></div>
+</section>
+
+<!-- 19 · Get started -->
+<section class="slide dark" data-title="Get started">
+  <div class="row" style="flex:1; align-items:center; gap:60px">
+    <div style="flex:1">
+      <div class="kicker">Get started</div>
+      <h1 style="font-size:58px">Your code. Your model.<br><span style="color:#6AA1FF">Your network.</span></h1>
+      <p class="lead">Install the binary, point it at your local model, and open the link it prints.</p>
+    </div>
+    <div style="flex:1">
+      <div class="card mono" style="font-size:16px; line-height:1.9; background:#0B0E14">
+        <div style="color:#8B95A8"># point at your local model</div>
+        <div><span style="color:#6AA1FF">$</span> export DCODE_BASE_URL=http://127.0.0.1:11434/v1</div>
+        <div><span style="color:#6AA1FF">$</span> export DCODE_MODEL=qwen2.5-coder:7b</div>
+        <div><span style="color:#6AA1FF">$</span> dcode</div>
+        <div style="color:#8B95A8; margin-top:10px"># inside Dcode</div>
+        <div><span style="color:#6AA1FF">❯</span> /ui &nbsp;&nbsp;<span style="color:#8B95A8">open the web UI</span></div>
+        <div><span style="color:#6AA1FF">❯</span> /guide <span style="color:#8B95A8">English / فارسی user guide</span></div>
+        <div><span style="color:#6AA1FF">❯</span> /help &nbsp;<span style="color:#8B95A8">every command</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div id="hud">
+  <span id="counter">1 / 1</span>
+  <button id="prev" title="Previous (←)" aria-label="Previous">‹</button>
+  <button id="next" title="Next (→)" aria-label="Next">›</button>
+  <button id="ov" title="Overview (O)" aria-label="Overview">▦</button>
+  <button id="fs" title="Fullscreen (F)" aria-label="Fullscreen">⛶</button>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var slides = Array.prototype.slice.call(document.querySelectorAll(".slide"));
+  var stage = document.getElementById("stage");
+  var index = 0;
+
+  // Footer with logo + slide title on every slide except the first and last.
+  slides.forEach(function (s, i) {
+    if (i === 0 || i === slides.length - 1) return;
+    var f = document.createElement("div");
+    f.className = "footer";
+    f.innerHTML = '<span class="brand"><svg class="mark" viewBox="0 0 64 40"><path class="frame" d="M11 2H53L62 11V29L53 38H11L2 29V11Z"/>' +
+      '<path class="glyph" d="M14 12H19.5C25 12 28 15.6 28 20C28 24.4 25 28 19.5 28H14Z"/><path class="glyph" d="M33 14L39 20L33 26"/></svg>Dcode</span>' +
+      "<span></span>";
+    s.appendChild(f);
+  });
+
+  function fit() {
+    if (document.body.classList.contains("overview")) return;
+    var scale = Math.min(window.innerWidth / 1280, window.innerHeight / 720) * 0.98;
+    stage.style.transform = "translate(-50%, -50%) scale(" + scale + ")";
+  }
+  function go(i, fromHash) {
+    index = Math.max(0, Math.min(slides.length - 1, i));
+    slides.forEach(function (s, n) {
+      s.classList.toggle("active", n === index);
+      s.classList.toggle("past", n < index);
+    });
+    document.getElementById("counter").textContent = (index + 1) + " / " + slides.length;
+    document.getElementById("progress").style.width = ((index + 1) / slides.length * 100) + "%";
+    document.title = (slides[index].dataset.title || "Dcode") + " · Dcode";
+    if (!fromHash) history.replaceState(null, "", "#" + (index + 1));
+  }
+  function toggleOverview() {
+    document.body.classList.toggle("overview");
+    if (!document.body.classList.contains("overview")) { fit(); slides[index].scrollIntoView(); }
+  }
+  document.addEventListener("keydown", function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var k = e.key;
+    if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"].indexOf(k) >= 0) { e.preventDefault(); go(index + 1); }
+    else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace"].indexOf(k) >= 0) { e.preventDefault(); go(index - 1); }
+    else if (k === "Home") go(0);
+    else if (k === "End") go(slides.length - 1);
+    else if (k === "o" || k === "O" || k === "Escape") { if (k !== "Escape" || document.body.classList.contains("overview")) toggleOverview(); }
+    else if (k === "f" || k === "F") toggleFullscreen();
+  });
+  slides.forEach(function (s, n) {
+    s.addEventListener("click", function (e) {
+      if (document.body.classList.contains("overview")) { go(n); toggleOverview(); return; }
+      if (e.target.closest("a, button, kbd")) return;
+      var rect = s.getBoundingClientRect();
+      go(e.clientX - rect.left < rect.width * 0.3 ? index - 1 : index + 1);
+    });
+  });
+  var touchX = null;
+  document.addEventListener("touchstart", function (e) { touchX = e.touches[0].clientX; }, { passive: true });
+  document.addEventListener("touchend", function (e) {
+    if (touchX === null) return;
+    var dx = e.changedTouches[0].clientX - touchX;
+    if (Math.abs(dx) > 40) go(index + (dx < 0 ? 1 : -1));
+    touchX = null;
+  });
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+    else document.exitFullscreen && document.exitFullscreen();
+  }
+  document.getElementById("prev").onclick = function () { go(index - 1); };
+  document.getElementById("next").onclick = function () { go(index + 1); };
+  document.getElementById("ov").onclick = toggleOverview;
+  document.getElementById("fs").onclick = toggleFullscreen;
+  window.addEventListener("resize", fit);
+  window.addEventListener("hashchange", function () { go(parseInt(location.hash.slice(1), 10) - 1 || 0, true); });
+  fit();
+  go((parseInt(location.hash.slice(1), 10) || 1) - 1, true);
+  if (/[?&]overview/.test(location.search)) toggleOverview();  // e.g. presentation.html?overview
+})();
+</script>
+</body>
+</html>

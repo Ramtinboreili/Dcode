@@ -11,6 +11,7 @@ Developer and project documentation. For **end users**, the bilingual user guide
 | [testing.md](testing.md) | Unit tests, real-terminal e2e, rendered-screen checks, web screenshot tips |
 | [operations.md](operations.md) | Dev setup, builds, release checklist, air-gapped install, runtime, troubleshooting |
 | [memory.md](memory.md) | What we know about the owner's preferences, environment and working agreements |
+| [presentation.html](presentation.html) | **Feature presentation** — 19 slides, self-contained and offline (← → / space, F fullscreen, O overview, `?overview`, prints to PDF). Source: `presentation/` (`python docs/presentation/build.py`) |
 | [dev/](dev/) | Test tools: `mock_llm.py` (scripted model), `terminal_e2e.py` (22 pty checks), `screen.py` (pyte renderer) |
 
 Also see [`../CLAUDE.md`](../CLAUDE.md) (instructions for AI agents working on this repo), [`../CHANGELOG.md`](../CHANGELOG.md) and [`../README.md`](../README.md).

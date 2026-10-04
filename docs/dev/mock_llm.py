@@ -56,7 +56,9 @@ def choose_reply(messages: list[dict]) -> dict:
     text = str(last.get("content", ""))
     saves = sum(1 for m in messages if m.get("role") == "tool" and m.get("name") == "artifact_save")
 
-    if "Summarize" in system or "title (2-6 words)" in system:
+    if "title (2-6 words)" in system:
+        return {"content": "Cluster dashboard demo"}
+    if "Summarize" in system:
         return {"content": "- summary"}
     if last["role"] == "tool" and last.get("name") == "artifact_save" and "loop" in str(messages[1:]) and saves < 5:
         args = {"title": "Repo report", "kind": "html", "content": REPORT} if saves < 2 else {"content": REPORT}
