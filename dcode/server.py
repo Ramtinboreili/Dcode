@@ -25,6 +25,7 @@ import http.client
 import json
 import os
 import secrets
+import signal
 import subprocess
 import sys
 import threading
@@ -368,7 +369,9 @@ class Hub:
                 if parsed.path in ("/guide", "/static/guide.html") and self._host_ok():
                     return self._static("guide.html")  # public docs: no token needed
                 if parsed.path == "/api/health":
-                    return self._json({"ok": True, "app": "dcode", "version": __version__})
+                    # "assets" catches a hub whose bundled files vanished (e.g. a deleted unpack dir).
+                    return self._json({"ok": True, "app": "dcode", "version": __version__,
+                                       "assets": (WEB_DIR / "index.html").is_file()})
                 if not self._authorized():
                     return self._deny() if not parsed.path.startswith("/api/") else self._json({"error": "unauthorized"}, 401)
                 if parsed.path in ("/", "/index.html"):
@@ -743,29 +746,74 @@ def run_hub(port: int = 0) -> None:
         pass  # non-POSIX: rely on hub.json health checks instead
     except OSError:
         return  # another hub already owns this user's UI
+
+    def _terminate(signum, frame):  # replaced by a newer hub: exit cleanly (removes hub.json)
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, _terminate)
     Hub(port).serve()
 
 
 # --- client side (used by a starting session) --------------------------------------------------
 
-def hub_healthy(info: dict[str, Any] | None) -> bool:
+def hub_health(info: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The hub's /api/health payload, or None if it isn't reachable."""
     if not info or not pid_alive(int(info.get("pid", 0))):
-        return False
+        return None
     try:
         conn = http.client.HTTPConnection("127.0.0.1", int(info["port"]), timeout=1.5)
         conn.request("GET", "/api/health")
-        ok = conn.getresponse().status == 200
+        response = conn.getresponse()
+        body = json.loads(response.read() or b"{}") if response.status == 200 else None
         conn.close()
-        return ok
+        return body if isinstance(body, dict) else None
     except (OSError, KeyError, ValueError):
-        return False
+        return None
+
+
+def hub_healthy(info: dict[str, Any] | None) -> bool:
+    return hub_health(info) is not None
+
+
+def hub_usable(info: dict[str, Any] | None) -> bool:
+    """Healthy, same Dcode version, and its web files are present."""
+    health = hub_health(info)
+    return bool(health) and health.get("version") == __version__ and health.get("assets", True) is not False
+
+
+def _retire_hub(info: dict[str, Any] | None, wait: float = 4.0) -> None:
+    """Stop an outdated or broken hub (sessions keep running; a new hub takes over)."""
+    pid = int((info or {}).get("pid", 0))
+    if not pid_alive(pid):
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return
+    deadline = time.time() + wait
+    while time.time() < deadline and pid_alive(pid):
+        time.sleep(0.1)
+
+
+def _clean_child_env() -> dict[str, str]:
+    """Environment for the hub process.
+
+    A frozen (PyInstaller one-file) app passes variables to its children that make them
+    reuse the parent's unpack folder. The hub outlives the session that starts it, so it
+    must unpack its own copy — otherwise its web files vanish when that session exits.
+    """
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("_PYI_", "_MEIPASS"))}
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return env
 
 
 def ensure_hub(port: int = 0, wait: float = 8.0) -> str | None:
     """Return the hub URL, spawning the hub in the background if needed."""
     info = _read_json(hub_file())
-    if hub_healthy(info):
+    if hub_usable(info):
         return str(info["url"])  # type: ignore[index]
+    if hub_healthy(info):
+        _retire_hub(info)  # another Dcode version, or its files are gone: replace it
     if getattr(sys, "frozen", False):
         command = [sys.executable, "hub"]
     else:
@@ -773,7 +821,8 @@ def ensure_hub(port: int = 0, wait: float = 8.0) -> str | None:
     if port:
         command += ["--port", str(port)]
     log = open(run_dir() / "hub.log", "ab")
-    kwargs: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stdout": log, "stderr": log, "close_fds": True}
+    kwargs: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stdout": log, "stderr": log, "close_fds": True,
+                              "env": _clean_child_env()}
     if os.name == "posix":
         kwargs["start_new_session"] = True  # survive the terminal that started it
     else:
@@ -786,7 +835,7 @@ def ensure_hub(port: int = 0, wait: float = 8.0) -> str | None:
     while time.time() < deadline:
         time.sleep(0.15)
         info = _read_json(hub_file())
-        if hub_healthy(info):
+        if hub_usable(info):
             return str(info["url"])  # type: ignore[index]
     return None
 

@@ -227,3 +227,27 @@ def test_artifact_page_and_login_redirect(stack):
     assert status == 302 and resp.getheader("Location") == f"/a/{aid}"
     status, _, resp = req(stack, "GET", f"/?token={stack['token']}&next=//evil.example", cookie=False)
     assert resp.getheader("Location") == "/"  # no open redirect
+
+
+def test_hub_child_env_does_not_reuse_parent_unpack_dir(monkeypatch):
+    monkeypatch.setenv("_PYI_APPLICATION_HOME_DIR", "/tmp/_MEI123")
+    monkeypatch.setenv("_MEIPASS2", "/tmp/_MEI123")
+    monkeypatch.setenv("KEEP_ME", "1")
+    env = server._clean_child_env()
+    assert "_PYI_APPLICATION_HOME_DIR" not in env and "_MEIPASS2" not in env
+    assert env["KEEP_ME"] == "1" and env["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
+
+
+def test_health_reports_version_and_assets(stack):
+    status, health, _ = req(stack, "GET", "/api/health", cookie=False)
+    assert status == 200 and health["assets"] is True and health["version"] == server.__version__
+    info = {"pid": __import__("os").getpid(), "port": stack["hub"].port}
+    assert server.hub_usable(info)
+    real = server.hub_health
+    try:  # a hub from another Dcode version, or one whose files vanished, is not reused
+        server.hub_health = lambda i: {"ok": True, "version": "0.0.0-other", "assets": True}
+        assert not server.hub_usable(info)
+        server.hub_health = lambda i: {"ok": True, "version": server.__version__, "assets": False}
+        assert not server.hub_usable(info)
+    finally:
+        server.hub_health = real
