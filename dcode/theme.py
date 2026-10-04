@@ -75,6 +75,7 @@ SUCCESS = "#22C55E"
 WARNING = "#F59E0B"
 DANGER = "#EF4444"
 SURFACE_2 = "#334155"     # completion-menu background (paired with white text)
+PLAN = "#8B5CF6"          # plan mode (violet)
 
 # The Dcode mark: a chamfered frame around a "D" and a prompt cursor.
 LOGO_LINES = [

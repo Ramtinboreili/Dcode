@@ -26,7 +26,9 @@ from rich.text import Text
 from rich.theme import Theme
 
 from . import __version__
-from .theme import ACCENT, DANGER, LOGO_LINES, MUTED, PRIMARY, PRIMARY_SOFT, SUCCESS, SURFACE_2, TEXT, WARNING
+from .theme import ACCENT, DANGER, LOGO_LINES, MUTED, PLAN, PRIMARY, PRIMARY_SOFT, SUCCESS, SURFACE_2, TEXT, WARNING
+
+MODE_COLORS = {"manual": MUTED, "accept_edits": PRIMARY, "auto": SUCCESS, "plan": PLAN}
 
 # Kept for code that still refers to the old name.
 ORANGE = PRIMARY
@@ -66,8 +68,15 @@ class PromptInterrupted(Exception):
 
 COMMANDS: dict[str, str] = {
     "/help": "Show commands",
-    "/guide": "Open the user guide (English / فارسی)",
-    "/ui": "Show the web UI link",
+    "/clear": "Clear the screen and start a fresh chat (the old one is saved)",
+    "/version": "Show the Dcode version",
+    "/mode": "Switch mode: manual · accept edits · auto · plan",
+    "/compact": "Summarize this session to free context: /compact [focus]",
+    "/undo": "Undo Dcode's file changes from the last task",
+    "/diff": "Show uncommitted git changes",
+    "/commit": "Commit with a generated message: /commit [message]",
+    "/guide": "Open the user guide in your browser (English / فارسی)",
+    "/ui": "Open the web UI in your browser",
     "/model": "Switch model + reasoning effort",
     "/agents": "Sub-agent settings",
     "/context": "Context window + usage",
@@ -108,6 +117,7 @@ _PROMPT_STYLE = Style.from_dict(
         "completion-menu.meta.completion": f"bg:{SURFACE_2} fg:{MUTED}",
         "completion-menu.meta.completion.current": f"bg:{PRIMARY} fg:#ffffff",
         "bottom-toolbar": f"bg:{SURFACE_2} fg:{MUTED}",
+        "input": "",
     }
 )
 
@@ -140,44 +150,55 @@ def show_welcome(
     ui_url: str | None = None,
     context_window: int | None = None,
     agents_enabled: bool = True,
+    mode: str = "accept_edits",
 ) -> None:
-    grid = Table.grid(padding=(0, 3), expand=True)
-    grid.add_column(no_wrap=True)
-    grid.add_column(ratio=1)
+    """Compact Claude-Code-style header: small mark + three lines, then ▎ notices."""
+    from urllib.parse import urlsplit
 
-    left = Text()
-    left.append_text(logo_text())
-    left.append("\n\nDcode", style=f"bold {TEXT}")
-    left.append(f"  v{__version__}", style=MUTED)
+    from .agents import MODE_SHORT
 
-    info = Table.grid(padding=(0, 2))
-    info.add_column(style=MUTED, no_wrap=True)
-    info.add_column(style=TEXT, overflow="fold")
-    info.add_row("model", Text(current_model, style=f"bold {PRIMARY_SOFT}"))
-    info.add_row("reasoning", reasoning_effort or "medium")
-    if context_window:
-        info.add_row("context", f"{context_window:,} tokens")
-    info.add_row("agents", "sub-agents on" if agents_enabled else "single agent")
-    info.add_row("cwd", os.getcwd())
-    if base_url:
-        info.add_row("endpoint", base_url)
+    cwd = os.getcwd()
+    home = os.path.expanduser("~")
+    shown_cwd = "~" + cwd[len(home):] if cwd.startswith(home) else cwd
+    context = f"{context_window // 1024}K context" if context_window else ""
+    host = urlsplit(base_url).netloc if base_url else ""
+    line2 = " · ".join(x for x in (current_model, context, host) if x)
+    git = ""
     if git_summary and git_summary.get("is_repo"):
-        info.add_row("git", f"{git_summary.get('branch', '-')} · {git_summary.get('modified_files', 0)} modified")
+        modified = git_summary.get("modified_files", 0)
+        git = f"  ⎇ {git_summary.get('branch', '-')}" + (f" · {modified} modified" if modified else "")
+    rows = [
+        (f"[bold]Dcode[/] [{MUTED}]v{__version__}[/]"),
+        (f"[{MUTED}]{_escape(line2)}[/]"),
+        (f"[{MUTED}]{_escape(shown_cwd)}{_escape(git)}[/]"),
+    ]
+    mark = logo_text().split("\n")
+    console.print()
+    for index, row in enumerate(rows):
+        logo_line = mark[index] if index < len(mark) else Text(" " * 9)
+        line = Text("  ")
+        line.append_text(logo_line)
+        line.append("   ")
+        line.append_text(Text.from_markup(row))
+        console.print(line, overflow="ellipsis", no_wrap=True)
+    console.print()
     if ui_url:
-        info.add_row("web ui", Text(ui_url, style=f"underline {ACCENT}"))
-    grid.add_row(left, info)
+        # Own line, unwrapped: terminals detect it; OSC 8 makes it clickable too.
+        console.print(f"[{PRIMARY}]▎[/] [{MUTED}]Web UI[/]  {link(ui_url)}  [{MUTED}](/ui opens it)[/]", soft_wrap=True)
+    tips = (f"[{PRIMARY}]▎[/] [{MUTED}]Mode: {MODE_SHORT.get(mode, mode)} · Shift+Tab to switch · "
+            f"/help for commands · helpers {'on' if agents_enabled else 'off'}[/]")
+    console.print(tips)
 
-    console.print(
-        Panel(
-            grid,
-            border_style=PRIMARY,
-            title=f"[bold {PRIMARY_SOFT}]Dcode[/]",
-            title_align="left",
-            subtitle=f"[{MUTED}]/help for commands · ctrl-c to interrupt[/]",
-            subtitle_align="right",
-            padding=(1, 2),
-        )
-    )
+
+def push_to_bottom(used_lines: int) -> None:
+    """Pad with blank lines so the input box sits at the bottom of a fresh screen (like Claude Code).
+
+    ``used_lines`` = lines already printed (header) + lines the input box will take.
+    """
+    height = shutil.get_terminal_size((80, 24)).lines
+    blank = height - used_lines
+    if blank > 0:
+        console.print("\n" * (blank - 1))
 
 
 def show_help() -> None:
@@ -246,6 +267,242 @@ def prompt_input(field: str, default: str = "", password: bool = False, complete
     return _render_prompt_input(field=field, default=default, password=password, completer=completer).strip()
 
 
+class ExitRequested(Exception):
+    """Ctrl+C pressed twice (or Ctrl+D) on an empty input box."""
+
+
+class ExpandRequested(Exception):
+    """Ctrl+O: show the full output of the last task."""
+
+
+_HISTORY = None
+_EXIT_WINDOW = 2.0
+
+
+PLACEHOLDERS = [
+    'Try "edit <filepath> to..."',
+    'Try "fix the failing test"',
+    'Try "explain how this project is structured"',
+    'Try "add input validation to <file>"',
+    'Try "review my uncommitted changes"',
+    'Try "write tests for <module>"',
+]
+
+
+def chat_input(
+    status: Any = "",
+    placeholder: str = "",
+    mode: Any = None,
+    on_cycle_mode: Any = None,
+) -> str:
+    """Full-width input box with a rounded border that follows the content.
+
+    * Enter sends · Alt/Option+Enter (or "\\" then Enter) inserts a newline · ↑/↓ history
+    * Ctrl+C clears the text; on an empty box, press it twice to exit
+    * The border is blue, cyan while typing a /command, amber when exit is armed
+    """
+    import time as _time
+
+    from prompt_toolkit.filters import Condition
+    from prompt_toolkit.history import InMemoryHistory
+    from prompt_toolkit.layout import ConditionalContainer, Float, FloatContainer
+    from prompt_toolkit.layout.dimension import Dimension
+    from prompt_toolkit.widgets import TextArea
+
+    global _HISTORY
+    if _HISTORY is None:
+        _HISTORY = InMemoryHistory()
+    if not placeholder:
+        import random
+
+        placeholder = random.choice(PLACEHOLDERS)
+    state = {"armed": 0.0}
+    area = TextArea(
+        multiline=True, wrap_lines=True,
+        history=_HISTORY, height=Dimension(min=1, max=12), dont_extend_height=True,
+        prompt=[("class:prompt", "❯ ")], style="class:input",
+        get_line_prefix=lambda line, wrap: [("", "  ")] if line or wrap else [],
+    )
+
+    def armed() -> bool:
+        return _time.monotonic() - state["armed"] < _EXIT_WINDOW
+
+    def border() -> str:
+        if armed():
+            return f"fg:{WARNING}"
+        if area.text.startswith("/"):
+            return f"fg:{ACCENT}"
+        current = mode() if callable(mode) else mode
+        return f"fg:{MODE_COLORS.get(current, PRIMARY)}"
+
+    def rule() -> Window:
+        return Window(height=1, char="─", style=border)
+
+    placeholder_win = ConditionalContainer(
+        Window(FormattedTextControl([(f"fg:{MUTED}", placeholder)]), height=1),
+        filter=Condition(lambda: not area.text),
+    )
+    body = FloatContainer(area, floats=[Float(content=placeholder_win, left=2, top=0, transparent=True)])
+
+    state["sel"] = 0
+
+    def suggestions() -> list[tuple[str, str]]:
+        text = area.text
+        if not text.startswith("/") or " " in text or "\n" in text:
+            return []
+        return [(command, meta) for command, meta in COMMANDS.items() if command.startswith(text)]
+
+    def on_change(_buffer) -> None:
+        state["sel"] = 0
+
+    area.buffer.on_text_changed += on_change
+    showing = Condition(lambda: bool(suggestions()))
+
+    def render_suggestions() -> list:
+        items = suggestions()[:8]
+        selected = min(state["sel"], len(items) - 1)
+        width = max((len(c) for c, _ in items), default=8) + 4
+        rows: list = []
+        for index, (command, meta) in enumerate(items):
+            active = index == selected
+            rows.append((f"bold fg:{PRIMARY}" if active else "", f"  {command.ljust(width)}"))
+            rows.append((f"fg:{PRIMARY}" if active else f"fg:{MUTED}", meta + "\n"))
+        return rows
+
+    def status_line() -> list:
+        if armed():
+            return [(f"fg:{WARNING}", "  Press Ctrl+C again to exit")]
+        text = status() if callable(status) else status
+        current = mode() if callable(mode) else mode
+        parts: list = []
+        if current:
+            from .agents import MODE_SHORT
+
+            parts.append((f"fg:{MODE_COLORS.get(current, PRIMARY)}", f"  ⏵⏵ {MODE_SHORT.get(current, current)} on"))
+            parts.append((f"fg:{MUTED}", " (shift+tab to cycle)"))
+        if text:
+            parts.append((f"fg:{MUTED}", f" · {text}"))
+        return parts
+
+    kb = KeyBindings()
+
+    # Enter sends. Ctrl+J sends too: keys typed while Dcode was busy arrive with
+    # Enter translated to a line feed by the terminal (it was not in raw mode yet).
+    @kb.add("up", filter=showing)
+    def _sugg_up(event) -> None:
+        state["sel"] = (state["sel"] - 1) % len(suggestions()[:8])
+
+    @kb.add("down", filter=showing)
+    def _sugg_down(event) -> None:
+        state["sel"] = (state["sel"] + 1) % len(suggestions()[:8])
+
+    @kb.add("tab", filter=showing)
+    def _sugg_complete(event) -> None:
+        items = suggestions()[:8]
+        command = items[min(state["sel"], len(items) - 1)][0]
+        area.buffer.text = command + " "
+        area.buffer.cursor_position = len(area.buffer.text)
+
+    @kb.add("enter")
+    @kb.add("c-j")
+    def _submit(event) -> None:
+        buffer = area.buffer
+        items = suggestions()[:8]
+        if items:  # run the highlighted command
+            buffer.text = items[min(state["sel"], len(items) - 1)][0]
+        if buffer.document.text_before_cursor.endswith("\\"):  # "\" + Enter → newline
+            buffer.delete_before_cursor(1)
+            buffer.insert_text("\n")
+            return
+        if area.text.strip():
+            buffer.append_to_history()
+            event.app.exit(result=area.text)
+
+    @kb.add("escape", "enter")
+    def _newline(event) -> None:
+        area.buffer.insert_text("\n")
+
+    @kb.add("c-c")
+    def _ctrl_c(event) -> None:
+        if area.text:
+            area.buffer.reset()
+        elif armed():
+            event.app.exit(exception=ExitRequested())
+        else:
+            state["armed"] = _time.monotonic()
+
+            def _disarm() -> None:  # repaint once the window passes
+                _time.sleep(_EXIT_WINDOW + 0.05)
+                event.app.invalidate()
+
+            threading.Thread(target=_disarm, daemon=True).start()
+
+    @kb.add("c-d")
+    def _ctrl_d(event) -> None:
+        if not area.text:
+            event.app.exit(exception=ExitRequested())
+
+    @kb.add("s-tab")
+    def _cycle(event) -> None:
+        if on_cycle_mode is not None:
+            on_cycle_mode()
+            event.app.invalidate()
+
+    @kb.add("c-o")
+    def _expand(event) -> None:
+        event.app.exit(exception=ExpandRequested())
+
+    root = HSplit([
+        rule(), body, rule(),
+        ConditionalContainer(Window(FormattedTextControl(render_suggestions), dont_extend_height=True), filter=showing),
+        ConditionalContainer(Window(FormattedTextControl(status_line), height=1), filter=~showing),
+    ])
+    app = Application(
+        layout=Layout(root, focused_element=area), key_bindings=kb, style=_PROMPT_STYLE,
+        full_screen=False, erase_when_done=True, mouse_support=False,
+    )
+    console.print()
+    with _prompt_lock, patch_stdout(raw=True):
+        text = _run_app(app)
+    return (text or "").strip()
+
+
+def echo_user(text: str) -> None:
+    """Print a submitted message into the transcript (the input box erases itself)."""
+    lines = text.splitlines() or [""]
+    console.print(f"[bold {PRIMARY}]❯[/] [bold]{_escape(lines[0])}[/]")
+    for line in lines[1:]:
+        console.print(f"  [bold]{_escape(line)}[/]")
+
+
+# Terminals that render OSC 8 hyperlinks. macOS Terminal doesn't (it detects plain URLs
+# on ⌘-double-click instead), and some terminals mangle the escape codes.
+_OSC8_TERMINALS = {"vscode", "iTerm.app", "WezTerm", "ghostty", "Hyper", "Tabby", "rio", "WarpTerminal"}
+
+
+def supports_hyperlinks() -> bool:
+    if os.environ.get("DCODE_HYPERLINKS") in ("0", "1"):
+        return os.environ["DCODE_HYPERLINKS"] == "1"
+    return (os.environ.get("TERM_PROGRAM") in _OSC8_TERMINALS or "KITTY_WINDOW_ID" in os.environ
+            or "WT_SESSION" in os.environ or bool(os.environ.get("VTE_VERSION")))
+
+
+def link(url: str, label: str | None = None) -> str:
+    """Clickable link where the terminal supports it; plain (still detectable) text elsewhere."""
+    text = _escape(label or url)
+    return f"[link={url}]{text}[/link]" if supports_hyperlinks() else text
+
+
+def open_in_browser(url: str) -> bool:
+    """Open ``url`` in the default browser (the web UI and guide run on this machine)."""
+    import webbrowser
+
+    try:
+        return bool(webbrowser.open(url, new=2))
+    except Exception:
+        return False
+
+
 def _run_app(app: Application):
     global _ACTIVE_APP
     _ACTIVE_APP = app
@@ -269,6 +526,7 @@ def _selector(
     body_text: str = "",
     shortcuts: dict[str, int] | None = None,
     hint_text: str = "",
+    erase: bool = False,
 ):
     """Arrow-key list that scrolls and (for long lists) filters as you type.
 
@@ -357,8 +615,10 @@ def _selector(
     header = Window(height=1, content=FormattedTextControl(text=[(f"bold fg:{PRIMARY_SOFT}", title)]))
     body = Window(content=FormattedTextControl(text=render), wrap_lines=True)
     hint = Window(height=1, content=FormattedTextControl(text=[(f"fg:{MUTED}", keys)]))
-    console.print()
-    return _run_app(Application(layout=Layout(HSplit([header, body, hint])), key_bindings=kb, full_screen=False))
+    if not erase:
+        console.print()
+    return _run_app(Application(layout=Layout(HSplit([header, body, hint])), key_bindings=kb,
+                                full_screen=False, erase_when_done=erase))
 
 
 def select_one(title: str, options: Sequence[str], selected: str | None = None, allow_custom: bool = False) -> str:
@@ -398,6 +658,7 @@ def approval_prompt(label: str, detail: str, kind_label: str) -> str:
         body_text=shown + "\n",
         shortcuts={"y": 0, "a": 1, "n": 2},
         hint_text="↑↓ move · enter select · y allow · a allow for session · n deny",
+        erase=True,  # once answered, only the one-line result stays in the transcript
     )
     return ("allow", "session", "deny")[result if isinstance(result, int) else 2]
 
@@ -500,6 +761,68 @@ def show_tool_output(tool: str, output: str) -> None:
         console.print(Padding(Panel(Text(output), title=f"{tool} output", border_style=MUTED, title_align="left"), (0, 0, 0, 2)))
 
 
+def show_decision(choice: str, detail: str) -> None:
+    """One-line record of an approval answer (the menu itself erases)."""
+    color, word = {"allow": (SUCCESS, "Allowed"), "session": (SUCCESS, "Allowed for this session"),
+                   "deny": (WARNING, "Denied")}.get(choice, (MUTED, choice))
+    mark = "✓" if choice != "deny" else "✕"
+    console.print(f"{PAD}  [{color}]{mark} {word}[/] [{MUTED}]· {_escape(_short_args(detail, 90))}[/]")
+
+
+def show_edit_diff(old: str, new: str, agent: str = "main", limit: int = 6) -> None:
+    """Compact red/green preview of an edit_file change."""
+    pad = _indent(agent) + "     "
+    old_lines, new_lines = old.splitlines(), new.splitlines()
+    for line in old_lines[:limit]:
+        console.print(f"{pad}[{DANGER}]- {_escape(line[:110])}[/]", highlight=False)
+    if len(old_lines) > limit:
+        console.print(f"{pad}[{MUTED}]  … {len(old_lines) - limit} more removed[/]")
+    for line in new_lines[:limit]:
+        console.print(f"{pad}[{SUCCESS}]+ {_escape(line[:110])}[/]", highlight=False)
+    if len(new_lines) > limit:
+        console.print(f"{pad}[{MUTED}]  … {len(new_lines) - limit} more added (ctrl+o to expand)[/]")
+
+
+def show_tool_result_lines(output: str, agent: str = "main", lines: int = 3) -> None:
+    """First few lines of an output, with a hint to expand the rest."""
+    text = (output or "").strip() or "(no output)"
+    all_lines = text.splitlines()
+    pad = _indent(agent)
+    for index, line in enumerate(all_lines[:lines]):
+        prefix = "⎿  " if index == 0 else "   "
+        console.print(f"{pad}  [{MUTED}]{prefix}{_escape(line[:120])}[/]", highlight=False)
+    if len(all_lines) > lines:
+        console.print(f"{pad}     [{MUTED}]… +{len(all_lines) - lines} lines (ctrl+o to expand)[/]")
+
+
+def show_diff(diff: str, limit: int = 400) -> None:
+    """Colored git diff."""
+    lines = diff.splitlines()
+    console.print()
+    for line in lines[:limit]:
+        style = (SUCCESS if line.startswith("+") and not line.startswith("+++") else
+                 DANGER if line.startswith("-") and not line.startswith("---") else
+                 ACCENT if line.startswith("@@") else
+                 f"bold {TEXT}" if line.startswith(("diff --git", "+++", "---")) else MUTED)
+        console.print(f"{PAD}[{style}]{_escape(line)}[/]", highlight=False)
+    if len(lines) > limit:
+        console.print(f"{PAD}[{MUTED}]… {len(lines) - limit} more lines[/]")
+    console.print()
+
+
+def show_expanded(entries: list) -> None:
+    """Ctrl+O: full outputs of the last task's tool calls."""
+    if not entries:
+        notice("Nothing to expand yet.")
+        return
+    console.print()
+    for name, args, output in entries:
+        title = f"{name}  {_short_args(args, 90)}"
+        console.print(Padding(Panel(Text(output or "(no output)"), title=_escape(title), title_align="left",
+                                    border_style=MUTED, padding=(0, 1)), (0, 2, 0, 2)))
+    console.print()
+
+
 def show_tool_result_brief(output: str, agent: str = "main") -> None:
     first = (output or "").strip().splitlines()[:1]
     lines = len((output or "").splitlines())
@@ -538,11 +861,26 @@ def show_stream_chunk(text: str) -> None:
         console.print(text, end="")
 
 
-def show_done(elapsed: float, ok: bool = True) -> None:
-    """End-of-turn line: just how long it took, with breathing room around it."""
+def show_done(elapsed: float, ok: bool = True, report: dict | None = None) -> None:
+    """End-of-turn line: elapsed time plus what changed, with breathing room."""
+    report = report or {}
     mark = f"[{SUCCESS}]✓[/]" if ok else f"[{WARNING}]●[/]"
+    parts = [f"Done in {_fmt_elapsed(elapsed)}"]
+    files = report.get("files_changed") or []
+    if files:
+        parts.append(f"{len(files)} file{'s' if len(files) != 1 else ''} changed")
+    commands = int(report.get("commands") or 0)
+    if commands:
+        failed = int(report.get("commands_failed") or 0)
+        parts.append(f"{commands} command{'s' if commands != 1 else ''}" + (f" ({failed} failed)" if failed else ""))
+    helpers = int(report.get("helpers") or 0)
+    if helpers:
+        parts.append(f"{helpers} helper{'s' if helpers != 1 else ''}")
     console.print()
-    console.print(f"{PAD}{mark} [{MUTED}]Done in {_fmt_elapsed(elapsed)}[/]")
+    console.print(f"{PAD}{mark} [{MUTED}]{' · '.join(parts)}[/]")
+    if files:
+        shown = ", ".join(files[:8]) + (f" +{len(files) - 8} more" if len(files) > 8 else "")
+        console.print(f"{PAD}  [{MUTED}]{_escape(shown)}[/]")
     console.print()
 
 
