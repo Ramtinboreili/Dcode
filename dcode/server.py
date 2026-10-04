@@ -352,11 +352,14 @@ class Hub:
                 query = urllib.parse.parse_qs(parsed.query)
                 if parsed.path == "/" and query.get("token") and self._host_ok():
                     if hmac.compare_digest(query["token"][0], outer.token):
+                        nxt = (query.get("next") or ["/"])[0]
+                        if not nxt.startswith("/") or nxt.startswith("//"):
+                            nxt = "/"  # never redirect off this host
                         self.send_response(302)
                         self.send_header(
                             "Set-Cookie", f"{COOKIE}={outer.token}; Path=/; HttpOnly; SameSite=Strict"
                         )
-                        self.send_header("Location", "/")
+                        self.send_header("Location", nxt)
                         self.end_headers()
                         return
                 if parsed.path == "/static/logo.svg":
@@ -373,6 +376,8 @@ class Hub:
                     return self._raw(css_variables().encode(), "text/css")
                 if parsed.path.startswith("/static/"):
                     return self._static(parsed.path[len("/static/"):])
+                if parsed.path.startswith("/a/"):
+                    return self._static("artifact.html")  # standalone artifact page
                 if parsed.path.startswith("/api/s/"):
                     return outer._proxy(self, "GET", parsed)
                 return outer._api_get(self, parsed.path, query)
@@ -385,6 +390,9 @@ class Hub:
 
             def do_DELETE(self) -> None:
                 self._mutate("DELETE")
+
+            def do_PATCH(self) -> None:
+                self._mutate("PATCH")
 
             def _mutate(self, method: str) -> None:
                 # Custom header + SameSite cookie: a cross-site page can't forge this.
@@ -533,9 +541,17 @@ class Hub:
             record = ArtifactStore().get(urllib.parse.unquote(artifact_id))
             if record is None:
                 return handler._json({"error": "not found"}, 404)
+            store = ArtifactStore()
             if action == "raw":
                 return outer_download(handler, record)
-            data = ArtifactStore.meta(record) | {"content": record["content"]}
+            version = query.get("version", [""])[0]
+            content = record["content"]
+            if version.isdigit():
+                content = store.content_at(record, int(version))
+                if content is None:
+                    return handler._json({"error": "no such version"}, 404)
+            data = ArtifactStore.meta(record) | {"content": content, "history": store.versions(record),
+                                                 "shown_version": int(version) if version.isdigit() else None}
             return handler._json(data)
         return handler._json({"error": "not found"}, 404)
 
@@ -591,9 +607,30 @@ class Hub:
             name = normalize_name(urllib.parse.unquote(path.rsplit("/", 1)[1]))
             (skills_dir() / f"{name}.md").unlink(missing_ok=True)
             return handler._json({"ok": True})
-        if path.startswith("/api/artifacts/") and method == "DELETE":
-            ArtifactStore().delete(urllib.parse.unquote(path.rsplit("/", 1)[1]))
-            return handler._json({"ok": True})
+        if path == "/api/artifacts" and method == "POST":
+            meta = ArtifactStore().save(
+                str(body.get("title") or "Untitled"), str(body.get("content") or ""),
+                kind=str(body.get("kind") or ""), language=str(body.get("language") or ""),
+            )
+            return handler._json(meta)
+        if path.startswith("/api/artifacts/"):
+            artifact_id, _, action = urllib.parse.unquote(path[len("/api/artifacts/"):]).partition("/")
+            store = ArtifactStore()
+            if store.get(artifact_id) is None:
+                return handler._json({"error": "not found"}, 404)
+            if method == "DELETE" and not action:
+                store.delete(artifact_id)
+                return handler._json({"ok": True})
+            if method == "PATCH" and not action:
+                return handler._json(store.rename(artifact_id, str(body.get("title") or "")))
+            if method == "PUT" and action == "content":
+                record = store.get(artifact_id) or {}
+                return handler._json(store.save(record.get("title", ""), str(body.get("content") or ""),
+                                                artifact_id=artifact_id))
+            if method == "POST" and action == "restore":
+                return handler._json(store.restore(artifact_id, int(body.get("version") or 0)))
+            if method == "POST" and action == "duplicate":
+                return handler._json(store.duplicate(artifact_id))
         return handler._json({"error": "not found"}, 404)
 
     def _broadcast(self, path: str) -> int:
@@ -755,6 +792,11 @@ def ensure_hub(port: int = 0, wait: float = 8.0) -> str | None:
 
 def session_url(hub_url: str, session_id: str) -> str:
     return f"{hub_url}/?token={get_token()}#s={session_id}"
+
+
+def artifact_url(hub_url: str, artifact_id: str) -> str:
+    """Link to an artifact's own page; logs the browser in on first use."""
+    return f"{hub_url}/?token={get_token()}&next=/a/{urllib.parse.quote(artifact_id)}"
 
 
 __all__ = [

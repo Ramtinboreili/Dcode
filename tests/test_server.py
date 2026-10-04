@@ -198,3 +198,32 @@ def test_mode_and_undo_endpoints(stack):
     assert status == 200 and body["ok"] is False
     state = req(stack, "GET", f"/api/s/{sid}/state")[1]
     assert state["mode"] == "plan" and state["can_undo"] is False
+
+
+def test_artifact_management_api(stack):
+    status, meta, _ = req(stack, "POST", "/api/artifacts", {"title": "Notes", "kind": "markdown", "content": "# v1"})
+    assert status == 200 and meta["kind"] == "markdown"
+    aid = meta["id"]
+    assert req(stack, "PUT", f"/api/artifacts/{aid}/content", {"content": "# v2"})[1]["versions"] == 2
+    full = req(stack, "GET", f"/api/artifacts/{aid}")[1]
+    assert full["content"] == "# v2" and [v["version"] for v in full["history"]] == [1, 2]
+    assert req(stack, "GET", f"/api/artifacts/{aid}?version=1")[1]["content"] == "# v1"
+    assert req(stack, "POST", f"/api/artifacts/{aid}/restore", {"version": 1})[1]["versions"] == 3
+    assert req(stack, "GET", f"/api/artifacts/{aid}")[1]["content"] == "# v1"
+    assert req(stack, "PATCH", f"/api/artifacts/{aid}", {"title": "Renamed"})[1]["title"] == "Renamed"
+    dup = req(stack, "POST", f"/api/artifacts/{aid}/duplicate", {})[1]
+    assert dup["id"] != aid and dup["title"] == "Renamed (copy)"
+    assert req(stack, "PATCH", "/api/artifacts/nope-000000", {"title": "x"})[0] == 404
+
+
+def test_artifact_page_and_login_redirect(stack):
+    from dcode.artifacts import ArtifactStore
+
+    aid = ArtifactStore().save("Page", "<p>hi</p>", kind="html")["id"]
+    status, body, _ = req(stack, "GET", f"/a/{aid}")
+    assert status == 200 and b"artifact" in body.lower()
+    assert req(stack, "GET", f"/a/{aid}", cookie=False)[0] == 401
+    status, _, resp = req(stack, "GET", f"/?token={stack['token']}&next=/a/{aid}", cookie=False)
+    assert status == 302 and resp.getheader("Location") == f"/a/{aid}"
+    status, _, resp = req(stack, "GET", f"/?token={stack['token']}&next=//evil.example", cookie=False)
+    assert resp.getheader("Location") == "/"  # no open redirect

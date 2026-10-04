@@ -142,6 +142,47 @@ class ArtifactStore:
         items.sort(key=lambda m: m.get("updated", ""), reverse=True)
         return items
 
+    def versions(self, record: dict[str, Any]) -> list[dict[str, Any]]:
+        """Version list, oldest first; the last entry is the current content."""
+        history = record.get("history") or []
+        items = [{"version": i + 1, "updated": h.get("updated", ""), "size": len(h.get("content", ""))}
+                 for i, h in enumerate(history)]
+        items.append({"version": len(history) + 1, "updated": record.get("updated", ""),
+                      "size": len(record.get("content", "")), "current": True})
+        return items
+
+    def content_at(self, record: dict[str, Any], version: int) -> str | None:
+        history = record.get("history") or []
+        if 1 <= version <= len(history):
+            return history[version - 1].get("content", "")
+        if version == len(history) + 1:
+            return record.get("content", "")
+        return None
+
+    def rename(self, artifact_id: str, title: str) -> dict[str, Any]:
+        record = self.get(artifact_id)
+        if record is None:
+            raise ValueError("artifact not found")
+        record["title"] = title.strip() or record["title"]
+        write_private_json(self._path(artifact_id), record)
+        return self.meta(record)
+
+    def restore(self, artifact_id: str, version: int) -> dict[str, Any]:
+        record = self.get(artifact_id)
+        if record is None:
+            raise ValueError("artifact not found")
+        content = self.content_at(record, version)
+        if content is None:
+            raise ValueError(f"no version {version}")
+        return self.save(record["title"], content, artifact_id=artifact_id)
+
+    def duplicate(self, artifact_id: str) -> dict[str, Any]:
+        record = self.get(artifact_id)
+        if record is None:
+            raise ValueError("artifact not found")
+        return self.save(f"{record['title']} (copy)", record["content"], kind=record["kind"],
+                         language=record.get("language", ""), cwd=record.get("cwd", ""), thread=record.get("thread", ""))
+
     def delete(self, artifact_id: str) -> bool:
         try:
             path = self._path(artifact_id)
