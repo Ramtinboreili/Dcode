@@ -130,3 +130,22 @@ def test_allow_for_session_skips_later_prompts():
         assert any(e["type"] == "approval_auto" for e in session.bus.since(0))
     finally:
         session.close()
+
+
+def test_first_message_names_the_chat():
+    from dcode.session import clean_title, heuristic_title
+
+    assert heuristic_title("please can you fix the nginx ansible inventory and rerun it") == "Fix the nginx ansible inventory and"
+    assert clean_title('Title: "Fix Nginx Inventory".') == "Fix Nginx Inventory"
+    assert clean_title("way too long " * 10) == ""
+
+    session = _session(scripted(AssistantTurn(content="hi")))
+    session.llm.complete_text = lambda messages, max_tokens=60: "- Deploy Pipeline Overview"
+    try:
+        session.submit("hey, explain the deploy pipeline")
+        assert _wait(lambda: session.thread_name == "Deploy Pipeline Overview")
+        titles = [e["name"] for e in session.bus.since(0) if e["type"] == "thread" and e["action"] == "title"]
+        assert titles[0] == "Explain the deploy pipeline"  # instant heuristic first, model title after
+        assert _wait(lambda: session.idle)
+    finally:
+        session.close()

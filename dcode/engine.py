@@ -22,12 +22,13 @@ from typing import Any, Protocol
 from . import agents as roles
 from .artifacts import ArtifactStore
 from .config import AppConfig
-from .context import SUMMARY_INSTRUCTIONS, ContextBudget, compact
+from .context import SUMMARY_INSTRUCTIONS, SUMMARY_PREFIX, ContextBudget, compact, render_for_summary
 from .llm import Interrupted, LLMClient
 from .memory import MemoryStore
 from .skills import get_skill, list_skills, normalize_name, save_skill
 from .tools import (
     TOOL_SCHEMAS,
+    _safe_path,
     _truncate,
     allowed_tool_names,
     configure_limits,
@@ -105,12 +106,18 @@ class Agent:
         self._repeat: list[str] = []
         configure_limits(config.context_window)
         self.artifacts = ArtifactStore()
+        self.checkpoints = getattr(host, "checkpoints", None)
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": self.system_prompt()}]
 
     # --- prompt & tools -------------------------------------------------------------
     @property
     def is_main(self) -> bool:
         return self.role == "main"
+
+    @property
+    def mode(self) -> str:
+        mode = getattr(self.host, "mode", None)
+        return mode if mode in roles.MODES else roles.DEFAULT_MODE
 
     def tool_names(self) -> list[str]:
         allowed = allowed_tool_names(self.config.permissions)
@@ -124,10 +131,13 @@ class Agent:
             if self.config.artifacts.get("enabled", True):
                 names += roles.ARTIFACT_TOOL_NAMES
             names += roles.SKILL_TOOL_NAMES
-            return names
-        wanted = roles.ROLE_TOOLS.get(self.role, roles.ROLE_TOOLS["explore"])
-        ungated = {n for n in roles.UNGATED_TOOLS if n != "memory_search" or memory_on}
-        return [n for n in wanted if n in allowed or n in ungated]
+        else:
+            wanted = roles.ROLE_TOOLS.get(self.role, roles.ROLE_TOOLS["explore"])
+            ungated = {n for n in roles.UNGATED_TOOLS if n != "memory_search" or memory_on}
+            names = [n for n in wanted if n in allowed or n in ungated]
+        if self.mode == "plan":
+            names = [n for n in names if n not in roles.PLAN_BLOCKED_TOOLS]
+        return names
 
     def tools(self) -> list[dict[str, Any]]:
         schemas = []
@@ -167,6 +177,8 @@ class Agent:
                 parts.append(f"Memories relevant to the current task:\n{self.recalled}")
         if self.config.artifacts.get("enabled", True):
             parts.append(roles.ARTIFACT_PROMPT)
+        if self.mode == "plan":
+            parts.append(roles.PLAN_PROMPT)
         skills = self._skills_block(max_chars=int(window * 3.5 * 0.05))
         if skills:
             parts.append(skills)
@@ -215,6 +227,9 @@ class Agent:
         max_steps = max_steps or (MAIN_MAX_STEPS if self.is_main else int(self.config.agents.get("max_steps", 16)))
         self.current_task = user_text
         self._repeat = []
+        self._activity = {"files": [], "commands": 0, "commands_failed": 0, "helpers": 0, "artifacts": []}
+        if self.is_main and self.checkpoints is not None:
+            self.checkpoints.begin(user_text)
 
         if self.is_main and self.memory is not None and self.config.memory.get("auto_recall", True):
             budget_chars = int(self.config.memory.get("budget_tokens", 1200) * 3.5)
@@ -271,6 +286,8 @@ class Agent:
             self._run_tool_calls(turn.tool_calls)
             steps += 1
 
+        if self.is_main and not final and (steps or self._activity["files"] or self._activity["commands"]):
+            final = self._final_report(usage)
         elapsed = time.perf_counter() - started
         self.host.emit("assistant_message", agent=self.agent_id, text=final)
         self.host.emit(
@@ -280,9 +297,126 @@ class Agent:
             elapsed=round(elapsed, 2),
             context_used=self.budget.usage(self.messages, self.tools()),
             context_window=self.config.context_window,
+            files_changed=list(self._activity["files"]),
+            commands=self._activity["commands"],
+            commands_failed=self._activity["commands_failed"],
+            helpers=self._activity["helpers"],
             **usage,
         )
         return TurnResult(text=final, usage=usage, elapsed=elapsed, steps=steps)
+
+    REPORT_REQUEST = (
+        "The work is finished. Write a short report for the user (no tool calls): what you did, "
+        "files changed, commands you ran and their outcome, the current status, and anything left to do."
+    )
+
+    def _final_report(self, usage: dict[str, int]) -> str:
+        """The model stopped without summarizing: ask once, else build a factual report."""
+        self.messages.append({"role": "user", "content": self.REPORT_REQUEST})
+        try:
+            turn = self.llm.chat(self.messages, tools=None, should_stop=self.host.should_stop,
+                                 max_tokens=self.budget.max_output_tokens)
+            for key in usage:
+                usage[key] += turn.usage.get(key, 0)
+            text = turn.content.strip()
+        except Interrupted:
+            raise
+        except Exception:
+            text = ""
+        if text:
+            self.messages.append({"role": "assistant", "content": text})
+            return text
+        self.messages.pop()  # drop the unanswered request
+        activity = self._activity
+        lines = ["**Report**"]
+        if activity["files"]:
+            lines.append("- Files changed: " + ", ".join(f"`{f}`" for f in activity["files"]))
+        if activity["commands"]:
+            failed = activity["commands_failed"]
+            lines.append(f"- Commands run: {activity['commands']}" + (f" ({failed} failed)" if failed else ""))
+        if activity["helpers"]:
+            lines.append(f"- Helpers used: {activity['helpers']}")
+        if activity["artifacts"]:
+            lines.append("- Artifacts: " + ", ".join(activity["artifacts"]))
+        lines.append("- The model did not write a summary; review the steps above for details.")
+        report = "\n".join(lines)
+        self.messages.append({"role": "assistant", "content": report})
+        return report
+
+    def _track(self, name: str, args: dict[str, Any], output: str) -> None:
+        """Remember what a turn actually changed, for the end-of-task report."""
+        activity = getattr(self, "_activity", None)
+        if activity is None:
+            return
+        path = str(args.get("path") or "")
+        ok_prefix = {"write_file": "Wrote", "edit_file": "Edited", "delete_file": "Deleted",
+                     "create_directory": "Created"}.get(name)
+        if ok_prefix and output.startswith(ok_prefix) and path:
+            try:
+                shown = str(Path(path).expanduser().resolve().relative_to(workspace_root()))
+            except (ValueError, OSError):
+                shown = path
+            if shown not in activity["files"]:
+                activity["files"].append(shown)
+        elif name == "run_command" and not output.startswith("Command cancelled"):
+            activity["commands"] += 1
+            if "(return code:" in output or output.startswith("Command timed out"):
+                activity["commands_failed"] += 1
+        elif name == "delegate":
+            activity["helpers"] += 1
+        elif name == "artifact_save" and output.startswith("Saved artifact"):
+            activity["artifacts"].append(str(args.get("title") or "artifact"))
+
+    def _checkpoint(self, path: str) -> None:
+        if self.checkpoints is None or not path:
+            return
+        try:
+            self.checkpoints.record(_safe_path(path))
+        except Exception:
+            pass  # sandbox violations are reported by the tool itself
+
+    @staticmethod
+    def _edit_detail(name: str, args: dict[str, Any]) -> str:
+        """What the user sees when asked to approve a file change (manual mode)."""
+        path = str(args.get("path", ""))
+        if name == "edit_file":
+            old = str(args.get("old_text", "")).splitlines()[:8]
+            new = str(args.get("new_text", "")).splitlines()[:8]
+            return "\n".join([f"edit {path}"] + [f"- {line}" for line in old] + [f"+ {line}" for line in new])
+        if name == "write_file":
+            content = str(args.get("content", ""))
+            return f"write {path} ({len(content.splitlines())} lines)"
+        return f"create folder {path}"
+
+    def force_compact(self, focus: str = "") -> dict[str, Any] | None:
+        """/compact: fold the whole conversation into one summary to free the context."""
+        history = self.messages[1:]
+        if len([m for m in history if m.get("role") == "user"]) < 1:
+            return None
+        before = self.budget.usage(self.messages, self.tools())
+        instructions = SUMMARY_INSTRUCTIONS + (f" Pay special attention to: {focus}." if focus else "")
+        transcript = render_for_summary(history, limit_chars=int(self.budget.input_budget * 3.5 * 0.7))
+        try:
+            summary = self.llm.complete_text(
+                [{"role": "system", "content": instructions}, {"role": "user", "content": transcript}],
+                max_tokens=min(900, self.budget.max_output_tokens),
+            ).strip()
+        except Exception:
+            summary = ""
+        if not summary:
+            summary = "\n".join(
+                f"- {m['content'][:200]}" for m in history
+                if m.get("role") == "user" and isinstance(m.get("content"), str)
+            )[:2500]
+        self.messages[1:] = [
+            {"role": "user", "content": f"{SUMMARY_PREFIX}\n{summary}"},
+            {"role": "assistant", "content": "Understood. Continuing from the summary."},
+        ]
+        self.refresh_system_message()
+        after = self.budget.usage(self.messages, self.tools())
+        self.host.emit("compaction", agent=self.agent_id, before=before, after=after, elided=0, summarized=True)
+        self.host.emit("summary", agent=self.agent_id, text=summary)
+        return {"before": before, "after": after, "summary": summary}
 
     def _dedupe_call_ids(self, calls: list[dict[str, Any]]) -> None:
         """Some local servers reuse ids like 'call_0' every turn; make them unique.
@@ -362,6 +496,7 @@ class Agent:
     def _record(self, call: dict[str, Any], output: str) -> None:
         function = call.get("function") or {}
         name = function.get("name", "")
+        self._track(name, parse_arguments(function.get("arguments")), output)
         if name in COMPACT_ARG_TOOLS:
             # The big payload now lives on disk; keep only a stub in context.
             args = parse_arguments(function.get("arguments"))
@@ -460,16 +595,22 @@ class Agent:
                 return "(no matching memories)"
             return _truncate("\n\n".join(f"### {m.name} ({m.scope})\n{m.body}" for m in hits), 6000)
 
-        if name == "run_command" and not experimental.get("auto_approve_commands"):
+        mode = self.mode
+        if mode == "plan" and name in roles.PLAN_BLOCKED_TOOLS:
+            return f"Plan mode: {name} is disabled. Finish the plan and ask the user to approve it."
+        auto = mode == "auto"
+
+        if name == "run_command":
             command = str(args.get("command", ""))
-            if not self._approve("run_command", command):
+            if not (auto or experimental.get("auto_approve_commands")) and not self._approve("run_command", command):
                 return "Command cancelled by user."
             return execute_tool(name, args)
 
         if name == "delete_file":
             target = str(args.get("path", ""))
-            if not self._approve("delete_file", target):
+            if not auto and not self._approve("delete_file", target):
                 return f"Deletion cancelled by user for {target}"
+            self._checkpoint(target)
             return execute_tool(name, args)
 
         if name == "git_commit":
@@ -477,11 +618,16 @@ class Agent:
             if not experimental.get("auto_commit") and not explicit:
                 return "git_commit blocked: auto_commit is disabled and the user did not explicitly request a commit."
             message = str(args.get("message", ""))
-            if not self._approve("git_commit", message):
+            if not auto and not self._approve("git_commit", message):
                 return "Git commit cancelled by user."
             output = execute_tool(name, args)
             self.git = git_summary()
             return output
+
+        if name in ("write_file", "edit_file", "create_directory"):
+            if mode == "manual" and not self._approve("edit_file", self._edit_detail(name, args)):
+                return f"{name} cancelled by user for {args.get('path', '')}"
+            self._checkpoint(str(args.get("path", "")))
 
         output = execute_tool(name, args)
         if name in ("write_file", "edit_file") and experimental.get("auto_commit") and self.is_main:
@@ -497,6 +643,8 @@ class Agent:
             return "Sub-agents cannot delegate further."
         if role not in roles.ROLE_TOOLS:
             role = "explore"
+        if self.mode == "plan" and role not in roles.PARALLEL_SAFE_ROLES:
+            return "Plan mode: only explore and review helpers are available until the plan is approved."
         if not task.strip():
             return "delegate needs a non-empty task."
         agent_id = f"{role}-{next(_agent_counter)}"
@@ -524,6 +672,8 @@ class NullHost:
         self._approve = approve
         self._lock = threading.Lock()
         self.stop = False
+        self.mode = roles.DEFAULT_MODE
+        self.checkpoints = None
 
     def emit(self, type: str, **data: Any) -> None:
         with self._lock:

@@ -159,3 +159,40 @@ def test_reused_tool_call_ids_are_made_unique(isolated):
     agent.run_turn("read both")
     ids = [m["tool_call_id"] for m in agent.messages if m["role"] == "tool"]
     assert len(ids) == len(set(ids)) == 2
+
+
+def test_silent_finish_gets_a_model_written_report(isolated):
+    (isolated / "a.txt").write_text("x")
+    agent, llm = _agent(scripted(
+        AssistantTurn(tool_calls=[call("edit_file", '{"path": "a.txt", "old_text": "x", "new_text": "y"}')]),
+        AssistantTurn(content=""),            # silent stop
+        AssistantTurn(content=""),            # still silent after the nudge
+        AssistantTurn(content="Changed a.txt from x to y."),  # answers the report request
+    ))
+    result = agent.run_turn("change x to y")
+    assert result.text == "Changed a.txt from x to y."
+    usage = [e for e in agent.host.events if e["type"] == "usage"][-1]
+    assert usage["files_changed"] == ["a.txt"]
+
+
+def test_fallback_report_when_model_stays_silent(isolated):
+    (isolated / "a.txt").write_text("x")
+    agent, _ = _agent(scripted(
+        AssistantTurn(tool_calls=[call("edit_file", '{"path": "a.txt", "old_text": "x", "new_text": "y"}')]),
+        AssistantTurn(content=""), AssistantTurn(content=""), AssistantTurn(content=""),
+    ))
+    result = agent.run_turn("change x to y")
+    assert "Report" in result.text and "`a.txt`" in result.text
+    # History stays valid: the unanswered report request was removed, the report recorded.
+    assert agent.messages[-1] == {"role": "assistant", "content": result.text}
+
+
+def test_activity_counts_commands_and_failures(isolated):
+    agent, _ = _agent(scripted(
+        AssistantTurn(tool_calls=[call("run_command", '{"command": "true"}', "c1")]),
+        AssistantTurn(tool_calls=[call("run_command", '{"command": "false"}', "c2")]),
+        AssistantTurn(content="done"),
+    ), experimental={"auto_approve_commands": True, "auto_commit": False, "multi_file_edit": False, "streaming_tools": False})
+    agent.run_turn("run things")
+    usage = [e for e in agent.host.events if e["type"] == "usage"][-1]
+    assert usage["commands"] == 2 and usage["commands_failed"] == 1

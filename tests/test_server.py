@@ -187,3 +187,14 @@ def test_guide_is_public_and_bilingual(stack):
     status, body, _ = req(stack, "GET", "/guide", cookie=False)
     assert status == 200 and b'lang="fa"' in body and "راهنمای Dcode".encode() in body
     assert req(stack, "GET", "/guide", cookie=False, host="evil.example")[0] != 200
+
+
+def test_mode_and_undo_endpoints(stack):
+    sid = stack["session"].id
+    status, body, _ = req(stack, "POST", f"/api/s/{sid}/mode", {"mode": "plan"})
+    assert status == 200 and body["mode"] == "plan" and stack["session"].mode == "plan"
+    assert req(stack, "POST", f"/api/s/{sid}/mode", {"mode": "bogus"})[0] == 409
+    status, body, _ = req(stack, "POST", f"/api/s/{sid}/undo", {})
+    assert status == 200 and body["ok"] is False
+    state = req(stack, "GET", f"/api/s/{sid}/state")[1]
+    assert state["mode"] == "plan" and state["can_undo"] is False

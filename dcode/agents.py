@@ -12,6 +12,24 @@ from __future__ import annotations
 from .tools import READ_ONLY_TOOL_NAMES
 
 MEMORY_TOOL_NAMES = ["memory_save", "memory_search"]
+
+# Permission modes (cycle with Shift+Tab in the terminal).
+MODES = ["accept_edits", "auto", "plan", "manual"]
+DEFAULT_MODE = "accept_edits"
+MODE_LABELS = {
+    "manual": "manual — ask before every edit and command",
+    "accept_edits": "accept edits — edit freely, ask before commands",
+    "auto": "auto — never ask",
+    "plan": "plan — read-only, propose a plan first",
+}
+MODE_SHORT = {"manual": "manual mode", "accept_edits": "accept edits", "auto": "auto mode", "plan": "plan mode"}
+FILE_CHANGE_TOOLS = {"write_file", "edit_file", "create_directory", "delete_file"}
+PLAN_BLOCKED_TOOLS = FILE_CHANGE_TOOLS | {"run_command", "git_commit"}
+PLAN_PROMPT = (
+    "PLAN MODE is on: you must not modify files or run commands (those tools are disabled). "
+    "Investigate with read-only tools (and explore/review helpers), then present a concise, numbered plan: "
+    "goal, files to change and how, commands to run, risks. End by asking the user to approve the plan."
+)
 ARTIFACT_TOOL_NAMES = ["artifact_save", "artifact_get"]
 SKILL_TOOL_NAMES = ["skill_use", "skill_save"]
 # Tools a sub-agent may get even though no permission switch governs them.
@@ -74,7 +92,9 @@ MAIN_PROMPT = """You are Dcode, an expert coding agent in the user's terminal. W
 Rules:
 - Use tools; never guess file contents. Read only the line ranges you need.
 - Change files with edit_file (exact old_text). Use write_file only for new files.
-- Keep replies short. When finished, state what changed and how it was verified."""
+- Keep replies short while working.
+- When the task is done, ALWAYS end with a short report for the user:
+  what you did, files changed, commands run and their results, and anything left to do."""
 
 DELEGATION_PROMPT = """Your context is small (~{window} tokens), so delegate with the `delegate` tool:
 {roles}

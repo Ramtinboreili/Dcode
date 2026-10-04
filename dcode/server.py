@@ -264,6 +264,21 @@ class SessionServer:
             return None
         if path == "/reload":
             return {"ok": session.reload_config()}
+        if path == "/mode":
+            try:
+                session.set_mode(str(body.get("mode") or ""), source="web")
+            except ValueError as exc:
+                raise RuntimeError(str(exc)) from exc
+            return {"ok": True, "mode": session.mode}
+        if path == "/plan":
+            session.resolve_plan(str(body.get("decision") or "keep"), source="web")
+            return None
+        if path == "/compact":
+            session.compact(str(body.get("focus") or ""), source="web")
+            return None
+        if path == "/undo":
+            result = session.undo()
+            return {"ok": bool(result), "files": result[1] if result else []}
         raise RuntimeError(f"unknown command {path}")
 
 

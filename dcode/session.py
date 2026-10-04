@@ -10,13 +10,17 @@ from __future__ import annotations
 import collections
 import os
 import queue
+import re
 import threading
 import time
 import uuid
 from collections.abc import Callable
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
+from .agents import DEFAULT_MODE, MODES
+from .checkpoints import CheckpointStore
 from .config import AppConfig, load_config, load_thread, save_thread, thread_path, threads_dir
 from .context import ContextBudget
 from .engine import Agent, git_summary
@@ -25,6 +29,32 @@ from .memory import MemoryStore
 from .tools import _truncate, configure_limits, workspace_root
 
 EVENT_BUFFER = 4000
+TITLE_PROMPT = (
+    "Write a short title (2-6 words) for a coding chat that starts with the user's message below. "
+    "Reply with the title only: no quotes, no punctuation at the end. Use the same language as the message."
+)
+_FILLER = re.compile(r"^(please|pls|can you|could you|would you|hey|hi|hello|dcode)[\s,:]+", re.IGNORECASE)
+
+
+def heuristic_title(text: str, max_words: int = 6, max_chars: int = 48) -> str:
+    line = next((ln.strip() for ln in text.splitlines() if ln.strip()), "New chat")
+    line = re.sub(r"https?://\S+|`[^`]*`", "", line)
+    previous = None
+    while previous != line:
+        previous, line = line, _FILLER.sub("", line).strip()
+    words = line.split()[:max_words]
+    title = " ".join(words).strip(" .,:;!?-") or "New chat"
+    if len(title) > max_chars:
+        title = title[:max_chars].rsplit(" ", 1)[0]
+    return title[:1].upper() + title[1:]
+
+
+def clean_title(text: str) -> str:
+    line = next((ln.strip() for ln in (text or "").splitlines() if ln.strip()), "")
+    line = re.sub(r"^(title\s*:\s*)", "", line, flags=re.IGNORECASE).strip().lstrip("-*•").strip(" .\"'`*#“”«»")
+    if not line or len(line) > 60 or len(line.split()) > 8:
+        return ""
+    return line
 Listener = Callable[[dict[str, Any]], None]
 
 
@@ -113,6 +143,9 @@ class Session:
         self.memory = MemoryStore(workspace_root())
         self.bus = EventBus()
         self.git = git_summary()
+        self.mode = "auto" if config.experimental.get("auto_approve_commands") else DEFAULT_MODE
+        self.checkpoints = CheckpointStore()
+        self.plan_pending = False
         self.agent = Agent(config, self.llm, self, self.memory, git=self.git)
         self.thread_name = self._timestamp()
         self.thread_created_at = datetime.now(timezone.utc).isoformat()
@@ -178,6 +211,79 @@ class Session:
         if text:
             self._queue.put(("task", text, source))
             self._notify_attention()
+
+    # --- modes, plans, compaction, undo, git ----------------------------------------
+    def set_mode(self, mode: str, source: str = "cli") -> None:
+        if mode not in MODES:
+            raise ValueError(f"unknown mode {mode!r}; choose from {', '.join(MODES)}")
+        if mode == self.mode:
+            return
+        self.mode = mode
+        if mode != "plan":
+            self.plan_pending = False
+        self.agent.refresh_system_message()
+        self.emit("mode", mode=mode, by=source)
+
+    def cycle_mode(self, source: str = "cli") -> str:
+        self.set_mode(MODES[(MODES.index(self.mode) + 1) % len(MODES)], source)
+        return self.mode
+
+    def resolve_plan(self, decision: str, source: str = "cli") -> None:
+        """After a plan-mode answer: 'accept_edits' / 'manual' / 'auto' runs it, 'keep' stays in plan mode."""
+        if not self.plan_pending:
+            return
+        self.plan_pending = False
+        self.emit("plan_resolved", decision=decision, by=source)
+        if decision in ("accept_edits", "manual", "auto"):
+            self.set_mode(decision, source)
+            self.submit("The plan is approved. Implement it now, step by step.", source=source)
+
+    def compact(self, focus: str = "", source: str = "cli") -> None:
+        self._queue.put(("compact", focus, source))
+        self._notify_attention()
+
+    def undo(self) -> tuple[str, list[str]] | None:
+        if self.busy:
+            raise RuntimeError("Dcode is busy. Stop the current task first.")
+        result = self.checkpoints.undo()
+        if result is None:
+            return None
+        label, paths = result
+        shown = [self._rel(p) for p in paths]
+        # Tell the model, so it doesn't assume its edits are still there.
+        self.agent.messages.append({"role": "user", "content": (
+            f"[The user undid your changes from the task \"{label}\". These files are back to their "
+            f"previous state: {', '.join(shown)}]")})
+        self.agent.messages.append({"role": "assistant", "content": "Noted — those changes were reverted."})
+        self.emit("undo", label=label, files=shown)
+        self.save()
+        return label, shown
+
+    def suggest_commit_message(self) -> str:
+        from .tools import execute_tool
+
+        diff = execute_tool("git_diff", {})
+        status = execute_tool("git_status", {})
+        if diff in ("", "(no output)") and "??" not in status:
+            return ""
+        prompt = ("Write a git commit message for these changes: a concise imperative subject line "
+                  "(max 70 chars), optionally a blank line and 1-4 bullet points. Reply with the message only.")
+        try:
+            text = self.llm.complete_text(
+                [{"role": "system", "content": prompt},
+                 {"role": "user", "content": _truncate(f"{status}\n\n{diff}", int(self.config.context_window * 3.5 * 0.5))}],
+                max_tokens=200,
+            ).strip().strip("`")
+        except Exception:
+            text = ""
+        return text or "Update files"
+
+    @staticmethod
+    def _rel(path: str) -> str:
+        try:
+            return str(Path(path).resolve().relative_to(workspace_root()))
+        except ValueError:
+            return path
 
     def review(self, source: str = "cli") -> None:
         self._queue.put(("review", "", source))
@@ -287,6 +393,9 @@ class Session:
             "seq": self.bus.seq,
             "git": self.git,
             "agents_enabled": bool(self.config.agents.get("enabled", True)),
+            "mode": self.mode,
+            "plan_pending": self.plan_pending,
+            "can_undo": self.checkpoints.latest() is not None,
         }
 
     def save(self) -> None:
@@ -345,10 +454,26 @@ class Session:
             self.emit("status", busy=True)
             try:
                 if kind == "task":
+                    first = not any(m.get("role") == "user" for m in self.agent.messages)
                     self.emit("user_message", text=payload, source=source)
+                    if first and self._default_name():
+                        self._auto_title(payload)
+                    self.plan_pending = False
                     self.agent.run_turn(payload)
+                    if self.mode == "plan":
+                        self.plan_pending = True
+                        self.emit("plan_ready")
                 elif kind == "review":
                     self._run_review(source)
+                elif kind == "compact":
+                    self.emit("user_message", text="/compact" + (f" {payload}" if payload else ""), source=source)
+                    report = self.agent.force_compact(payload)
+                    if report is None:
+                        self.emit("notice", level="info", text="Nothing to compact yet")
+                    else:
+                        self.emit("notice", level="success", text=(
+                            f"Compacted the conversation: ~{report['before']:,} → ~{report['after']:,} tokens. "
+                            "The summary was saved to memory."))
             except Interrupted:
                 self._repair_history()
                 self.emit("notice", level="warning", text="Task interrupted")
@@ -368,6 +493,38 @@ class Session:
                     pass
                 self.emit("status", busy=False)
                 self._notify_attention()
+
+    def _default_name(self) -> bool:
+        return bool(re.fullmatch(r"\d{8}-\d{6}", self.thread_name))
+
+    def _set_title(self, title: str) -> None:
+        title = title.strip()
+        if not title or title == self.thread_name:
+            return
+        old = thread_path(self.thread_name)
+        self.thread_name = title
+        if old.exists() and old != thread_path(title):
+            old.unlink()
+        self.emit("thread", name=title, action="title")
+
+    def _auto_title(self, first_message: str) -> None:
+        """Name the chat after its first message: instant heuristic, then a model-written title."""
+        self._set_title(heuristic_title(first_message))
+        expected = self.thread_name
+
+        def refine() -> None:
+            try:
+                text = self.llm.complete_text(
+                    [{"role": "system", "content": TITLE_PROMPT}, {"role": "user", "content": first_message[:1500]}],
+                    max_tokens=60,
+                )
+            except Exception:
+                return
+            title = clean_title(text)
+            if title and self.thread_name == expected and not self._closed.is_set():
+                self._set_title(title)
+
+        threading.Thread(target=refine, name="dcode-title", daemon=True).start()
 
     def _repair_history(self) -> None:
         """Answer any tool calls left dangling by an interrupt so history stays valid."""
