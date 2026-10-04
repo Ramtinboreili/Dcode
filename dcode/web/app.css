@@ -512,6 +512,18 @@ a.sb-link { text-decoration: none; }
 .art-tile-body .art-meta { min-width: 0; }
 .art-tile-body .icon-btn { width: 28px; height: 28px; padding: 6px; margin: -2px -4px 0 auto; }
 
+/* modes */
+.composer { border-color: color-mix(in srgb, var(--mode, var(--primary)) 45%, var(--border-strong)); }
+.composer:focus-within { border-color: color-mix(in srgb, var(--mode, var(--primary)) 70%, var(--border-strong)); box-shadow: var(--shadow), 0 0 0 4px color-mix(in srgb, var(--mode, var(--primary)) 14%, transparent); }
+.mode-wrap { position: relative; }
+.mode-chip { gap: 7px; }
+.mode-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
+.mode-menu { top: auto; bottom: calc(100% + 8px); min-width: 300px; }
+.mode-menu .menu-item { align-items: flex-start; }
+.mode-menu .mode-dot { margin-top: 7px; }
+.plan-card { border-color: color-mix(in srgb, #8B5CF6 40%, var(--border)); background: color-mix(in srgb, #8B5CF6 7%, var(--surface)); }
+.plan-card .approval-head .i { color: #8B5CF6; }
+
 /* model menu search */
 .menu-search { display: flex; align-items: center; gap: 8px; margin: 2px 2px 6px; padding: 0 10px; height: 36px; border-radius: 10px; background: var(--surface-2); color: var(--muted); }
 .menu-search .i { width: 15px; height: 15px; }

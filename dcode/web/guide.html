@@ -189,7 +189,7 @@ footer.foot { margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--b
     <svg viewBox="0 0 64 40" class="mark" aria-hidden="true"><path class="frame" d="M11 2H53L62 11V29L53 38H11L2 29V11Z"/><path class="glyph" d="M14 12H19.5C25 12 28 15.6 28 20C28 24.4 25 28 19.5 28H14Z"/><path class="glyph" d="M33 14L39 20L33 26"/><rect class="cursor" x="42" y="25" width="8" height="3.4" rx="1.7"/></svg>
     <h1>The Dcode guide</h1>
     <p class="lead">Dcode is a coding agent that runs in your terminal, with a matching web UI. It works with your own local or private LLMs, and it's built for models with small context windows (32K or less). This guide covers installing it, connecting a model, and day-to-day use.</p>
-    <div class="badges"><span class="badge blue">v0.2</span><span class="badge">Air-gapped friendly</span><span class="badge">Terminal + Web UI</span><span class="badge">Any OpenAI-compatible server</span></div>
+    <div class="badges"><span class="badge blue">v0.2.1</span><span class="badge">Air-gapped friendly</span><span class="badge">Terminal + Web UI</span><span class="badge">Any OpenAI-compatible server</span></div>
   </section>
 
   <h2 id="en-what"><span class="num">1</span>What Dcode does</h2>
@@ -209,8 +209,8 @@ make mac PYTHON=.venv/bin/python      <span class="c"># installs /opt/homebrew/b
 dcode --version</pre></div>
   <h3>Linux servers (air-gapped)</h3>
   <p>Build on a <strong>connected</strong> machine with the same OS and CPU as the target (PyInstaller doesn't cross-compile), then copy two files over:</p>
-  <div class="code"><div class="bar"><span>shell — build machine</span><button>Copy</button></div><pre>make deb      <span class="c"># → dist/dcode and dist/dcode_0.2.0_&lt;arch&gt;.deb</span></pre></div>
-  <div class="code"><div class="bar"><span>shell — air-gapped server</span><button>Copy</button></div><pre>sudo ./install-airgap.sh dcode_0.2.0_amd64.deb   <span class="c"># Debian / Ubuntu</span>
+  <div class="code"><div class="bar"><span>shell — build machine</span><button>Copy</button></div><pre>make deb      <span class="c"># → dist/dcode and dist/dcode_0.2.1_&lt;arch&gt;.deb</span></pre></div>
+  <div class="code"><div class="bar"><span>shell — air-gapped server</span><button>Copy</button></div><pre>sudo ./install-airgap.sh dcode_0.2.1_amd64.deb   <span class="c"># Debian / Ubuntu</span>
 sudo ./install-airgap.sh ./dcode                 <span class="c"># any Linux, copies to /usr/local/bin</span></pre></div>
   <div class="callout tip"><span class="ic">💡</span><p>For a build machine without internet, pre-download wheels and run <code>PIP_ARGS="--no-index --find-links ./wheels" make binary</code>.</p></div>
   <h3>From source (any OS with Python 3.10+)</h3>
@@ -233,8 +233,10 @@ dcode</pre></div>
   <h2 id="en-terminal"><span class="num">4</span>Using the terminal</h2>
   <p>Open a terminal in your project folder and run <code>dcode</code>. The welcome panel shows the model, folder and a <strong>web UI link</strong>. Type what you want and press <kbd>Enter</kbd>.</p>
   <ul>
-    <li>Each step shows as a line such as <code>⏺ read_file app.py</code>, and each reply ends with <code>✓ Done in 3.2s</code>.</li>
-    <li>Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to stop the current task. Your chat stays intact.</li>
+    <li>Each step shows as a line such as <code>⏺ read_file app.py</code>. When a task finishes, Dcode writes a short <strong>report</strong> (what it did, files changed, commands run), followed by <code>✓ Done in 3.2s · 2 files changed · 3 commands</code>.</li>
+    <li>The input box grows as you type. Press <kbd>Enter</kbd> to send; <kbd>⌥ Option</kbd>/<kbd>Alt</kbd>+<kbd>Enter</kbd> (or <kbd>\</kbd> then <kbd>Enter</kbd>) adds a new line; <kbd>↑</kbd>/<kbd>↓</kbd> recall earlier messages.</li>
+    <li>While Dcode works, <kbd>Ctrl</kbd>+<kbd>C</kbd> stops the current task and your chat stays intact. At an empty input box, press <kbd>Ctrl</kbd>+<kbd>C</kbd> <strong>twice</strong> to exit.</li>
+    <li>Each chat is named automatically from your first message. The name shows under the input box and in the web UI.</li>
     <li>When Dcode wants to <strong>run a command, delete a file or commit</strong>, a menu appears. Choose with the arrow keys and <kbd>Enter</kbd>, or press <kbd>y</kbd> (allow), <kbd>a</kbd> (allow for this session) or <kbd>n</kbd> (deny).</li>
     <li>In long lists, such as the model list, just type to filter.</li>
   </ul>
@@ -252,9 +254,32 @@ dcode</pre></div>
       <tr><td><code>/review</code></td><td>Review your current git changes (in a separate helper)</td></tr>
       <tr><td><code>/permissions</code> · <code>/experimental</code></td><td>Choose what Dcode may do; feature flags</td></tr>
       <tr><td><code>/new</code> · <code>/rename</code> · <code>/resume</code></td><td>Start, rename or reopen chats</td></tr>
+      <tr><td><code>/mode</code></td><td>Switch mode (or press <kbd>Shift</kbd>+<kbd>Tab</kbd>)</td></tr>
+      <tr><td><code>/compact [focus]</code></td><td>Summarize this session to free up context; the summary is saved to memory</td></tr>
+      <tr><td><code>/undo</code></td><td>Undo Dcode's file changes from the last task</td></tr>
+      <tr><td><code>/diff</code> · <code>/commit [message]</code></td><td>Show uncommitted changes; commit with a generated message (asks first)</td></tr>
+      <tr><td><code>/version</code> · <code>/guide</code></td><td>Show the version; open this guide</td></tr>
       <tr><td><code>/setup</code> · <code>/exit</code></td><td>Run setup again; quit (your chat is saved)</td></tr>
     </tbody>
   </table>
+  <h3>Modes</h3>
+  <p>Press <kbd>Shift</kbd>+<kbd>Tab</kbd> in the input box to cycle modes. The current mode shows under the box, and the border color changes with it. You can also pick a mode in the web UI next to the message box.</p>
+  <table>
+    <thead><tr><th>Mode</th><th>What Dcode may do</th></tr></thead>
+    <tbody>
+      <tr><td>🔵 Accept edits <small>(default)</small></td><td>Edits files freely; asks before commands, deletions and commits</td></tr>
+      <tr><td>🟢 Auto</td><td>Never asks. Use only in trusted or sandboxed projects</td></tr>
+      <tr><td>🟣 Plan</td><td>Read-only: investigates and writes a plan, then asks <em>"Ready to implement this plan?"</em></td></tr>
+      <tr><td>⚪ Manual</td><td>Asks before every edit and every command</td></tr>
+    </tbody>
+  </table>
+  <h3>Output, undo and git</h3>
+  <ul>
+    <li>Command output shows the first few lines. Press <kbd>Ctrl</kbd>+<kbd>O</kbd> at the input box to see the full output of the last task.</li>
+    <li>Each edit shows a red/green preview of what changed.</li>
+    <li>Every task saves a checkpoint. <code>/undo</code> puts the files back as they were, even outside git.</li>
+    <li><code>/diff</code> shows your uncommitted changes, and <code>/commit</code> writes a commit message from the diff and asks before committing.</li>
+  </ul>
 
   <h2 id="en-web"><span class="num">5</span>Using the web UI</h2>
   <p>Every <code>dcode</code> you start also opens a private page on your machine. Open the link from the welcome panel (or run <code>dcode ui</code>). Each user on a shared server gets their own private page.</p>
@@ -392,7 +417,7 @@ dcode ui                    <span class="c"># print the web UI link</span>
 make mac PYTHON=.venv/bin/python   <span class="c"># build + install on macOS</span>
 make deb                    <span class="c"># build binary + .deb (Linux build host)</span>
 make test   ·   make lint</pre></div>
-  <footer class="foot">Dcode v0.2 · This page works offline. Data lives in <code>~/.dcode</code>.</footer>
+  <footer class="foot">Dcode v0.2.1 · This page works offline. Data lives in <code>~/.dcode</code>.</footer>
 </article>
 
 <!-- ================================================================== -->
@@ -403,7 +428,7 @@ make test   ·   make lint</pre></div>
     <svg viewBox="0 0 64 40" class="mark" aria-hidden="true"><path class="frame" d="M11 2H53L62 11V29L53 38H11L2 29V11Z"/><path class="glyph" d="M14 12H19.5C25 12 28 15.6 28 20C28 24.4 25 28 19.5 28H14Z"/><path class="glyph" d="M33 14L39 20L33 26"/><rect class="cursor" x="42" y="25" width="8" height="3.4" rx="1.7"/></svg>
     <h1>راهنمای Dcode</h1>
     <p class="lead">Dcode یک دستیار برنامه‌نویسی هوشمند است که در ترمینال اجرا می‌شود و یک رابط وب هماهنگ هم دارد. با مدل‌های زبانی محلی یا خصوصی خودتان کار می‌کند و برای مدل‌هایی با پنجرهٔ زمینهٔ کوچک (۳۲ هزار توکن یا کمتر) ساخته شده است. در این راهنما نصب، اتصال به مدل و استفادهٔ روزمره را توضیح می‌دهیم.</p>
-    <div class="badges"><span class="badge blue">نسخهٔ ۰٫۲</span><span class="badge">مناسب شبکه‌های ایزوله</span><span class="badge">ترمینال + رابط وب</span><span class="badge">هر سرور سازگار با OpenAI</span></div>
+    <div class="badges"><span class="badge blue">نسخهٔ ۰٫۲٫۱</span><span class="badge">مناسب شبکه‌های ایزوله</span><span class="badge">ترمینال + رابط وب</span><span class="badge">هر سرور سازگار با OpenAI</span></div>
   </section>
 
   <h2 id="fa-what"><span class="num">۱</span>Dcode چه کار می‌کند؟</h2>
@@ -423,8 +448,8 @@ make mac PYTHON=.venv/bin/python      <span class="c"># installs /opt/homebrew/b
 dcode --version</pre></div>
   <h3>سرورهای لینوکس (ایزوله، بدون اینترنت)</h3>
   <p>روی یک سیستم <strong>متصل به اینترنت</strong> با همان سیستم‌عامل و پردازندهٔ سرور مقصد بسازید (PyInstaller برای معماری دیگر خروجی نمی‌سازد)، بعد دو فایل را منتقل کنید:</p>
-  <div class="code"><div class="bar"><span>shell — build machine</span><button>Copy</button></div><pre>make deb      <span class="c"># → dist/dcode and dist/dcode_0.2.0_&lt;arch&gt;.deb</span></pre></div>
-  <div class="code"><div class="bar"><span>shell — air-gapped server</span><button>Copy</button></div><pre>sudo ./install-airgap.sh dcode_0.2.0_amd64.deb   <span class="c"># Debian / Ubuntu</span>
+  <div class="code"><div class="bar"><span>shell — build machine</span><button>Copy</button></div><pre>make deb      <span class="c"># → dist/dcode and dist/dcode_0.2.1_&lt;arch&gt;.deb</span></pre></div>
+  <div class="code"><div class="bar"><span>shell — air-gapped server</span><button>Copy</button></div><pre>sudo ./install-airgap.sh dcode_0.2.1_amd64.deb   <span class="c"># Debian / Ubuntu</span>
 sudo ./install-airgap.sh ./dcode                 <span class="c"># any Linux, copies to /usr/local/bin</span></pre></div>
   <div class="callout tip"><span class="ic">💡</span><p>اگر سیستم سازنده هم اینترنت ندارد، بسته‌های wheel را از قبل دانلود کنید و این را اجرا کنید: <code>PIP_ARGS="--no-index --find-links ./wheels" make binary</code></p></div>
   <h3>از سورس (هر سیستم‌عامل با پایتون ۳٫۱۰ به بالا)</h3>
@@ -447,8 +472,10 @@ dcode</pre></div>
   <h2 id="fa-terminal"><span class="num">۴</span>کار با ترمینال</h2>
   <p>در پوشهٔ پروژه یک ترمینال باز کنید و <code>dcode</code> را اجرا کنید. پنل خوش‌آمد مدل، پوشه و <strong>لینک رابط وب</strong> را نشان می‌دهد. خواسته‌تان را بنویسید و <kbd>Enter</kbd> بزنید.</p>
   <ul>
-    <li>هر مرحله به شکل یک خط مثل <code>⏺ read_file app.py</code> نمایش داده می‌شود و هر پاسخ با <code>✓ Done in 3.2s</code> تمام می‌شود.</li>
-    <li>با <kbd>Ctrl</kbd>+<kbd>C</kbd> کار جاری را متوقف کنید؛ گفتگو سالم می‌ماند.</li>
+    <li>هر مرحله به شکل یک خط مثل <code>⏺ read_file app.py</code> نمایش داده می‌شود. وقتی کار تمام شد، Dcode یک <strong>گزارش</strong> کوتاه می‌نویسد (چه کرد، کدام فایل‌ها تغییر کرد، چه دستورهایی اجرا شد) و بعد خطی مثل <code>✓ Done in 3.2s · 2 files changed · 3 commands</code> می‌آید.</li>
+    <li>کادر ورودی با تایپ شما بزرگ می‌شود. با <kbd>Enter</kbd> بفرستید؛ <kbd>⌥ Option</kbd>/<kbd>Alt</kbd>+<kbd>Enter</kbd> (یا <kbd>\</kbd> و بعد <kbd>Enter</kbd>) خط جدید می‌سازد؛ با <kbd>↑</kbd>/<kbd>↓</kbd> پیام‌های قبلی را برگردانید.</li>
+    <li>وقتی Dcode در حال کار است، <kbd>Ctrl</kbd>+<kbd>C</kbd> کار جاری را متوقف می‌کند و گفتگو سالم می‌ماند. در کادر خالی، <kbd>Ctrl</kbd>+<kbd>C</kbd> را <strong>دو بار</strong> بزنید تا خارج شوید.</li>
+    <li>هر گفتگو به‌طور خودکار از روی اولین پیام شما نام‌گذاری می‌شود. نام زیر کادر ورودی و در رابط وب دیده می‌شود.</li>
     <li>وقتی Dcode بخواهد <strong>دستوری اجرا کند، فایلی را حذف کند یا commit بزند</strong>، یک منو باز می‌شود. با کلیدهای جهت و <kbd>Enter</kbd> انتخاب کنید، یا <kbd>y</kbd> (اجازه)، <kbd>a</kbd> (اجازه برای کل این نشست) یا <kbd>n</kbd> (رد) را بزنید.</li>
     <li>در فهرست‌های بلند، مثل فهرست مدل‌ها، کافی است تایپ کنید تا فیلتر شود.</li>
   </ul>
@@ -466,9 +493,32 @@ dcode</pre></div>
       <tr><td><code>/review</code></td><td>بازبینی تغییرات فعلی git (در یک دستیار جداگانه)</td></tr>
       <tr><td><code>/permissions</code> · <code>/experimental</code></td><td>تعیین کارهای مجاز؛ قابلیت‌های آزمایشی</td></tr>
       <tr><td><code>/new</code> · <code>/rename</code> · <code>/resume</code></td><td>شروع، تغییر نام یا ادامهٔ گفتگوها</td></tr>
+      <tr><td><code>/mode</code></td><td>تغییر حالت (یا <kbd>Shift</kbd>+<kbd>Tab</kbd>)</td></tr>
+      <tr><td><code>/compact [focus]</code></td><td>خلاصه کردن نشست برای آزاد کردن زمینه؛ خلاصه در حافظه ذخیره می‌شود</td></tr>
+      <tr><td><code>/undo</code></td><td>بازگرداندن تغییرات فایلِ آخرین کارِ Dcode</td></tr>
+      <tr><td><code>/diff</code> · <code>/commit [message]</code></td><td>نمایش تغییرات commit‌نشده؛ commit با پیامی که خودکار نوشته می‌شود (اول اجازه می‌گیرد)</td></tr>
+      <tr><td><code>/version</code> · <code>/guide</code></td><td>نمایش نسخه؛ باز کردن همین راهنما</td></tr>
       <tr><td><code>/setup</code> · <code>/exit</code></td><td>راه‌اندازی دوباره؛ خروج (گفتگو ذخیره می‌شود)</td></tr>
     </tbody>
   </table>
+  <h3>حالت‌ها</h3>
+  <p>در کادر ورودی با <kbd>Shift</kbd>+<kbd>Tab</kbd> بین حالت‌ها جابه‌جا شوید. حالت فعلی زیر کادر نمایش داده می‌شود و رنگ حاشیه هم با آن عوض می‌شود. در رابط وب هم کنار کادر پیام می‌توانید حالت را انتخاب کنید.</p>
+  <table>
+    <thead><tr><th>حالت</th><th>Dcode چه کاری می‌تواند بکند</th></tr></thead>
+    <tbody>
+      <tr><td>🔵 پذیرش ویرایش‌ها <small>(پیش‌فرض)</small></td><td>فایل‌ها را آزادانه ویرایش می‌کند؛ برای دستور، حذف و commit اجازه می‌گیرد</td></tr>
+      <tr><td>🟢 خودکار (Auto)</td><td>هیچ‌وقت نمی‌پرسد. فقط در پروژه‌های مطمئن یا ایزوله</td></tr>
+      <tr><td>🟣 برنامه‌ریزی (Plan)</td><td>فقط‌خواندنی: بررسی می‌کند و برنامه می‌نویسد، بعد می‌پرسد <em>«آیا این برنامه اجرا شود؟»</em></td></tr>
+      <tr><td>⚪ دستی (Manual)</td><td>قبل از هر ویرایش و هر دستور اجازه می‌گیرد</td></tr>
+    </tbody>
+  </table>
+  <h3>خروجی، بازگردانی و git</h3>
+  <ul>
+    <li>خروجی دستورها فقط چند خط اول را نشان می‌دهد. با <kbd>Ctrl</kbd>+<kbd>O</kbd> در کادر ورودی، خروجی کامل آخرین کار را ببینید.</li>
+    <li>هر ویرایش یک پیش‌نمایش قرمز/سبز از تغییرات نشان می‌دهد.</li>
+    <li>هر کار یک نقطهٔ بازگشت ذخیره می‌کند. <code>/undo</code> فایل‌ها را به حالت قبل برمی‌گرداند، حتی بیرون از git.</li>
+    <li><code>/diff</code> تغییرات commit‌نشده را نشان می‌دهد و <code>/commit</code> از روی diff یک پیام commit می‌نویسد و قبل از commit اجازه می‌گیرد.</li>
+  </ul>
 
   <h2 id="fa-web"><span class="num">۵</span>کار با رابط وب</h2>
   <p>هر <code>dcode</code> که اجرا می‌کنید یک صفحهٔ خصوصی هم روی سیستم خودتان باز می‌کند. لینک را از پنل خوش‌آمد باز کنید (یا <code>dcode ui</code> را بزنید). روی سرور مشترک، هر کاربر صفحهٔ خصوصی خودش را دارد.</p>
@@ -607,7 +657,7 @@ dcode ui                    <span class="c"># print the web UI link</span>
 make mac PYTHON=.venv/bin/python   <span class="c"># build + install on macOS</span>
 make deb                    <span class="c"># build binary + .deb (Linux build host)</span>
 make test   ·   make lint</pre></div>
-  <footer class="foot">Dcode نسخهٔ ۰٫۲ · این صفحه بدون اینترنت هم کار می‌کند. داده‌ها در <code>~/.dcode</code> نگه‌داری می‌شوند.</footer>
+  <footer class="foot">Dcode نسخهٔ ۰٫۲٫۱ · این صفحه بدون اینترنت هم کار می‌کند. داده‌ها در <code>~/.dcode</code> نگه‌داری می‌شوند.</footer>
 </article>
 
   </main>

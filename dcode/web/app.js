@@ -233,6 +233,12 @@
       default: return ["zap", `Using ${c(name)}`, `Used ${c(name)}`];
     }
   }
+  const MODES = {
+    accept_edits: ["Accept edits", "Edit freely, ask before commands", "#2563EB"],
+    auto: ["Auto", "Never ask", "#16A34A"],
+    plan: ["Plan", "Read-only — propose a plan first", "#8B5CF6"],
+    manual: ["Manual", "Ask before every edit and command", "#64748B"],
+  };
   const ROLES = { explore: ["Explorer", "compass"], code: ["Coder", "code"], review: ["Reviewer", "eye"], test: ["Tester", "flask"] };
   const roleOf = (agentId) => String(agentId || "").replace(/-\d+$/, "");
 
@@ -520,7 +526,10 @@
     if (!locked) setTimeout(() => search.focus(), 30);
   }
   $("#model-btn").addEventListener("click", (e) => { e.stopPropagation(); if (S.mode === "session" && !S.ended) openModelMenu(); });
-  document.addEventListener("click", (e) => { if (!e.target.closest("#model-picker")) $("#model-menu").hidden = true; });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("#model-picker")) $("#model-menu").hidden = true;
+    if (!e.target.closest(".mode-wrap")) $$(".mode-menu").forEach((m) => (m.hidden = true));
+  });
 
   // ---------- welcome ----------
   function greeting() {
@@ -771,14 +780,50 @@
         if (agent !== "main") break;
         const pct = ev.context_window ? Math.min(100, Math.round((100 * ev.context_used) / ev.context_window)) : 0;
         if (S.lastActions) {
-          S.lastActions.textContent = `${ev.elapsed}s · ${pct}% context`;
-          S.lastActions.title = `${(ev.prompt || 0).toLocaleString()} tokens in · ${(ev.completion || 0).toLocaleString()} out · ${ev.model}`;
+          const bits = [`${ev.elapsed}s`];
+          const files = ev.files_changed || [];
+          if (files.length) bits.push(`${files.length} file${files.length > 1 ? "s" : ""} changed`);
+          if (ev.commands) bits.push(`${ev.commands} command${ev.commands > 1 ? "s" : ""}${ev.commands_failed ? ` (${ev.commands_failed} failed)` : ""}`);
+          if (ev.helpers) bits.push(`${ev.helpers} helper${ev.helpers > 1 ? "s" : ""}`);
+          bits.push(`${pct}% context`);
+          S.lastActions.textContent = bits.join(" · ");
+          if (files.length) S.lastActions.title = files.join("\n");
+          if (!files.length) S.lastActions.title = `${(ev.prompt || 0).toLocaleString()} tokens in · ${(ev.completion || 0).toLocaleString()} out · ${ev.model}`;
         }
         if (S.info) { S.info.context_used = ev.context_used; renderHeader(); }
         break;
       }
       case "compaction":
         if (agent === "main") eventLine("", "refresh", `Tidied up the conversation to save space${ev.summarized ? " (older messages summarized)" : ""}`);
+        break;
+      case "mode":
+        if (S.info) { S.info.mode = ev.mode; renderComposer(); }
+        break;
+      case "plan_ready": {
+        if (history) break;
+        const turn = ensureTurn();
+        const actions = h("div", { class: "approval-actions" },
+          h("button", { class: "btn primary sm", onclick: () => decidePlan("accept_edits") }, icon("check"), "Implement it"),
+          h("button", { class: "btn sm", onclick: () => decidePlan("manual") }, "Implement, ask before edits"),
+          h("button", { class: "btn sm ghost", onclick: () => decidePlan("keep") }, "Keep planning"));
+        const card = h("div", { class: "approval plan-card" },
+          h("div", { class: "approval-head" }, icon("review"), "Ready to implement this plan?"),
+          h("div", { class: "approval-sub" }, "Dcode was in plan mode and hasn't changed anything yet."), actions);
+        S.planCard = { card, actions };
+        turn.body.append(card);
+        scrollDown(true);
+        break;
+      }
+      case "plan_resolved":
+        if (S.planCard) {
+          S.planCard.card.classList.add("done");
+          S.planCard.actions.replaceChildren(h("span", { class: "verdict ok" }, icon(ev.decision === "keep" ? "info" : "check"),
+            ev.decision === "keep" ? "Kept planning" : "Approved — implementing"));
+          S.planCard = null;
+        }
+        break;
+      case "undo":
+        eventLine("success", "refresh", `Undid “${ev.label}”: restored ${(ev.files || []).join(", ") || "nothing"}`);
         break;
       case "skill_saved":
         eventLine("success", "zap", `New skill saved: ${ev.name}`);
@@ -855,6 +900,27 @@
     }
     const left = $("#composer-left");
     left.replaceChildren();
+    const mode = S.info?.mode || "accept_edits";
+    $("#composer").style.setProperty("--mode", (MODES[mode] || MODES.accept_edits)[2]);
+    $("#composer").dataset.mode = mode;
+    if (live) {
+      const wrap = h("div", { class: "mode-wrap" });
+      const menu = h("div", { class: "menu mode-menu", hidden: true },
+        h("div", { class: "menu-label" }, "Mode"),
+        ...Object.entries(MODES).map(([key, [label, desc, color]]) => h("button", {
+          type: "button", class: "menu-item", onclick: async () => {
+            menu.hidden = true;
+            try { await api("POST", `/api/s/${S.id}/mode`, { mode: key }); S.info.mode = key; renderComposer(); }
+            catch (e) { toast(e.message, true); }
+          } }, h("span", { class: "mode-dot", style: `background:${color}` }),
+          h("span", { class: "row-main" }, h("div", {}, label), h("div", { class: "meta" }, desc)),
+          key === mode ? icon("check", "i check") : "")));
+      const chip = h("button", { type: "button", class: "chip-btn mode-chip", title: "Change mode (Shift+Tab in the terminal)",
+        onclick: (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; } },
+        h("span", { class: "mode-dot", style: `background:${(MODES[mode] || MODES.accept_edits)[2]}` }), (MODES[mode] || MODES.accept_edits)[0]);
+      wrap.append(chip, menu);
+      left.append(wrap);
+    }
     if (live && S.info?.cwd) left.append(h("span", { class: "chip-btn", title: S.info.cwd }, icon("folder"), base(S.info.cwd)));
     if (live && S.info?.git?.is_repo) left.append(h("button", { type: "button", class: "chip-btn", onclick: () => sendText("/review") }, icon("review"), "Review changes"));
     input.placeholder = S.busy ? "Dcode is working… you can queue another message" : "Message Dcode…";
@@ -866,12 +932,27 @@
   });
   $("#composer").addEventListener("submit", (e) => { e.preventDefault(); const t = input.value.trim(); if (t) { input.value = ""; autosize(); sendText(t); } });
   $("#stop").addEventListener("click", () => api("POST", `/api/s/${S.id}/interrupt`, {}).catch((e) => toast(e.message, true)));
+  async function decidePlan(decision) {
+    try { await api("POST", `/api/s/${S.id}/plan`, { decision }); } catch (e) { toast(e.message, true); }
+  }
   async function sendText(text) {
     if (S.mode !== "session" || S.ended) return;
     try {
+      const [cmd, ...rest] = text.split(" ");
+      const arg = rest.join(" ").trim();
+      if (cmd === "/compact") return void (await api("POST", `/api/s/${S.id}/compact`, { focus: arg }));
+      if (cmd === "/undo") {
+        const r = await api("POST", `/api/s/${S.id}/undo`, {});
+        return toast(r.ok ? `Restored ${r.files.length} file(s)` : "Nothing to undo", !r.ok);
+      }
+      if (cmd === "/mode") {
+        const key = arg.toLowerCase().replace(/[\s-]+/g, "_");
+        await api("POST", `/api/s/${S.id}/mode`, { mode: key === "accept" ? "accept_edits" : key });
+        return;
+      }
       if (text === "/new" || text === "/reset") await api("POST", `/api/s/${S.id}/new`, {});
       else if (text.startsWith("/rename ")) await api("POST", `/api/s/${S.id}/rename`, { name: text.slice(8) });
-      else if (text.startsWith("/") && text !== "/review") toast("Tip: use Settings for configuration. /review, /new and /rename work here.");
+      else if (text.startsWith("/") && text !== "/review") toast("Here you can use /review, /compact, /undo, /mode, /new and /rename. Everything else is in Settings.");
       else await api("POST", `/api/s/${S.id}/message`, { text });
     } catch (e) { toast(e.message, true); input.value = text; autosize(); }
   }
