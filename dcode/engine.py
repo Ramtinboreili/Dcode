@@ -128,6 +128,7 @@ class Agent:
         self.current_task = ""
         self._artifact_saves: dict[str, int] = {}
         self._repeat: list[str] = []
+        self.todos: list[dict[str, str]] = []
         configure_limits(config.context_window)
         self.artifacts = ArtifactStore()
         self.checkpoints = getattr(host, "checkpoints", None)
@@ -155,6 +156,7 @@ class Agent:
             if self.config.artifacts.get("enabled", True):
                 names += roles.ARTIFACT_TOOL_NAMES
             names += roles.SKILL_TOOL_NAMES
+            names.append("todo_write")
         else:
             wanted = roles.ROLE_TOOLS.get(self.role, roles.ROLE_TOOLS["explore"])
             ungated = {n for n in roles.UNGATED_TOOLS if n != "memory_search" or memory_on}
@@ -207,6 +209,10 @@ class Agent:
             parts.append(roles.PLAN_PROMPT)
         elif getattr(self.host, "jobs", None) is not None and self.config.permissions.get("run_command", True):
             parts.append(roles.JOBS_PROMPT)
+        parts.append(roles.TODO_PROMPT)
+        if self.todos:
+            # Refreshed only at turn start and after compaction, so local servers keep their prompt cache.
+            parts.append("Your checklist so far:\n" + roles.render_todos(self.todos))
         skills = self._skills_block(max_chars=int(window * 3.5 * 0.05))
         if skills:
             parts.append(skills)
@@ -538,6 +544,8 @@ class Agent:
         report = compact(self.messages, self.budget, summarize, tools)
         if not report:
             return
+        if self.todos:
+            self.refresh_system_message()  # the checklist must survive the compaction
         self.host.emit(
             "compaction", agent=self.agent_id, before=report["before"], after=report["after"],
             elided=report["elided"], summarized=bool(report["summary"]),
@@ -687,6 +695,14 @@ class Agent:
             if record is None:
                 return f"No artifact with id '{artifact_id}'. Call artifact_get with no id to list them."
             return _truncate(f"[{record['title']} · {record['kind']}]\n{record['content']}")
+        if name == "todo_write":
+            items = roles.normalize_todos(args.get("items"))
+            if not items:
+                return "todo_write needs items: [{text, status}] with status pending, in_progress or done."
+            self.todos = items
+            self.host.emit("todos", agent=self.agent_id, items=items)
+            done = sum(1 for i in items if i["status"] == "done")
+            return f"Checklist saved ({done}/{len(items)} done):\n{roles.render_todos(items)}"
         if name == "skill_use":
             skill = get_skill(str(args.get("name") or ""), workspace_root())
             if skill is None:

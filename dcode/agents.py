@@ -35,6 +35,40 @@ PLAN_PROMPT = (
     "Investigate with read-only tools (and explore/review helpers), then present a concise, numbered plan: "
     "goal, files to change and how, commands to run, risks. End by asking the user to approve the plan."
 )
+TODO_PROMPT = (
+    "For tasks with 3 or more steps, keep a checklist with todo_write: send the whole list, mark the step "
+    "you are on in_progress and finished ones done. It survives context compaction, so it keeps you on track."
+)
+TODO_STATUSES = ("pending", "in_progress", "done")
+_TODO_ALIASES = {"completed": "done", "complete": "done", "finished": "done", "todo": "pending",
+                 "not_started": "pending", "doing": "in_progress", "active": "in_progress", "in-progress": "in_progress"}
+
+
+def normalize_todos(raw) -> list[dict[str, str]]:
+    """Accept what small models actually send: objects, plain strings, odd status words."""
+    if isinstance(raw, str):
+        raw = [line.strip("-*• ") for line in raw.splitlines() if line.strip()]
+    items = []
+    for entry in raw if isinstance(raw, list) else []:
+        if isinstance(entry, str):
+            text, status = entry, "pending"
+        elif isinstance(entry, dict):
+            text = str(entry.get("text") or entry.get("content") or entry.get("task") or entry.get("title") or "")
+            status = str(entry.get("status") or "pending").strip().lower().replace(" ", "_")
+        else:
+            continue
+        status = _TODO_ALIASES.get(status, status)
+        if text.strip():
+            items.append({"text": " ".join(text.split())[:200],
+                          "status": status if status in TODO_STATUSES else "pending"})
+    return items[:30]
+
+
+def render_todos(items: list[dict[str, str]]) -> str:
+    marks = {"done": "[x]", "in_progress": "[>]", "pending": "[ ]"}
+    return "\n".join(f"{marks[i['status']]} {i['text']}" for i in items)
+
+
 ARTIFACT_TOOL_NAMES = ["artifact_save", "artifact_get"]
 SKILL_TOOL_NAMES = ["skill_use", "skill_save"]
 # Tools a sub-agent may get even though no permission switch governs them.
@@ -148,6 +182,30 @@ EXTRA_TOOL_SCHEMAS = {
                     "append": {"type": "boolean", "description": "add content to the end of artifact `id` (build long ones in parts)"},
                 },
                 "required": ["title", "kind", "content"],
+            },
+        },
+    },
+    "todo_write": {
+        "type": "function",
+        "function": {
+            "name": "todo_write",
+            "description": "Replace your task checklist (send every item each time).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "text": {"type": "string"},
+                                "status": {"type": "string", "enum": ["pending", "in_progress", "done"]},
+                            },
+                            "required": ["text", "status"],
+                        },
+                    },
+                },
+                "required": ["items"],
             },
         },
     },

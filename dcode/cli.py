@@ -251,7 +251,7 @@ class TerminalApp:
                 self.main_step = (step, time.time())
             elif agent in self.running:
                 self.running[agent]["step"] = step
-            if event.get("name") != "artifact_save":  # the "◆ Artifact" line says it (one line per save)
+            if event.get("name") not in ("artifact_save", "todo_write"):  # these print their own line/list
                 ui.show_tool_call(event.get("name", ""), event.get("args"), agent)
         elif kind == "tool_result":
             name, args = self._calls.pop(f"{agent}/{event.get('id', '')}", (event.get("name", ""), {}))
@@ -266,6 +266,8 @@ class TerminalApp:
             elif name == "edit_file" and output.startswith("Edited") and isinstance(args, dict):
                 ui.show_tool_result_brief(output, agent)
                 ui.show_edit_diff(str(args.get("old_text", "")), str(args.get("new_text", "")), agent)
+            elif name == "todo_write" and output.startswith("Checklist saved"):
+                pass  # the "todos" event draws the checklist
             elif name == "artifact_save":
                 if output.startswith(("Not saved again", "You called artifact_save with identical")):
                     ui.console.print(f"{ui.PAD}  [{MUTED}]↻ already saved — skipped[/]")
@@ -308,6 +310,8 @@ class TerminalApp:
                 where = f"  {ui.link(full, short)}" if full else ""
                 ui.console.print(f"{ui.PAD}[{SUCCESS}]◆ Artifact[/] [bold]{ui._escape(str(event.get('title', '')))}[/]"
                                  f"[{MUTED}] · v{event.get('versions', 1)}[/]{where}", soft_wrap=True)
+        elif kind == "todos" and agent == "main":
+            ui.show_todos(event.get("items") or [])
         elif kind == "mentions":
             attached = ", ".join(event.get("attached") or [])
             if attached:

@@ -313,6 +313,7 @@ class Session:
         if self.busy:
             raise RuntimeError("Session is busy")
         self.save()
+        self.agent.todos = []
         self.agent.messages = [{"role": "system", "content": self.agent.system_prompt()}]
         self.thread_name = self._timestamp()
         self.thread_created_at = datetime.now(timezone.utc).isoformat()
@@ -342,6 +343,7 @@ class Session:
             return False
         self.save()
         self.agent.messages = messages
+        self.agent.todos = [t for t in payload.get("todos") or [] if isinstance(t, dict)]
         self.agent.refresh_system_message()
         self.thread_name = str(payload.get("name") or thread_id)
         self.thread_created_at = str(payload.get("created_at") or datetime.now(timezone.utc).isoformat())
@@ -399,6 +401,7 @@ class Session:
             "jobs": [job.as_dict() for job in self.jobs.list()],
             "plan_pending": self.plan_pending,
             "can_undo": self.checkpoints.latest() is not None,
+            "todos": self.agent.todos,
         }
 
     def save(self) -> None:
@@ -409,7 +412,8 @@ class Session:
             self.thread_name,
             messages,
             created_at=self.thread_created_at,
-            extra={"cwd": self.cwd, "model": self.config.model, "summary": self.last_summary},
+            extra={"cwd": self.cwd, "model": self.config.model, "summary": self.last_summary,
+                   "todos": self.agent.todos},
         )
 
     def _job_exited(self, job) -> None:

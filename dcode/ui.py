@@ -889,6 +889,21 @@ def show_tool_result_brief(output: str, agent: str = "main") -> None:
     console.print(f"{_indent(agent)}  [{MUTED}]╰─ {_escape(summary)}[/]")
 
 
+def show_todos(items: list) -> None:
+    """The model's checklist: done items dimmed, the current one bold."""
+    done = sum(1 for i in items if i.get("status") == "done")
+    console.print(f"{PAD}[{PRIMARY}]☰[/] [bold]Checklist[/] [{MUTED}]{done}/{len(items)} done[/]")
+    for item in items:
+        text = _escape(str(item.get("text", "")))
+        status = item.get("status")
+        if status == "done":
+            console.print(f"{PAD}  [{SUCCESS}]✓[/] [{MUTED} strike]{text}[/]")
+        elif status == "in_progress":
+            console.print(f"{PAD}  [{PRIMARY}]▸[/] [bold]{text}[/]")
+        else:
+            console.print(f"{PAD}  [{MUTED}]○[/] {text}")
+
+
 def show_agent_start(agent: str, role: str, task: str) -> None:
     console.print()
     console.print(f"{PAD}[{ACCENT}]◆ {agent}[/]  [{MUTED}]{_escape(_short_args(task, 110))}[/]")

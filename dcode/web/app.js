@@ -675,7 +675,7 @@
         break;
       }
       case "tool_call": {
-        if (ev.name === "delegate") break; // shown as a helper card instead
+        if (ev.name === "delegate" || ev.name === "todo_write") break; // shown as a helper / checklist card instead
         if (S.live && agent === "main") { S.live.remove(); S.live = null; }
         const step = stepRow(ev.name, ev.args, history);
         if (ev.id) S.tools[agent + "/" + ev.id] = step;
@@ -847,6 +847,19 @@
       case "check":
         eventLine("warning", "alert", `Check found ${ev.count > 1 ? ev.count + " problems" : "a problem"} in ${ev.path} — Dcode will fix ${ev.count > 1 ? "them" : "it"}: ${short(String(ev.problems || "").split("\n")[0], 100)}`);
         break;
+      case "todos": {
+        if (agent !== "main") break;
+        const items = ev.items || [];
+        const done = items.filter((i) => i.status === "done").length;
+        const card = h("div", { class: "todos" },
+          h("div", { class: "todos-head" }, icon("check"), "Checklist", h("span", { class: "meta" }, `${done}/${items.length} done`)),
+          ...items.map((i) => h("div", { class: "todo " + i.status }, h("span", { class: "todo-box" }, i.status === "done" ? icon("check") : ""), h("span", {}, i.text))));
+        if (S.todoCard && S.todoCard.isConnected && S.turn && S.turn.body.contains(S.todoCard)) S.todoCard.replaceWith(card);
+        else { closeActivity(); ensureTurn().body.append(card); }
+        S.todoCard = card;
+        scrollDown();
+        break;
+      }
       case "mentions": {
         const files = [...(ev.attached || [])];
         if (files.length) eventLine("", "file", `Attached ${files.join(", ")}`);

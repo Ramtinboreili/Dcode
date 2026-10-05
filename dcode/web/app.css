@@ -615,3 +615,16 @@ a.sb-link { text-decoration: none; }
 .suggest .menu-item.active { background: var(--surface-2); }
 .suggest .row-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; }
 .suggest .i { width: 15px; height: 15px; color: var(--muted); flex: none; }
+
+/* checklist (todo_write) */
+.todos { border: 1px solid var(--border); border-radius: 14px; padding: 10px 14px; margin: 8px 0; background: var(--surface); font-size: 13.5px; }
+.todos-head { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 6px; }
+.todos-head .i { width: 15px; height: 15px; color: var(--primary); }
+.todos-head .meta { margin-left: auto; font-weight: 400; color: var(--muted); font-size: 12px; }
+.todo { display: flex; align-items: flex-start; gap: 9px; padding: 3px 0; color: var(--text-2); }
+.todo-box { width: 15px; height: 15px; border: 1.5px solid var(--border-strong); border-radius: 5px; flex: none; margin-top: 2px; display: grid; place-items: center; }
+.todo-box .i { width: 11px; height: 11px; }
+.todo.done { color: var(--muted); text-decoration: line-through; }
+.todo.done .todo-box { background: var(--success); border-color: transparent; color: #fff; }
+.todo.in_progress { color: var(--text); font-weight: 600; }
+.todo.in_progress .todo-box { border-color: var(--primary); box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 10px var(--primary); }
