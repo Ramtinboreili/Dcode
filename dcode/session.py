@@ -21,6 +21,7 @@ from typing import Any
 
 from .agents import DEFAULT_MODE, INIT_PROMPT, MODES
 from .checkpoints import CheckpointStore
+from .commands import expand, load_commands
 from .config import AppConfig, load_config, load_thread, run_dir, save_thread, thread_path, threads_dir
 from .context import ContextBudget
 from .engine import Agent, git_summary
@@ -254,6 +255,49 @@ class Session:
         self._notify_attention()
         return name
 
+    def custom_commands(self) -> dict:
+        try:
+            return load_commands(workspace_root())
+        except OSError:
+            return {}
+
+    def run_custom_command(self, name: str, arguments: str = "", source: str = "cli") -> None:
+        """/name from .dcode/commands or ~/.dcode/commands: expanded and run on the worker."""
+        name = name.lstrip("/").lower()
+        if name not in self.custom_commands():
+            raise RuntimeError(f"Unknown command /{name}")
+        self._queue.put(("command", (name, arguments), source))
+        self._notify_attention()
+
+    def _may_run_shell(self, command: str, origin: str) -> str | None:
+        """Gate a command template's !`shell`: same rules and mode as the agent's run_command."""
+        decision, pattern = self.agent.rules.command(command)
+        if decision == "deny":
+            return f"(not run: the rule '{pattern}' denies it)"
+        if decision == "allow" or (self.mode == "auto" and decision != "ask"):
+            return None
+        kind = "rule" if decision == "ask" else "run_command"
+        approved = self.request_approval(kind, f"{command}   (from {origin})", "main")
+        return None if approved else "(not run: the user said no)"
+
+    def _run_command_item(self, name: str, arguments: str, source: str) -> None:
+        shown = f"/{name}" + (f" {arguments}" if arguments else "")
+        self.emit("user_message", text=shown, source=source)
+        command = self.custom_commands().get(name)
+        if command is None:
+            self.emit("error", text=f"The command /{name} no longer exists.")
+            return
+        if self._default_name():
+            self._set_title(command.description[:48] or f"/{name}")
+        prompt = expand(command, arguments, workspace_root(), lambda cmd: self._may_run_shell(cmd, shown))
+        if command.agent and command.agent in self.agent.specs and self.config.agents.get("enabled", True):
+            self._run_helper(command.agent, prompt)
+        else:
+            self.agent.run_turn(prompt)
+        if self.mode == "plan":
+            self.plan_pending = True
+            self.emit("plan_ready")
+
     def compact(self, focus: str = "", source: str = "cli") -> None:
         self._queue.put(("compact", focus, source))
         self._notify_attention()
@@ -416,6 +460,7 @@ class Session:
             "plan_pending": self.plan_pending,
             "can_undo": self.checkpoints.latest() is not None,
             "todos": self.agent.todos,
+            "commands": [c.as_dict() for c in self.custom_commands().values()],
         }
 
     def save(self) -> None:
@@ -492,6 +537,9 @@ class Session:
                     if self.mode == "plan":
                         self.plan_pending = True
                         self.emit("plan_ready")
+                elif kind == "command":
+                    self.plan_pending = False
+                    self._run_command_item(payload[0], payload[1], source)
                 elif kind == "init":
                     self.emit("user_message", text="/init", source=source)
                     if self._default_name():

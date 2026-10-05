@@ -122,6 +122,8 @@ class TerminalApp:
             if self.session.plan_pending:
                 self._ask_plan()
                 continue
+            ui.EXTRA_COMMANDS = {f"/{c.name}": f"{c.description}  ({c.scope})"
+                                 for c in self.session.custom_commands().values()}
             ui.HELPERS = ({name: spec.description for name, spec in self.session.agent.specs.items()}
                           if self.session.config.agents.get("enabled", True) else {})
             try:
@@ -498,6 +500,9 @@ class TerminalApp:
                     name = "-".join(body.lower().split()[:5])
                     memory = session.memory.save(name, body)
                     ui.notice(f"Saved memory {memory.name}", "success")
+            elif command[1:].lower() in session.custom_commands():
+                session.run_custom_command(command[1:], arg.strip())
+                self._await_start()
             else:
                 ui.notice(f"Unknown command {command}. /help lists commands.", "warning")
         except RuntimeError as exc:

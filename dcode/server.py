@@ -285,6 +285,9 @@ class SessionServer:
         if path == "/plan":
             session.resolve_plan(str(body.get("decision") or "keep"), source="web")
             return None
+        if path == "/command":
+            session.run_custom_command(str(body.get("name") or ""), str(body.get("args") or ""), source="web")
+            return None
         if path == "/init":
             return {"ok": True, "file": session.init_project(source="web")}
         if path == "/compact":

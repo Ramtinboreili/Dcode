@@ -1064,7 +1064,13 @@
       }
       if (text === "/new" || text === "/reset") await api("POST", `/api/s/${S.id}/new`, {});
       else if (text.startsWith("/rename ")) await api("POST", `/api/s/${S.id}/rename`, { name: text.slice(8) });
-      else if (text.startsWith("/") && text !== "/review") toast("Here you can use /review, /init, /compact, /undo, /mode, /new, /rename and your own commands. Everything else is in Settings.");
+      else if (text.startsWith("/") && text !== "/review") {
+        try { await api("POST", `/api/s/${S.id}/command`, { name: cmd.slice(1), args: arg }); }
+        catch (e) {
+          if (!/Unknown command/.test(e.message)) throw e;
+          toast("Here you can use /review, /init, /compact, /undo, /mode, /new, /rename and your own commands (.dcode/commands). Everything else is in Settings.");
+        }
+      }
       else await api("POST", `/api/s/${S.id}/message`, { text });
     } catch (e) { toast(e.message, true); input.value = text; autosize(); }
   }
