@@ -448,6 +448,14 @@ class TerminalApp:
                 for key, label in PERMISSION_LABELS.items():
                     cfg.permissions[key] = bool(result.get(label, True))
                 self._save()
+            elif command == "/hooks":
+                hooks = cfg.hooks
+                if not hooks:
+                    ui.notice("No hooks. Add them in the web UI (Settings → Permissions) or under \"hooks\" "
+                              "in ~/.dcode/config.json.")
+                for hook in hooks:
+                    match = f" [{MUTED}]({hook['match']})[/]" if hook.get("match") else ""
+                    ui.console.print(f"{ui.PAD}  [{ACCENT}]{hook['on']}[/]{match}  {ui._escape(hook['command'])}")
             elif command == "/rules":
                 self._rules(arg.strip())
             elif command == "/experimental":

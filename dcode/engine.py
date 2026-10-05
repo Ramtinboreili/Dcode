@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from . import agents as roles
-from . import checks, mentions, tools
+from . import checks, hooks, mentions, tools
 from . import rules as permission_rules
 from .artifacts import ArtifactStore
 from .config import AppConfig
@@ -642,6 +642,12 @@ class Agent:
                     args[key] = (f"[{len(value)} characters — delivered and stored successfully; "
                                  "omitted from history only to save context]")
             function["arguments"] = json.dumps(args)
+        if self.config.hooks:
+            try:
+                hooks.run(self.config.hooks, "after_tool", workspace_root(), name, output=output,
+                          session=self._session_id(), **hooks.tool_payload(parse_arguments(function.get("arguments"))))
+            except Exception:
+                pass  # a broken hook must never break the agent
         self.messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "name": name, "content": output})
         self.host.emit(
             "tool_result", agent=self.agent_id, id=call.get("id", ""), name=name, output=output[:PREVIEW_CHARS]
@@ -663,12 +669,20 @@ class Agent:
             )
         if name not in self.tool_names():
             return f"Tool '{name}' is not available. Available: {', '.join(self.tool_names())}"
+        if self.config.hooks:
+            reason = hooks.before_tool(self.config.hooks, name, args, workspace_root(), self._session_id())
+            if reason:
+                self.host.emit("notice", agent=self.agent_id, level="warning", text=f"A hook blocked {name}: {reason[:200]}")
+                return f"Blocked by the user's hook: {reason}"
         try:
             return self._dispatch(name, args)
         except Interrupted:
             raise
         except Exception as exc:  # a tool must never kill the loop
             return f"Tool error: {exc}"
+
+    def _session_id(self) -> str:
+        return str(getattr(self.host, "id", "") or "")
 
     def _approve(self, kind: str, detail: str) -> bool:
         return self.host.request_approval(kind, detail, self.agent_id)

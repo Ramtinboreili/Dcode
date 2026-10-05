@@ -182,6 +182,7 @@ class Session:
         approval = _Approval(uuid.uuid4().hex[:8], kind, detail, agent)
         with self._approvals_lock:
             self._approvals[approval.id] = approval
+        self._fire_hooks("approval_needed", tool=kind, detail=detail)
         # No attention ping here: the terminal polls for approvals while a task runs,
         # and a ping would close the approval menu it is about to open.
         self.emit("approval_request", **approval.as_dict())
@@ -293,7 +294,8 @@ class Session:
         if command.agent and command.agent in self.agent.specs and self.config.agents.get("enabled", True):
             self._run_helper(command.agent, prompt)
         else:
-            self.agent.run_turn(prompt)
+            result = self.agent.run_turn(prompt)
+            self._fire_hooks("task_done", text=result.text[:4000], task=shown)
         if self.mode == "plan":
             self.plan_pending = True
             self.emit("plan_ready")
@@ -475,6 +477,20 @@ class Session:
                    "todos": self.agent.todos},
         )
 
+    def _fire_hooks(self, event: str, tool: str = "", **payload: Any) -> None:
+        """Notification-style hooks run in the background: they must never slow Dcode down."""
+        if not self.config.hooks:
+            return
+        from . import hooks
+
+        def fire() -> None:
+            try:
+                hooks.run(self.config.hooks, event, workspace_root(), tool, session=self.id, **payload)
+            except Exception:
+                pass
+
+        threading.Thread(target=fire, name=f"dcode-hook-{event}", daemon=True).start()
+
     def _job_exited(self, job) -> None:
         self.emit("job_exited", id=job.id, command=job.command, state=job.state(), exit_code=job.exit_code)
 
@@ -533,7 +549,8 @@ class Session:
                     if helper:
                         self._run_helper(*helper)
                     else:
-                        self.agent.run_turn(payload)
+                        result = self.agent.run_turn(payload)
+                        self._fire_hooks("task_done", text=result.text[:4000], task=payload[:2000])
                     if self.mode == "plan":
                         self.plan_pending = True
                         self.emit("plan_ready")

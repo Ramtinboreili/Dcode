@@ -57,6 +57,7 @@ from .config import (
 )
 from .custom_agents import agents_dir, load_specs, save_spec
 from .custom_agents import normalize_name as agent_name
+from .hooks import clean as clean_hooks
 from .memory import SCOPES, _parse, slugify, write_memory
 from .rules import _clean as _clean_rules
 from .skills import list_skills, normalize_name, save_skill
@@ -599,6 +600,8 @@ class Hub:
                     "files": _clean_rules(body["rules"].get("files")),
                     "outside_workspace": str(body["rules"].get("outside_workspace") or "ask"),
                 }
+            if isinstance(body.get("hooks"), list):
+                raw["hooks"] = clean_hooks(body["hooks"])
             if isinstance(body.get("enabled_skills"), list):
                 raw["enabled_skills"] = [str(s) for s in body["enabled_skills"]]
             if config_from_dict(apply_env_overrides(dict(raw))) is None:

@@ -1249,6 +1249,7 @@
         section("What Dcode may do", "Abilities you turn off are hidden from the model completely.",
           ...Object.entries(perms).map(([k, [t, d]]) => setRow(t, d, toggle(c.permissions[k] !== false, (v) => (c.permissions[k] = v))))),
         rulesSection(c),
+        hooksSection(c),
         section("Checks after edits", "Dcode checks each file right after changing it (syntax errors, undefined names) and fixes what it finds. Uses tools you already have, like ruff, node or bash.",
           setRow("Check files after edits", null, toggle((c.checks || {}).enabled !== false, (v) => ((c.checks ||= {}).enabled = v))),
           setRow("Also format them", "Runs ruff or black, gofmt, rustfmt, or the project's own prettier.", toggle(!!(c.checks || {}).format, (v) => ((c.checks ||= {}).format = v)))),
@@ -1311,6 +1312,31 @@
         setRow("Open the browser automatically", null, toggle(!!c.ui.open_browser, (v) => (c.ui.open_browser = v))),
         setRow("Port", "Takes effect next time the UI starts. Empty means automatic.", textInput(c.ui.port || "", (v) => (c.ui.port = v), { type: "number", placeholder: "auto", style: "width:110px" }))));
     }
+  }
+  function hooksSection(c) {
+    c.hooks ||= [];
+    const EVENTS = { before_tool: "Before a tool (exit non-zero to block it)", after_tool: "After a tool", task_done: "When a task is done", approval_needed: "When Dcode needs an answer" };
+    const rows = h("div", { class: "rule-rows" });
+    const draw = () => {
+      rows.replaceChildren(...c.hooks.map((hk, i) => h("div", { class: "rule-row" },
+        h("span", { class: "tag" }, hk.on.replace("_", " ")), hk.match ? h("span", { class: "tag" }, hk.match) : "",
+        h("code", { class: "rule-pat", title: hk.command }, hk.command),
+        h("button", { class: "btn sm ghost", title: "Remove", "aria-label": "Remove", onclick: () => { c.hooks.splice(i, 1); draw(); } }, icon("x")))));
+      if (!c.hooks.length) rows.append(h("div", { class: "skill-desc" }, "No hooks yet."));
+    };
+    draw();
+    const ev = h("select", { class: "select" }, ...Object.entries(EVENTS).map(([k, label]) => h("option", { value: k }, label)));
+    const match = textInput("", () => {}, { placeholder: "tool, e.g. run_command (optional)", style: "max-width:220px" });
+    const cmd = textInput("", () => {}, { placeholder: "shell command, e.g. notify-send Dcode done" });
+    return section("Hooks", "Run your own shell commands at key moments: block risky tools, keep an audit log, get a desktop notification. Details arrive as DCODE_* environment variables and JSON on stdin.",
+      rows,
+      h("div", { class: "with-btn", style: "margin-top:8px;flex-wrap:wrap" }, ev, match, cmd,
+        h("button", { class: "btn sm", onclick: () => {
+          if (!cmd.value.trim()) return toast("Type the command to run", true);
+          const hook = { on: ev.value, command: cmd.value.trim() };
+          if (match.value.trim() && ev.value.endsWith("_tool")) hook.match = match.value.trim();
+          c.hooks.push(hook); cmd.value = ""; match.value = ""; draw();
+        } }, icon("plus"), "Add")));
   }
   function rulesSection(c) {
     c.rules ||= { commands: {}, files: {}, outside_workspace: "ask" };

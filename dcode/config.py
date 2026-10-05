@@ -116,6 +116,7 @@ class AppConfig:
     artifacts: dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_ARTIFACTS))
     checks: dict[str, Any] = field(default_factory=lambda: json.loads(json.dumps(DEFAULT_CHECKS)))
     rules: dict[str, Any] = field(default_factory=lambda: json.loads(json.dumps(DEFAULT_RULES)))
+    hooks: list[dict[str, Any]] = field(default_factory=list)  # see dcode/hooks.py
     enabled_skills: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -135,6 +136,7 @@ class AppConfig:
             "artifacts": dict(self.artifacts),
             "checks": json.loads(json.dumps(self.checks)),
             "rules": json.loads(json.dumps(self.rules)),
+            "hooks": json.loads(json.dumps(self.hooks)),
             "enabled_skills": list(self.enabled_skills),
         }
 
@@ -252,6 +254,12 @@ def _int(value: Any, default: int, minimum: int) -> int:
         return default
 
 
+def clean_hooks(value: Any) -> list[dict[str, Any]]:
+    from .hooks import clean  # local import: hooks is a leaf module, keep config import-light
+
+    return clean(value)
+
+
 def config_from_dict(data: dict[str, Any]) -> AppConfig | None:
     base_url = data.get("base_url")
     api_key = data.get("api_key")
@@ -279,6 +287,7 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig | None:
         # Deep copies: these hold nested dicts that must never alias the module defaults.
         checks=json.loads(json.dumps(_merge_defaults(data.get("checks"), DEFAULT_CHECKS))),
         rules=json.loads(json.dumps(_merge_defaults(data.get("rules"), DEFAULT_RULES))),
+        hooks=clean_hooks(data.get("hooks")),
         enabled_skills=[str(name) for name in enabled_skills],
     )
 
