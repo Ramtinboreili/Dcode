@@ -83,6 +83,7 @@ COMMANDS: dict[str, str] = {
     "/jobs": "Background jobs: see output, stop them",
     "/version": "Show the Dcode version",
     "/mode": "Switch mode: manual · accept edits · auto · plan",
+    "/init": "Write AGENTS.md: project commands, layout and conventions for Dcode",
     "/compact": "Summarize this session to free context: /compact [focus]",
     "/undo": "Undo Dcode's file changes from the last task",
     "/diff": "Show uncommitted git changes",

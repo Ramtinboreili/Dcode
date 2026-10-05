@@ -973,7 +973,7 @@
   const suggest = $("#suggest");
   const WEB_COMMANDS = [["/review", "Review the uncommitted changes"], ["/compact", "Summarize the chat to free context"],
     ["/undo", "Undo the file changes from the last task"], ["/mode", "Switch mode: manual, accept, auto, plan"],
-    ["/new", "Start a new chat"], ["/rename", "Rename this chat"]];
+    ["/new", "Start a new chat"], ["/rename", "Rename this chat"], ["/init", "Write AGENTS.md for this project"]];
   const sug = { items: [], sel: 0, token: "", kind: "", seq: 0 };
   function hideSuggest() { suggest.hidden = true; sug.items = []; }
   async function updateSuggest() {
@@ -1051,6 +1051,7 @@
       const [cmd, ...rest] = text.split(" ");
       const arg = rest.join(" ").trim();
       if (cmd === "/compact") return void (await api("POST", `/api/s/${S.id}/compact`, { focus: arg }));
+      if (cmd === "/init") return void (await api("POST", `/api/s/${S.id}/init`, {}));
       if (cmd === "/undo") {
         const r = await api("POST", `/api/s/${S.id}/undo`, {});
         return toast(r.ok ? `Restored ${r.files.length} file(s)` : "Nothing to undo", !r.ok);
@@ -1062,7 +1063,7 @@
       }
       if (text === "/new" || text === "/reset") await api("POST", `/api/s/${S.id}/new`, {});
       else if (text.startsWith("/rename ")) await api("POST", `/api/s/${S.id}/rename`, { name: text.slice(8) });
-      else if (text.startsWith("/") && text !== "/review") toast("Here you can use /review, /compact, /undo, /mode, /new and /rename. Everything else is in Settings.");
+      else if (text.startsWith("/") && text !== "/review") toast("Here you can use /review, /init, /compact, /undo, /mode, /new, /rename and your own commands. Everything else is in Settings.");
       else await api("POST", `/api/s/${S.id}/message`, { text });
     } catch (e) { toast(e.message, true); input.value = text; autosize(); }
   }

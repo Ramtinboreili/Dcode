@@ -116,6 +116,15 @@ _ROLE_PROMPTS = {
     ),
 }
 
+INIT_PROMPT = (
+    "{action} {file} in the project root: short instructions for coding agents working on this repository. "
+    "First look around (use explore helpers on a big repo): README, build/package files, CI config, the main "
+    "source folders.{extra} Then write at most ~60 lines of Markdown with: what the project is (1-2 lines); the "
+    "exact commands to install, build, test (also a single test), lint and run it; the code layout (key folders "
+    "and files); conventions that aren't obvious from the code; gotchas. Only facts you verified — no generic "
+    "advice. Save it with write_file{keep}, then reply with a 2-line summary."
+)
+
 REPORT_RULES = (
     "You cannot ask the user questions. When finished, reply with a concise REPORT "
     "(under 200 words): findings or changes with file paths and line numbers, and anything unresolved."

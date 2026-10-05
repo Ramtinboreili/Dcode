@@ -373,6 +373,10 @@ class TerminalApp:
                     wanted = next((m for m in MODES if MODE_LABELS[m] == picked), session.mode)
                 session.set_mode(wanted)
                 ui.notice(f"Mode: {MODE_LABELS[session.mode]}", "success")
+            elif command == "/init":
+                name = session.init_project()
+                ui.notice(f"Dcode will look around the project and write {name} (read at the start of every session).")
+                self._await_start()
             elif command == "/compact":
                 session.compact(arg.strip())
                 self._await_start()

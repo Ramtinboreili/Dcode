@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .agents import DEFAULT_MODE, MODES
+from .agents import DEFAULT_MODE, INIT_PROMPT, MODES
 from .checkpoints import CheckpointStore
 from .config import AppConfig, load_config, load_thread, run_dir, save_thread, thread_path, threads_dir
 from .context import ContextBudget
@@ -239,6 +239,20 @@ class Session:
         if decision in ("accept_edits", "manual", "auto"):
             self.set_mode(decision, source)
             self.submit("The plan is approved. Implement it now, step by step.", source=source)
+
+    def init_project(self, source: str = "cli") -> str:
+        """/init: have the agent write (or refresh) AGENTS.md. Returns the file it will write."""
+        if self.mode == "plan":
+            raise RuntimeError("Plan mode is read-only. Switch mode (Shift+Tab or /mode) to run /init.")
+        root = workspace_root()
+        name = "DCODE.md" if (root / "DCODE.md").is_file() else "AGENTS.md"
+        exists = (root / name).is_file()
+        extra = " CLAUDE.md exists: use it as a source." if name == "AGENTS.md" and (root / "CLAUDE.md").is_file() else ""
+        prompt = INIT_PROMPT.format(action="Update" if exists else "Create", file=name, extra=extra,
+                                    keep=" (keep what is still correct, fix and add the rest)" if exists else "")
+        self._queue.put(("init", prompt, source))
+        self._notify_attention()
+        return name
 
     def compact(self, focus: str = "", source: str = "cli") -> None:
         self._queue.put(("compact", focus, source))
@@ -478,6 +492,11 @@ class Session:
                     if self.mode == "plan":
                         self.plan_pending = True
                         self.emit("plan_ready")
+                elif kind == "init":
+                    self.emit("user_message", text="/init", source=source)
+                    if self._default_name():
+                        self._set_title("Project instructions (/init)")
+                    self.agent.run_turn(payload)
                 elif kind == "review":
                     self._run_review(source)
                 elif kind == "compact":
