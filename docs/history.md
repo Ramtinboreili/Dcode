@@ -135,3 +135,22 @@ The story of how **code-one** became **Dcode**, built in one long pairing sessio
 ## 9. Version discussion
 
 The user asked to release **v1.0.0** and whether Dcode is production-ready. Claude's honest answer was **not yet**: the actual target (air-gapped Linux plus local 7B–32B models) has never been built or run, real-use testing keeps finding bugs, the small-model heuristics are untuned, there's no CI, and there's one user. Claude recommended **1.0.0-rc.1**, then a Linux and local-model validation round, then 1.0.0. The user asked not to build yet and to write these docs first. See [roadmap.md](roadmap.md).
+
+## 10. Phase 3 — ideas from opencode (unreleased)
+
+The user asked what Dcode could learn from [opencode](https://github.com/anomalyco/opencode). Claude read its docs (agents, tools, permissions, LSP, MCP, TUI, commands, server, plugins, sharing, formatters, CLI) and proposed four tiers, filtered for air-gapped machines and ≤32K models. Cloud-only features (Zen, web search, OAuth MCP, public sharing, the GitHub app) were skipped. The user chose **Tier 1 and Tier 2**:
+
+| # | Feature | Notes |
+|---|---|---|
+| 1 | Checks after edits (+ optional formatting) | opencode uses LSP servers; plain CLI checkers are lighter and need nothing offline |
+| 2 | `@file` mentions with fuzzy completion | attached as synthetic `read_file` results so compaction can shrink them |
+| 3 | `todo_write` checklist | in the system prompt only at turn start / after compaction (keeps the local prompt cache) |
+| 4 | Helper model | `agents.helper_model` or per helper |
+| 5 | `/init` → `AGENTS.md` | updates `DCODE.md` instead if it exists |
+| 6 | Permission rules | stricter-only project rules; `.env` denied by default; outside-workspace asks |
+| 7 | Custom helpers (`.dcode/agents/*.md`) and `@name` | built-ins can be changed by a same-named file |
+| 8 | Custom commands (`.dcode/commands/*.md`) | `` !`shell` `` goes through the same mode and rules |
+| 9 | Hooks | global config only, never from a project |
+| 10 | `ask_user` questions | main agent only; asked even in auto mode |
+
+One commit per feature on `dev`, plus end-to-end checks and docs. 154 unit tests, 31 terminal checks, and the web UI was checked in headless Chrome. The extra prompt cost is about 245 tokens per request.

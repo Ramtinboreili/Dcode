@@ -2,7 +2,7 @@
 
 Three layers. Run the first always, the second for any terminal or packaging change, and the third when layout or colors matter.
 
-## 1. Unit tests (`tests/`, about 110 tests, about 17 s)
+## 1. Unit tests (`tests/`, about 154 tests, about 20 s)
 
 ```bash
 .venv/bin/python -m pytest -q
@@ -36,12 +36,15 @@ Three layers. Run the first always, the second for any terminal or packaging cha
 
 ## 2. Real-terminal end-to-end (`docs/dev/terminal_e2e.py`)
 
-Drives the real `dcode` in a pseudo-terminal against **`docs/dev/mock_llm.py`**, a scripted OpenAI-compatible server. Its docstring lists the trigger words for each scenario. 22 checks, covering:
+Drives the real `dcode` in a pseudo-terminal against **`docs/dev/mock_llm.py`**, a scripted OpenAI-compatible server. Its docstring lists the trigger words for each scenario. 31 checks, covering:
 - the web UI link and hub, the bilingual guide
 - streaming and `<think>` stripping, tool calls, `/version`, Shift+Tab
 - approvals answered from the web and in the terminal
 - Ctrl+O, helpers, follow-through, the re-save cap
 - `/compact`, Ctrl+C twice, hub shutdown, thread saved
+- Phase 3: `@` completion and attach, the checklist, the question menu, the post-edit check, `/rules`, a custom `/command`, `@helper`
+
+`--verbose` prints the last screen when a check fails.
 
 ```bash
 python docs/dev/terminal_e2e.py                                  # venv build

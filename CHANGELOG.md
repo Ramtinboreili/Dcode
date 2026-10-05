@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased — Phase 3: ideas from opencode, adapted to small models
+
+The version number is the owner's decision.
+
+### Small-model quality
+- **Checks after edits.** Right after a write or edit, Dcode checks the file and appends the errors to the tool result, so the model fixes them in its next step. Python, JSON and TOML are checked in-process; ruff (syntax and undefined names only), bash, node, gofmt, ruby and php run when installed. Formatting is optional and off by default. Custom per-extension checks and formatters go in the new `checks` config section.
+- **`@file` mentions** with fuzzy completion in the terminal and the web composer. Up to 3 files are attached as synthetic `read_file` results (folders as `list_files`), so they cost no tool call and compaction can shrink them.
+- **Checklist tool** (`todo_write`). It is drawn in the terminal and as a live card on the web, saved with the chat, and put back into the system prompt after compaction. The prompt is only rewritten at turn start and after compaction, so local servers keep their prompt cache.
+- **`/init`** writes `AGENTS.md` (or updates `DCODE.md`): build, test and lint commands, layout, conventions and gotchas.
+- **Helper model.** Helpers can run on another model of the same server (`agents.helper_model`, or per helper).
+
+### Control
+- **Custom helpers** from Markdown files in `~/.dcode/agents/` or `.dcode/agents/`, with description, tools, model, steps and instructions; a file named like a built-in changes it. A message starting with `@name` runs that helper directly. They are listed in `/agents` and in web Settings → Helpers, where new ones can be added.
+- **Custom commands** from `~/.dcode/commands/*.md` or `.dcode/commands/*.md`, with `$ARGUMENTS`, `$1`–`$9`, `@file` and `` !`shell` `` (which follows the same mode and rules as `run_command`). `agent:` runs the command as a helper.
+- **Permission rules**: `allow`, `ask` or `deny` commands and files by pattern, on top of the modes. Chained commands are judged part by part, and `ask` asks even in auto mode. `.env` files are denied by default for every tool and for `@mentions`. Files outside the project ask instead of failing. Projects can only tighten the rules, via `.dcode/rules.json`. Rules are edited with `/rules` or in web Settings → Permissions.
+- **Hooks**: shell commands on `before_tool` (a non-zero exit blocks the tool), `after_tool`, `task_done` and `approval_needed`. They get `DCODE_*` environment variables and JSON on stdin, and are set in your own config only. `/hooks` lists them, and web Settings → Permissions edits them.
+- **Questions** (`ask_user`): the model can ask a multiple-choice question, answered in the terminal or the web UI. If you skip it, the model decides and says what it assumed.
+
+### Testing
+- 154 unit tests, up from 110. `docs/dev/terminal_e2e.py` has 31 real-terminal checks, up from 22, and `--verbose` prints the screen when a check fails.
+- The new tools add about 245 tokens per request (system prompt plus schemas, about 1.9K in total).
+
 ## 0.3.1
 
 ### Artifacts

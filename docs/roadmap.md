@@ -3,8 +3,8 @@
 ## Current status (October 5, 2026)
 
 - **Released:** v0.3.1, tagged locally and pushed to `origin/dev`. The tags `v0.3.0` and `v0.3.1` are **not pushed** yet.
-- **After 0.3.1** (committed, unreleased): the fix for the web UI breaking after the starting session exits (clean hub environment, version and asset health check), and these docs.
-- **Quality bar:** 110 unit tests. `docs/dev/terminal_e2e.py` runs 22 real-terminal checks, all passing on macOS arm64.
+- **After 0.3.1** (committed, unreleased): the hub fix (clean environment, version and asset health check), these docs, and **Phase 3** (Tier 1 + 2 from the opencode comparison: post-edit checks, `@file` mentions, checklist, `/init`, helper model, custom helpers and commands, permission rules, hooks, questions). See CHANGELOG "Unreleased".
+- **Quality bar:** 154 unit tests. `docs/dev/terminal_e2e.py` runs 31 real-terminal checks, all passing on macOS arm64.
 - **Pending decision:** the user wanted **v1.0.0**; Claude recommended **1.0.0-rc.1** (see below). The user said "don't build it yet".
 
 ## Is it production-ready? Claude's honest assessment
@@ -40,10 +40,11 @@
 
 - **Web UI:** background jobs panel (start/stop/view logs); diff viewer for file edits; plan-mode editing before approval; true phone-width testing (headless Chrome won't render below 500 px).
 - **Artifacts:** export bundle (zip); share an artifact between users on a shared server (opt-in); Mermaid diagrams, which would need a bundled renderer because there are no CDNs.
-- **Agent:** per-project `DCODE.md` editor in the UI; an MCP-like plugin tools interface; better recovery when the server drops connections mid-stream.
+- **Agent:** per-project `DCODE.md` editor in the UI; better recovery when the server drops connections mid-stream.
+- **From the opencode comparison, Tier 3–4 (not started):** `dcode run "prompt"` (non-interactive, for CI); `/sessions` switcher, `/redo`, `/export` (Markdown / JSON / self-contained HTML) and `dcode import`; `!command` passthrough in the input; `/editor` ($EDITOR); `/thinking` and `/details` toggles; a desktop notification or bell when a task finishes (hooks can already do this); `dcode stats`; sub-agent sessions you can open in the web UI; local (stdio) MCP servers with lazily indexed tool descriptions; an OpenAPI spec for the hub plus `dcode attach <url>`; ACP for editors (Zed), then a VS Code extension; Linux packages (`.rpm`, offline tarball, Docker image).
 - **Memory:** a forget/expire policy; UI to review what was recalled for a task.
 - **Packaging:** a Homebrew formula or tap for macOS; `--onedir` builds for faster startup; signed and notarized macOS binary.
-- **Security:** an optional allowlist or denylist for shell commands in auto mode; an audit log of approved commands.
+- **Security:** permission rules and hooks now cover allow/deny lists and audit logs; still open: a built-in audit log view in the web UI.
 
 ## Open housekeeping
 

@@ -28,6 +28,18 @@ Dcode works with any OpenAI-compatible server (Ollama, vLLM, llama.cpp, LM Studi
 - **Web UI.** A hub on `127.0.0.1`, one per OS user, lists all of your live sessions and saved threads. You can watch a session stream, send tasks, approve commands, stop work, and edit every setting, memory and skill. It starts with your first `dcode` and stops after the last one exits. History stays on disk.
 - **Artifacts.** Dcode saves HTML pages, dashboards, SVG diagrams, Markdown reports, CSV tables and long code with `artifact_save`. You open them from the chat or the Artifacts library in the web UI. HTML runs in a sandboxed iframe with no network access, and every update keeps version history. Saved content becomes a short stub in the conversation, so artifacts don't fill the context.
 - **Skills.** Nine built-in playbooks: devops, developer, ui-designer, code-reviewer, artifact-creator, tester, security-auditor, docs-writer and debugger. Only names and descriptions go in the prompt; the agent loads a full skill with `skill_use` when one fits. Pin a skill to always include it. To add your own, drop a `.md` file in `~/.dcode/skills` (or a project's `.dcode/skills`), write it in Settings → Skills, or ask Dcode, which uses `skill_save`.
+- **Small-model helpers (Phase 3).**
+  - Every edited file is checked right away (syntax errors, undefined names), and the errors go back to the model.
+  - `@file` mentions with fuzzy completion attach files without spending tool calls.
+  - A checklist tool keeps long tasks on track across compaction.
+  - `/init` writes `AGENTS.md`.
+  - Helpers can run on a smaller, faster model.
+- **Your own helpers, commands and rules.**
+  - Markdown helpers in `.dcode/agents/`; start a message with `@name` to use one.
+  - Slash commands in `.dcode/commands/`, with `$ARGUMENTS`, `@file` and `` !`shell` ``.
+  - `allow` / `ask` / `deny` rules for commands and files (`.env` protected by default).
+  - Hooks around tools and tasks.
+  - The model can ask you multiple-choice questions.
 - **One look.** The terminal and the web UI share the same blue palette, defined once in `dcode/theme.py`.
 
 > 🛠 **Developer docs:** [`docs/`](docs/README.md) (architecture, history, decisions, roadmap, testing, operations) · agent instructions in [`CLAUDE.md`](CLAUDE.md).
@@ -113,7 +125,10 @@ Settings live in `~/.dcode/config.json` (mode `0600`). You can edit them with `/
 | --- | --- |
 | `/ui` | Show the web UI link |
 | `/model` | Switch model and reasoning effort |
-| `/agents` | Enable or disable sub-agents, set parallelism and step limits |
+| `/agents` | List helpers (built-in and yours); `/agents settings` for parallelism, steps, helper model |
+| `/init` | Write `AGENTS.md`: commands, layout, conventions |
+| `/rules`, `/hooks` | Allow / ask / deny by pattern (`/rules deny "rm -rf *"`); list hooks |
+| `/<your-command>` | Any `.dcode/commands/<name>.md` or `~/.dcode/commands/<name>.md` |
 | `/context` | Show context usage, change the window size |
 | `/memory`, `/remember <text>` | List memories or save one |
 | `/permissions`, `/experimental`, `/skills` | Tool access, feature flags, prompt skills |
@@ -127,7 +142,8 @@ Press `Ctrl-C` during a task to interrupt it. Interrupting leaves the saved hist
 
 Dcode executes model output, so its defaults are defensive:
 
-- **Path sandbox.** File tools are confined to the workspace. Absolute paths and `../` escapes are blocked.
+- **Path sandbox.** File tools are confined to the workspace. Reaching outside it asks first (the `outside_workspace` rule), or is blocked if set to `deny`.
+- **Rules and hooks.** `rules.commands` / `rules.files` patterns allow, ask or deny. `.env` files are denied by default. A project's `.dcode/rules.json` can only make things stricter. Hooks (`before_tool` can block) come only from your own `~/.dcode/config.json`, never from a project folder.
 - **Approvals.** `run_command`, `delete_file` and `git_commit` ask first, in the terminal or the web UI. `auto_approve_commands` turns this off and is meant only for trusted sandboxes.
 - **Local only.** All servers bind to `127.0.0.1`. The hub needs a per-user token, so other users on a shared server can't see or drive your sessions.
 - **Secrets.** `~/.dcode` is `0700`, and the config and token files are `0600`. The web UI never shows the API key.

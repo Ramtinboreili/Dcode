@@ -32,6 +32,12 @@ dcode (terminal) ──┐                         ┌── browser (per OS use
 | `artifacts.py` | artifact store: versions, append, rename, duplicate, restore |
 | `skills.py` | built-in skill seeding, user and project skills, `save_skill` |
 | `checkpoints.py` | per-task file snapshots for `/undo` |
+| `checks.py` | post-edit check (in-process Python/JSON/TOML; ruff, bash, node, gofmt, ruby, php when installed) and optional formatter; errors are appended to the edit result |
+| `mentions.py` | `@path` parsing (attached as synthetic `read_file` results) and the fuzzy file index for completion |
+| `custom_agents.py` | `AgentSpec`: built-in helpers plus Markdown helpers from `~/.dcode/agents` and `.dcode/agents` (tools, model, steps, prompt) |
+| `commands.py` | custom slash commands from `~/.dcode/commands` and `.dcode/commands` (`$ARGUMENTS`, `$1`–`$9`, `` !`shell` ``) |
+| `rules.py` | `RuleSet`: allow/ask/deny by pattern for commands and files, outside-workspace policy, project rules that can only tighten |
+| `hooks.py` | user hooks: `before_tool` (can block), `after_tool`, `task_done`, `approval_needed` |
 | `jobs.py` | background jobs (process group, log file, exit callback) |
 | `server.py` | `SessionServer` (per session), `Hub` (per user), registry, token, hub lifecycle (`ensure_hub`, `hub_usable`, `_retire_hub`, clean child env) |
 | `config.py` | `AppConfig`, paths (`DCODE_HOME`), env overrides, legacy migration, threads |
@@ -45,7 +51,7 @@ dcode (terminal) ──┐                         ┌── browser (per OS use
    - Check for interrupt.
    - Pick tools by mode and role; when the step limit is reached, offer no tools and ask for a wrap-up.
    - Compact the history if it's over 75% of the input budget.
-   - Call `llm.chat(...)`, streaming deltas as events.
+   - Call `llm.chat(...)`, streaming deltas as events. (Before the loop, `@mentions` in the user's message are attached as synthetic `read_file`/`list_files` calls and results.)
    - **No tool calls:** nudge once if the reply is empty. Otherwise, if `_follow_up()` finds a reason (cut off, requested artifact missing, or a promised action), remind the model, at most twice. Otherwise the reply is final.
    - **Tool calls:** run them, with consecutive read-only `delegate` calls in parallel. Each result is recorded, tracked for the report, and large artifact/skill payloads are stubbed out of history.
 3. If the model never wrote an answer, run `_final_report()`: ask the model, or fall back to the activity log.
@@ -60,7 +66,9 @@ dcode (terminal) ──┐                         ┌── browser (per OS use
 | `plan` | blocked | blocked; read-only tools and explore/review helpers only, then the plan approval menu |
 | `manual` | ask, with a diff preview | ask |
 
-`Session.request_approval` emits `approval_request` and waits. Either the terminal (menu) or the web UI (card) resolves it; the first answer wins. "Allow for this session" adds the kind to `Session.allowed_kinds`.
+**Rules** (`rules.py`) sit on top: a matching `allow` skips the prompt, `ask` always asks (kind `rule`, even in auto mode), `deny` refuses. Chained commands are judged part by part. Denied files are blocked inside `tools._safe_path` (so every tool and `@mentions` respect them); paths outside the workspace ask (kind `outside_workspace`) and are then allowed for that one call via a thread-local. **Hooks** run around every tool call (`before_tool` can block) and on `task_done` / `approval_needed` (in background threads).
+
+`Session.request_approval` emits `approval_request` and waits. Questions from `ask_user` use the same channel with kind `question`, `options`, and an `answer` on resolve. Either the terminal (menu) or the web UI (card) resolves it; the first answer wins. "Allow for this session" adds the kind to `Session.allowed_kinds`.
 
 ## Events (`EventBus`)
 
@@ -70,7 +78,8 @@ All UI comes from events, which the web UI can replay from `seq=0`:
 |---|---|
 | Conversation | `user_message` · `assistant_delta` · `assistant_note` · `assistant_message` |
 | Steps | `tool_call` · `tool_result` |
-| Helpers | `agent_start` · `agent_end` |
+| Helpers | `agent_start` (with `model`) · `agent_end` |
+| Phase 3 | `todos` · `mentions` · `check` |
 | Approvals | `approval_request` · `approval_resolved` · `approval_auto` |
 | Status | `status` · `usage` · `compaction` · `summary` · `notice` · `error` · `config` |
 | Chat | `thread` (new, resume, rename, title) · `mode` · `plan_ready` · `plan_resolved` · `undo` |
@@ -83,8 +92,8 @@ All UI comes from events, which the web UI can replay from `seq=0`:
 - **Starting the hub:** the first session spawns `dcode hub`, detached and with a clean environment. Later sessions reuse it if `hub_usable()` (same version, assets present); otherwise they replace it. The hub exits about 6 seconds after the last session ends.
 - **Security:** binds 127.0.0.1 only. A per-user token is stored in `~/.dcode/run/token` (mode 0600). The browser gets an HttpOnly, SameSite=Strict cookie lasting 30 days. Mutations require an `X-Dcode: 1` header, and a Host-header check blocks DNS rebinding. Artifacts render in `sandbox="allow-scripts"` iframes with a CSP of `default-src 'none'`. Downloads are served as `application/octet-stream`.
 - **API:**
-  - Hub, for the browser: `/api/{hub,sessions,threads,config,models,memory,skills,artifacts}`
-  - Proxied to a session: `/api/s/<id>/{state,events,message,approve,interrupt,new,rename,resume,model,reload,mode,plan,compact,undo}`
+  - Hub, for the browser: `/api/{hub,sessions,threads,config,models,memory,skills,agents,artifacts}`
+  - Proxied to a session: `/api/s/<id>/{state,events,files,message,approve,interrupt,new,rename,resume,model,reload,mode,plan,compact,undo,init,command}`
   - Public (no token): `/api/health`, `/guide`, `/static/logo.svg`
 
 ## Data on disk (`~/.dcode`, or `DCODE_HOME`)
@@ -94,6 +103,8 @@ config.json           0600 settings (env vars override)
 threads/*.json        saved chats (messages + cwd/model/summary)
 memory/global|projects/<name>-<hash>/*.md
 skills/*.md           (+ .builtin-seeded marker)
+agents/*.md           your helpers        (projects: .dcode/agents/*.md)
+commands/*.md         your slash commands (projects: .dcode/commands/*.md; .dcode/rules.json = stricter rules)
 artifacts/<id>.json   content + history (≤10 versions)
 run/                  hub.json, token, sessions/, hub.log, hub.lock, jobs/*.log
 ```

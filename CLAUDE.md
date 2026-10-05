@@ -15,10 +15,10 @@ Dcode is a coding agent (terminal + per-user localhost web UI) for **local / air
 ## Commands
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/python -m pytest -q                 # ~110 tests, ~17 s
+.venv/bin/python -m pytest -q                 # ~154 tests, ~20 s
 .venv/bin/ruff check dcode tests              # must pass
 PYTHONPATH=. .venv/bin/dcode                  # run from source (see macOS .pth gotcha)
-python docs/dev/terminal_e2e.py [--binary /opt/homebrew/bin/dcode]   # 22 real-terminal checks
+python docs/dev/terminal_e2e.py [--binary /opt/homebrew/bin/dcode] [--verbose]   # 31 real-terminal checks
 python docs/dev/screen.py --type "say hello" [--html out.html]       # rendered screen (needs pyte)
 make mac PYTHON=.venv/bin/python              # macOS binary → /opt/homebrew/bin/dcode (no sudo)
 make deb                                      # Linux .deb (build on matching Linux host)
@@ -29,7 +29,8 @@ make deb                                      # Linux .deb (build on matching Li
 - `session.py` — `Session` (the Host): worker/queue, `EventBus`, approvals (first answer wins), modes, plan approval, compact, undo, titles, jobs, thread autosave.
 - `cli.py` + `ui.py` — terminal: state-driven loop, event rendering, slash commands, live panel; widgets (bottom input box, selectors, approval menu).
 - `server.py` — per-session API + per-user hub (UI, settings, memory, skills, artifacts, proxy/SSE, lifecycle).
-- `llm.py` (server quirks, `<think>`, text tool-call recovery, name cleaning), `context.py` (budget/compaction), `tools.py` (sandboxed tools), `agents.py` (prompts, roles, modes, extra schemas), `memory.py`, `artifacts.py`, `skills.py` (+ `skills/*.md`), `checkpoints.py`, `jobs.py`, `config.py`, `theme.py`.
+- `llm.py` (server quirks, `<think>`, text tool-call recovery, name cleaning, `with_model`), `context.py` (budget/compaction), `tools.py` (sandboxed tools, file guard, outside-workspace allowance), `agents.py` (prompts, roles, modes, extra schemas, todo helpers), `memory.py`, `artifacts.py`, `skills.py` (+ `skills/*.md`, `parse_frontmatter`), `checkpoints.py`, `jobs.py`, `config.py`, `theme.py`.
+- Phase 3: `checks.py` (post-edit checks), `mentions.py` (`@path`), `custom_agents.py` (`.dcode/agents`), `commands.py` (`.dcode/commands`), `rules.py` (allow/ask/deny), `hooks.py`.
 - `web/` — `index.html`/`app.js`/`app.css` (main UI), `artifact.html` (`/a/<id>`), `guide.html` (bilingual user guide, `/guide`).
 - Details: `docs/architecture.md`. History & every past bug: `docs/history.md`. Rationale: `docs/decisions.md`.
 
@@ -39,6 +40,8 @@ make deb                                      # Linux .deb (build on matching Li
 - Events are the UI contract: add new ones to `cli._render` **and** `app.js render()`; web UI must handle replay (`seq=0`).
 - Tests: use `conftest.FakeLLM` + `scripted(...)`/router functions; `isolated` fixture gives a private `DCODE_HOME`. Server tests use the in-process `stack` fixture.
 - User-facing text: humanized, short. Guide is bilingual — update **both** English and Persian sections.
+- Security boundaries: anything read from a project folder (`.dcode/agents`, `.dcode/commands`, `.dcode/rules.json`) is untrusted — project rules may only tighten, hooks come only from `~/.dcode/config.json`, and command `` !`shell` `` goes through mode + rules.
+- Keep the system prompt stable within a turn (local servers cache the prompt prefix): only refresh it at turn start and after compaction.
 
 ## Gotchas (each one bit us)
 - **macOS hidden `.pth`:** repo is in iCloud-synced `~/Documents`; `.venv` editable `.pth` files get the `hidden` flag and Python 3.12.4 skips them → use `PYTHONPATH=<repo>` or the binary.

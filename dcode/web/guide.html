@@ -239,6 +239,9 @@ dcode</pre></div>
     <li>Each chat is named automatically from your first message. The name shows under the input box and in the web UI.</li>
     <li>When Dcode wants to <strong>run a command, delete a file or commit</strong>, a menu appears. Choose with the arrow keys and <kbd>Enter</kbd>, or press <kbd>y</kbd> (allow), <kbd>a</kbd> (allow for this session) or <kbd>n</kbd> (deny).</li>
     <li>In long lists, such as the model list, just type to filter.</li>
+    <li><strong>Mention files with <code>@</code>:</strong> type <code>@</code> and part of a name, then <kbd>Tab</kbd> or <kbd>Enter</kbd> to pick it, e.g. <code>fix the bug in @src/app.py</code>. Up to 3 mentioned files go straight into the conversation, so Dcode doesn't spend steps finding them. Works in the web UI too.</li>
+    <li>For longer tasks Dcode keeps a <strong>checklist</strong> (☰) and ticks steps off as it goes. The list survives "context compacted", so small models stay on track.</li>
+    <li>When something is genuinely unclear, Dcode may <strong>ask you a question</strong> with a few choices. Pick one, type your own answer, or press <kbd>Esc</kbd> to let it decide.</li>
   </ul>
   <h3>Slash commands</h3>
   <table>
@@ -248,7 +251,9 @@ dcode</pre></div>
       <tr><td><code>/ui</code></td><td>Show the web UI link again</td></tr>
       <tr><td><code>/model</code></td><td>Switch model and reasoning effort</td></tr>
       <tr><td><code>/context</code></td><td>See context usage, change the window size</td></tr>
-      <tr><td><code>/agents</code></td><td>Turn helpers on or off; set how many run at once</td></tr>
+      <tr><td><code>/agents</code></td><td>List helpers (yours too); <code>/agents settings</code> turns them on or off, sets how many run at once and the helper model</td></tr>
+      <tr><td><code>/init</code></td><td>Dcode looks around the project and writes <code>AGENTS.md</code>: commands, layout, conventions. It's read at the start of every session</td></tr>
+      <tr><td><code>/rules</code> · <code>/hooks</code></td><td>Allow, ask or deny commands and files by pattern; list your hooks (see Security)</td></tr>
       <tr><td><code>/memory</code> · <code>/remember &lt;text&gt;</code></td><td>List memories or save one</td></tr>
       <tr><td><code>/skills</code></td><td>Pin skills so they're always used</td></tr>
       <tr><td><code>/review</code></td><td>Review your current git changes (in a separate helper)</td></tr>
@@ -264,6 +269,16 @@ dcode</pre></div>
       <tr><td><code>/setup</code> · <code>/exit</code></td><td>Run setup again; quit (your chat is saved)</td></tr>
     </tbody>
   </table>
+  <h3>Your own commands</h3>
+  <p>Save a prompt you use often as a Markdown file and it becomes a command. <code>.dcode/commands/review-pr.md</code> in a project (or <code>~/.dcode/commands/</code> for all projects) becomes <code>/review-pr</code>:</p>
+  <div class="code"><div class="bar"><span>.dcode/commands/review-pr.md</span><button>Copy</button></div><pre>---
+description: Review my branch against main
+agent: review            <span class="c"># optional: run it as this helper</span>
+---
+Review these changes for bugs and missing tests. Focus: $ARGUMENTS
+!`git diff main...HEAD --stat`
+Our conventions are in @CONTRIBUTING.md</pre></div>
+  <p><code>$ARGUMENTS</code> is what you type after the command (<code>$1</code>, <code>$2</code>… single words). <code>!`command`</code> puts that command's output in the prompt; it follows the same mode and rules as Dcode's own commands, so it asks first unless allowed.</p>
   <h3>Modes</h3>
   <p>Press <kbd>Shift</kbd>+<kbd>Tab</kbd> in the input box to cycle modes. The current mode shows under the box, and the border color changes with it. You can also pick a mode in the web UI next to the message box.</p>
   <table>
@@ -279,6 +294,7 @@ dcode</pre></div>
   <ul>
     <li>Command output shows the first few lines. Press <kbd>Ctrl</kbd>+<kbd>O</kbd> at the input box to see the full output of the last task.</li>
     <li>Each edit shows a red/green preview of what changed.</li>
+    <li><strong>Checks after edits:</strong> right after changing a file, Dcode checks it (syntax errors, undefined names) with what's already on your machine: Python itself, ruff, node, bash, gofmt and others. Problems go straight back to the model, which fixes them in its next step. Turn on <em>Also format them</em> in Settings → Permissions to run your formatter too.</li>
     <li>While Dcode works, a live panel shows the current step, every running helper and background jobs, each with a timer. Long-running commands (servers, watchers) run as <strong>background jobs</strong>; the status line counts them and <code>/jobs</code> manages them. They stop when you exit.</li>
     <li>Every task saves a checkpoint. <code>/undo</code> puts the files back as they were, even outside git.</li>
     <li><code>/diff</code> shows your uncommitted changes, and <code>/commit</code> writes a commit message from the diff and asks before committing.</li>
@@ -306,7 +322,19 @@ dcode</pre></div>
       <tr><td>🧪 Tester</td><td>Writing and running tests</td></tr>
     </tbody>
   </table>
-  <p>Read-only helpers can work in parallel. Set how many in <code>/agents</code> or Settings → Helpers. Running more than one at a time needs a server that handles concurrent requests (vLLM, or <code>llama-server --parallel N</code>).</p>
+  <p>Read-only helpers can work in parallel. Set how many in <code>/agents settings</code> or Settings → Helpers. Running more than one at a time needs a server that handles concurrent requests (vLLM, or <code>llama-server --parallel N</code>).</p>
+  <ul>
+    <li><strong>Use one yourself:</strong> start a message with <code>@name</code>, e.g. <code>@explore where is the login handled?</code>. Only its report comes back.</li>
+    <li><strong>A model for helpers:</strong> set <em>Helper model</em> in Settings → Helpers to run helpers on a smaller, faster model from the same server, while the main chat keeps the bigger one.</li>
+    <li><strong>Make your own:</strong> add a Markdown file in <code>~/.dcode/agents/</code> or a project's <code>.dcode/agents/</code>, or use <em>New helper</em> in Settings → Helpers. A file named like a built-in (<code>explore.md</code>…) changes that helper.</li>
+  </ul>
+  <div class="code"><div class="bar"><span>.dcode/agents/ansible.md</span><button>Copy</button></div><pre>---
+description: Reviews Ansible playbooks for idempotency and secrets
+tools: read-only          <span class="c"># or: edit, or a list like read_file, run_command</span>
+model: qwen2.5-coder:7b   <span class="c"># optional</span>
+steps: 20                 <span class="c"># optional</span>
+---
+You review Ansible code. Check every task for idempotency, ...</pre></div>
 
   <h2 id="en-memory"><span class="num">7</span>Memory</h2>
   <p>Dcode remembers useful facts between sessions: project conventions, how to run tests, your preferences, and short summaries of past work. Relevant memories are added to each new task automatically.</p>
@@ -398,8 +426,10 @@ description: Writing Ansible playbooks and roles our team's way.
 
   <h2 id="en-security"><span class="num">12</span>Security</h2>
   <ul>
-    <li><strong>Folder sandbox:</strong> file tools can't read or write outside the project folder.</li>
+    <li><strong>Folder sandbox:</strong> file tools stay in the project folder. If Dcode needs a file outside it, it asks first.</li>
     <li><strong>Approvals:</strong> commands, deletions and commits always ask first, unless you turn on auto-approve (only for trusted, sandboxed machines).</li>
+    <li><strong>Rules:</strong> exceptions to the mode, by pattern, in Settings → Permissions or with <code>/rules</code>. <em>Allow</em> runs without asking (e.g. <code>git status*</code>), <em>ask</em> always asks even in auto mode (e.g. <code>git push*</code>), <em>deny</em> refuses (e.g. <code>rm -rf *</code>). <code>.env</code> files are protected by default. A project can add stricter rules in <code>.dcode/rules.json</code>, but never allow anything itself.</li>
+    <li><strong>Hooks:</strong> your own shell commands before or after a tool, when a task is done, or when Dcode needs an answer: block risky commands, keep an audit log, get a desktop notification. They're set in your own settings only, never by a project.</li>
     <li><strong>Private web UI:</strong> it listens only on <code>127.0.0.1</code> and needs a secret per-user link. Other users on the same server can't see or control your sessions.</li>
     <li><strong>Secrets:</strong> <code>~/.dcode</code> is readable only by you, and the web UI never shows your API key.</li>
     <li><strong>Artifacts</strong> run in a sandbox with no network access.</li>
@@ -489,6 +519,9 @@ dcode</pre></div>
     <li>هر گفتگو به‌طور خودکار از روی اولین پیام شما نام‌گذاری می‌شود. نام زیر کادر ورودی و در رابط وب دیده می‌شود.</li>
     <li>وقتی Dcode بخواهد <strong>دستوری اجرا کند، فایلی را حذف کند یا commit بزند</strong>، یک منو باز می‌شود. با کلیدهای جهت و <kbd>Enter</kbd> انتخاب کنید، یا <kbd>y</kbd> (اجازه)، <kbd>a</kbd> (اجازه برای کل این نشست) یا <kbd>n</kbd> (رد) را بزنید.</li>
     <li>در فهرست‌های بلند، مثل فهرست مدل‌ها، کافی است تایپ کنید تا فیلتر شود.</li>
+    <li><strong>اشاره به فایل با <code>@</code>:</strong> <code>@</code> و بخشی از نام فایل را تایپ کنید و با <kbd>Tab</kbd> یا <kbd>Enter</kbd> انتخاب کنید، مثلاً <code>fix the bug in @src/app.py</code>. تا ۳ فایلِ اشاره‌شده مستقیم وارد گفتگو می‌شوند و Dcode برای پیدا کردنشان مرحله‌ای خرج نمی‌کند. در رابط وب هم کار می‌کند.</li>
+    <li>برای کارهای طولانی‌تر، Dcode یک <strong>چک‌لیست</strong> (☰) نگه می‌دارد و مرحله‌ها را تیک می‌زند. این فهرست بعد از فشرده‌سازی زمینه هم می‌ماند تا مدل‌های کوچک مسیر را گم نکنند.</li>
+    <li>وقتی چیزی واقعاً مبهم باشد، Dcode ممکن است <strong>از شما سؤالی بپرسد</strong> و چند گزینه بدهد. یکی را انتخاب کنید، پاسخ خودتان را بنویسید، یا <kbd>Esc</kbd> را بزنید تا خودش تصمیم بگیرد.</li>
   </ul>
   <h3>دستورهای اسلش</h3>
   <table>
@@ -498,7 +531,9 @@ dcode</pre></div>
       <tr><td><code>/ui</code></td><td>نمایش دوبارهٔ لینک رابط وب</td></tr>
       <tr><td><code>/model</code></td><td>تغییر مدل و سطح استدلال</td></tr>
       <tr><td><code>/context</code></td><td>دیدن میزان مصرف زمینه و تغییر اندازهٔ پنجره</td></tr>
-      <tr><td><code>/agents</code></td><td>روشن/خاموش کردن دستیارهای کمکی و تعداد اجرای همزمان</td></tr>
+      <tr><td><code>/agents</code></td><td>فهرست دستیارها (از جمله دستیارهای خودتان)؛ <code>/agents settings</code> برای روشن/خاموش کردن، تعداد اجرای همزمان و مدلِ دستیارها</td></tr>
+      <tr><td><code>/init</code></td><td>Dcode پروژه را بررسی می‌کند و فایل <code>AGENTS.md</code> را می‌نویسد: دستورها، ساختار و قراردادها. این فایل در شروع هر نشست خوانده می‌شود</td></tr>
+      <tr><td><code>/rules</code> · <code>/hooks</code></td><td>اجازه، پرسیدن یا رد دستورها و فایل‌ها بر اساس الگو؛ فهرست hookها (بخش امنیت را ببینید)</td></tr>
       <tr><td><code>/memory</code> · <code>/remember &lt;text&gt;</code></td><td>فهرست حافظه‌ها یا ذخیرهٔ یک مورد</td></tr>
       <tr><td><code>/skills</code></td><td>سنجاق کردن مهارت‌ها تا همیشه استفاده شوند</td></tr>
       <tr><td><code>/review</code></td><td>بازبینی تغییرات فعلی git (در یک دستیار جداگانه)</td></tr>
@@ -514,6 +549,16 @@ dcode</pre></div>
       <tr><td><code>/setup</code> · <code>/exit</code></td><td>راه‌اندازی دوباره؛ خروج (گفتگو ذخیره می‌شود)</td></tr>
     </tbody>
   </table>
+  <h3>دستورهای خودتان</h3>
+  <p>پرامپتی را که زیاد استفاده می‌کنید در یک فایل Markdown ذخیره کنید تا به یک دستور تبدیل شود. فایل <code>.dcode/commands/review-pr.md</code> در پروژه (یا <code>~/.dcode/commands/</code> برای همهٔ پروژه‌ها) دستور <code>/review-pr</code> را می‌سازد:</p>
+  <div class="code"><div class="bar"><span>.dcode/commands/review-pr.md</span><button>Copy</button></div><pre>---
+description: Review my branch against main
+agent: review            <span class="c"># optional: run it as this helper</span>
+---
+Review these changes for bugs and missing tests. Focus: $ARGUMENTS
+!`git diff main...HEAD --stat`
+Our conventions are in @CONTRIBUTING.md</pre></div>
+  <p><code>$ARGUMENTS</code> همان چیزی است که بعد از دستور تایپ می‌کنید (<code>$1</code>، <code>$2</code>… کلمه‌به‌کلمه). <code>!`command`</code> خروجی آن دستور را داخل پرامپت می‌گذارد؛ این دستورها هم تابع همان حالت و قوانینِ دستورهای خود Dcode هستند و اگر مجاز نباشند اول اجازه می‌گیرند.</p>
   <h3>حالت‌ها</h3>
   <p>در کادر ورودی با <kbd>Shift</kbd>+<kbd>Tab</kbd> بین حالت‌ها جابه‌جا شوید. حالت فعلی زیر کادر نمایش داده می‌شود و رنگ حاشیه هم با آن عوض می‌شود. در رابط وب هم کنار کادر پیام می‌توانید حالت را انتخاب کنید.</p>
   <table>
@@ -529,6 +574,7 @@ dcode</pre></div>
   <ul>
     <li>خروجی دستورها فقط چند خط اول را نشان می‌دهد. با <kbd>Ctrl</kbd>+<kbd>O</kbd> در کادر ورودی، خروجی کامل آخرین کار را ببینید.</li>
     <li>هر ویرایش یک پیش‌نمایش قرمز/سبز از تغییرات نشان می‌دهد.</li>
+    <li><strong>بررسی بعد از ویرایش:</strong> Dcode بلافاصله بعد از تغییر هر فایل، آن را با ابزارهایی که روی سیستم دارید بررسی می‌کند (خطای نحوی، نام‌های تعریف‌نشده): خود پایتون، ruff، node، bash، gofmt و غیره. مشکل‌ها مستقیم به مدل برمی‌گردند و در مرحلهٔ بعد رفع می‌شوند. برای اجرای فرمتر هم، گزینهٔ <em>Also format them</em> را در تنظیمات ← مجوزها روشن کنید.</li>
     <li>وقتی Dcode کار می‌کند، یک پنل زنده مرحلهٔ فعلی، دستیارهای در حال کار و کارهای پس‌زمینه را با زمان‌سنج نشان می‌دهد. دستورهای طولانی (سرورها، watcherها) به‌صورت <strong>کار پس‌زمینه</strong> اجرا می‌شوند؛ خط وضعیت تعدادشان را نشان می‌دهد و با <code>/jobs</code> مدیریت می‌شوند. با خروج از Dcode متوقف می‌شوند.</li>
     <li>هر کار یک نقطهٔ بازگشت ذخیره می‌کند. <code>/undo</code> فایل‌ها را به حالت قبل برمی‌گرداند، حتی بیرون از git.</li>
     <li><code>/diff</code> تغییرات commit‌نشده را نشان می‌دهد و <code>/commit</code> از روی diff یک پیام commit می‌نویسد و قبل از commit اجازه می‌گیرد.</li>
@@ -556,7 +602,19 @@ dcode</pre></div>
       <tr><td>🧪 تستر (Tester)</td><td>نوشتن و اجرای تست</td></tr>
     </tbody>
   </table>
-  <p>دستیارهای فقط‌خواندنی می‌توانند همزمان کار کنند. تعدادشان را در <code>/agents</code> یا تنظیمات ← دستیارها تعیین کنید. اجرای همزمان بیش از یکی به سروری نیاز دارد که درخواست‌های همزمان را پشتیبانی کند (vLLM یا <code>llama-server --parallel N</code>).</p>
+  <p>دستیارهای فقط‌خواندنی می‌توانند همزمان کار کنند. تعدادشان را در <code>/agents settings</code> یا تنظیمات ← دستیارها تعیین کنید. اجرای همزمان بیش از یکی به سروری نیاز دارد که درخواست‌های همزمان را پشتیبانی کند (vLLM یا <code>llama-server --parallel N</code>).</p>
+  <ul>
+    <li><strong>استفادهٔ مستقیم:</strong> پیام را با <code>@name</code> شروع کنید، مثلاً <code>@explore where is the login handled?</code>. فقط گزارش آن برمی‌گردد.</li>
+    <li><strong>مدل جدا برای دستیارها:</strong> در تنظیمات ← دستیارها، <em>Helper model</em> را تنظیم کنید تا دستیارها روی مدلی کوچک‌تر و سریع‌تر از همان سرور اجرا شوند و گفتگوی اصلی همان مدل بزرگ را نگه دارد.</li>
+    <li><strong>دستیار خودتان را بسازید:</strong> یک فایل Markdown در <code>~/.dcode/agents/</code> یا پوشهٔ <code>.dcode/agents/</code> پروژه بگذارید، یا از <em>New helper</em> در تنظیمات ← دستیارها استفاده کنید. فایلی با نام یک دستیار پیش‌فرض (مثل <code>explore.md</code>) همان دستیار را تغییر می‌دهد.</li>
+  </ul>
+  <div class="code"><div class="bar"><span>.dcode/agents/ansible.md</span><button>Copy</button></div><pre>---
+description: Reviews Ansible playbooks for idempotency and secrets
+tools: read-only          <span class="c"># or: edit, or a list like read_file, run_command</span>
+model: qwen2.5-coder:7b   <span class="c"># optional</span>
+steps: 20                 <span class="c"># optional</span>
+---
+You review Ansible code. Check every task for idempotency, ...</pre></div>
 
   <h2 id="fa-memory"><span class="num">۷</span>حافظه</h2>
   <p>Dcode اطلاعات مفید را بین نشست‌ها به خاطر می‌سپارد: قواعد پروژه، روش اجرای تست‌ها، ترجیحات شما و خلاصهٔ کارهای قبلی. حافظه‌های مرتبط به‌طور خودکار به هر کار جدید اضافه می‌شوند.</p>
@@ -649,8 +707,10 @@ description: Writing Ansible playbooks and roles our team's way.
 
   <h2 id="fa-security"><span class="num">۱۲</span>امنیت</h2>
   <ul>
-    <li><strong>محدودیت پوشه:</strong> ابزارهای فایل بیرون از پوشهٔ پروژه نمی‌خوانند و نمی‌نویسند.</li>
+    <li><strong>محدودیت پوشه:</strong> ابزارهای فایل داخل پوشهٔ پروژه می‌مانند. اگر Dcode به فایلی بیرون از آن نیاز داشته باشد، اول اجازه می‌گیرد.</li>
     <li><strong>تأییدها:</strong> اجرای دستور، حذف فایل و commit همیشه اول اجازه می‌گیرند، مگر تأیید خودکار را روشن کنید (فقط برای سیستم‌های مطمئن و ایزوله).</li>
+    <li><strong>قوانین:</strong> استثناهایی بر حالت فعلی، بر اساس الگو، در تنظیمات ← مجوزها یا با <code>/rules</code>. <em>Allow</em> بدون پرسیدن اجرا می‌کند (مثلاً <code>git status*</code>)، <em>Ask</em> همیشه می‌پرسد، حتی در حالت خودکار (مثلاً <code>git push*</code>)، و <em>Deny</em> رد می‌کند (مثلاً <code>rm -rf *</code>). فایل‌های <code>.env</code> به‌طور پیش‌فرض محافظت می‌شوند. هر پروژه می‌تواند در <code>.dcode/rules.json</code> قوانین سخت‌گیرانه‌تری اضافه کند، ولی هرگز نمی‌تواند به خودش اجازه بدهد.</li>
+    <li><strong>Hookها:</strong> دستورهای shell خودتان، قبل یا بعد از یک ابزار، وقتی کاری تمام شد یا وقتی Dcode منتظر پاسخ شماست: مسدود کردن دستورهای پرخطر، ثبت گزارش، اعلان دسکتاپ. فقط در تنظیمات خودتان تعریف می‌شوند، نه توسط پروژه.</li>
     <li><strong>رابط وب خصوصی:</strong> فقط روی <code>127.0.0.1</code> در دسترس است و یک لینک مخفی مخصوص هر کاربر لازم دارد. کاربران دیگر همان سرور نمی‌توانند نشست‌های شما را ببینند یا کنترل کنند.</li>
     <li><strong>اسرار:</strong> پوشهٔ <code>~/.dcode</code> فقط برای شما خواندنی است و رابط وب هیچ‌وقت کلید API را نشان نمی‌دهد.</li>
     <li><strong>آرتیفکت‌ها</strong> در محیط ایزوله و بدون دسترسی به شبکه اجرا می‌شوند.</li>
