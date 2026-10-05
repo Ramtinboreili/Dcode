@@ -82,6 +82,12 @@ def after_edit(path: Path, settings: dict[str, Any], root: Path) -> tuple[str, s
     return "\n".join(notes), problems
 
 
+def problem_count(problems: str) -> int:
+    """One problem per unindented line (indented lines are code excerpts or details)."""
+    lines = [ln for ln in problems.splitlines() if ln.strip() and not ln[:1].isspace() and not ln.startswith("…")]
+    return max(1, len(lines)) if problems.strip() else 0
+
+
 def _timeout(settings: dict[str, Any]) -> float:
     try:
         return max(1.0, float(settings.get("timeout", 15)))

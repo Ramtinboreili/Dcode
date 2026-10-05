@@ -75,12 +75,15 @@ class Terminal:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", default=str(REPO / ".venv" / "bin" / "dcode"))
+    parser.add_argument("--verbose", action="store_true", help="print the screen tail when a check fails")
     args = parser.parse_args()
 
     tmp = Path(tempfile.mkdtemp(prefix="dcode-e2e-"))
     work = tmp / "work"
     work.mkdir()
     (work / "app.py").write_text("print('hi')\n")
+    (work / ".dcode" / "commands").mkdir(parents=True)
+    (work / ".dcode" / "commands" / "hello.md").write_text("---\ndescription: Greet someone\n---\nSay hello to $ARGUMENTS")
     port = free_port()
     mock = subprocess.Popen([sys.executable, str(MOCK), str(port)], stdout=subprocess.DEVNULL)
     time.sleep(0.5)
@@ -93,6 +96,8 @@ def main() -> int:
         nonlocal failures
         print(("PASS " if ok else "FAIL ") + name, flush=True)
         failures += 0 if ok else 1
+        if not ok and args.verbose:
+            print("    " + term.text()[-1500:].replace("\n", "\n    "), flush=True)
 
     term = Terminal(args.binary, env, work)
     try:
@@ -151,6 +156,29 @@ def main() -> int:
         check("ctrl+o expands outputs", term.expect(r"run_command\s+echo hi-from-tool"))
         term.send("explore the repo\r")
         check("helper delegation", term.expect(r"◆ explore-\d+") and term.expect(r"explore-\d+ finished"))
+        term.send("look at @ap")
+        check("@ suggests project files", term.expect(r"@app\.py\s+file", timeout=4))
+        term.send("\t")
+        term.read(0.3)
+        term.send("please\r")
+        check("@file is attached to the message", term.expect(r"\+ attached app\.py")
+              and term.expect(r"Done\. Tool .?read_file"))
+        term.send("make a checklist\r")
+        check("todo checklist is drawn", term.expect(r"Checklist\s+1/2 done") and term.expect(r"▸ Write the fix"))
+        term.send("ask me something\r")
+        check("question menu in the terminal", term.expect(r"\?\s+Which database\?"))
+        term.read(0.4)
+        term.send("\r")
+        check("question answered", term.expect(r"Which database\? →\s*Postgres") and term.expect(r"Done\. Tool .?ask_user"))
+        term.send("break the syntax\r")
+        check("post-edit check reports the error", term.expect(r"check found 1 problem"))
+        term.send('/rules deny "rm -rf *"\r')
+        check("/rules saves a rule", term.expect(r"Rule saved: deny command"))
+        term.send("/hello bob\r")
+        check("custom /command runs", term.expect(r"Echo: Say hello to bob"))
+        term.send("@explore find the entry point\r")
+        check("@helper runs directly", term.expect(r"◆ explore-\d+ +find the entry point")
+              and term.expect(r"explore-\d+ finished") and term.expect(r"✓ Done in [\d.]+s · 1 helper"))
         term.send("tell me about this project and make an artifact\r")
         check("follow-through after an announced-but-skipped artifact",
               term.expect(r"Reminding the model to follow through") and term.expect(r"◆ Artifact"))

@@ -463,7 +463,8 @@
     const status = $("#status");
     status.hidden = !(live && (S.busy || waiting));
     status.className = "status" + (waiting ? " wait" : "");
-    status.replaceChildren(h("span", { class: "dot" }), waiting ? "Needs your approval" : "Working");
+    const onlyQuestions = waiting && (s.approvals || []).every((a) => a.kind === "question");
+    status.replaceChildren(h("span", { class: "dot" }), waiting ? (onlyQuestions ? "Has a question for you" : "Needs your approval") : "Working");
     const ctx = $("#ctx");
     if (live && s?.context_window) {
       const pct = Math.min(100, Math.round((100 * (s.context_used || 0)) / s.context_window));
@@ -1353,11 +1354,12 @@
     };
     draw();
     const ev = h("select", { class: "select" }, ...Object.entries(EVENTS).map(([k, label]) => h("option", { value: k }, label)));
-    const match = textInput("", () => {}, { placeholder: "tool, e.g. run_command (optional)", style: "max-width:220px" });
+    const match = textInput("", () => {}, { placeholder: "only for tool… (optional)", style: "max-width:200px" });
     const cmd = textInput("", () => {}, { placeholder: "shell command, e.g. notify-send Dcode done" });
     return section("Hooks", "Run your own shell commands at key moments: block risky tools, keep an audit log, get a desktop notification. Details arrive as DCODE_* environment variables and JSON on stdin.",
       rows,
-      h("div", { class: "with-btn", style: "margin-top:8px;flex-wrap:wrap" }, ev, match, cmd,
+      h("div", { class: "with-btn", style: "margin-top:10px" }, ev, match),
+      h("div", { class: "with-btn", style: "margin-top:8px" }, cmd,
         h("button", { class: "btn sm", onclick: () => {
           if (!cmd.value.trim()) return toast("Type the command to run", true);
           const hook = { on: ev.value, command: cmd.value.trim() };

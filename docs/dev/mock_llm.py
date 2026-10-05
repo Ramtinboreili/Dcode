@@ -21,6 +21,9 @@ Trigger words (in the user's message unless noted):
     loop                      → re-saves the same artifact up to 5 times, then untitled
                                 (the re-save bug; Dcode must cap and merge them)
     start the server          → run_command with background=true (background jobs)
+    make a checklist          → todo_write with two items
+    ask me                    → ask_user "Which database?" (Postgres / SQLite)
+    break the syntax          → edit_file that leaves app.py with a syntax error (post-edit check)
 
 After any tool result the mock answers "Done. Tool `x` returned N chars." Tool
 arguments stream in 400-character chunks (8-character chunks made long
@@ -75,6 +78,13 @@ def choose_reply(messages: list[dict]) -> dict:
                                            "content": "<h1>Project</h1><p>Overview.</p>"})}
     if "about this project" in text:
         return {"content": "I have the full picture. Building the artifact now."}
+    if "make a checklist" in text:
+        return {"tool": ("todo_write", {"items": [{"text": "Read the code", "status": "done"},
+                                                  {"text": "Write the fix", "status": "in_progress"}]})}
+    if "ask me" in text:
+        return {"tool": ("ask_user", {"question": "Which database?", "options": ["Postgres", "SQLite"]})}
+    if "break the syntax" in text:
+        return {"tool": ("edit_file", {"path": "app.py", "old_text": "print('hi')", "new_text": "print('hi'"})}
     if "start the server" in text:
         return {"tool": ("run_command", {"command": "python3 -m http.server 18099", "background": True})}
     if "dashboard" in text:

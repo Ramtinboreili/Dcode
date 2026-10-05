@@ -913,7 +913,7 @@ class Agent:
             return ""  # a broken checker must never break editing
         if problems:
             self.host.emit("check", agent=self.agent_id, path=path, ok=False,
-                           problems=problems, count=len(problems.splitlines()))
+                           problems=problems, count=checks.problem_count(problems))
         return f"\n{note}" if note else ""
 
     # --- sub-agents ---------------------------------------------------------------------

@@ -79,4 +79,5 @@ def test_edit_result_carries_the_problem_back_to_the_model(isolated):
     result = next(m["content"] for m in agent.messages if m["role"] == "tool")
     assert result.startswith("Edited m.py") and "SyntaxError" in result
     event = next(e for e in host.events if e["type"] == "check")
-    assert event["path"] == "m.py" and not event["ok"]
+    assert event["path"] == "m.py" and not event["ok"] and event["count"] == 1
+    assert checks.problem_count("a.py:1: x\n    code\nb.py:2: y\n… 3 more lines") == 2
