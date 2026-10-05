@@ -470,7 +470,11 @@ class Session:
                     if first and self._default_name():
                         self._auto_title(payload)
                     self.plan_pending = False
-                    self.agent.run_turn(payload)
+                    helper = self._helper_request(payload)
+                    if helper:
+                        self._run_helper(*helper)
+                    else:
+                        self.agent.run_turn(payload)
                     if self.mode == "plan":
                         self.plan_pending = True
                         self.emit("plan_ready")
@@ -552,6 +556,28 @@ class Session:
                 break
             if message.get("role") == "user":
                 break
+
+    def _helper_request(self, text: str) -> tuple[str, str] | None:
+        """'@name task' runs helper `name` directly — unless a file or folder called `name` exists."""
+        match = re.match(r"@([\w-]+)\s+(.+)", text.strip(), re.DOTALL)
+        if not match or not self.config.agents.get("enabled", True):
+            return None
+        name, task = match.group(1).lower(), match.group(2).strip()
+        if name not in self.agent.specs or (workspace_root() / match.group(1)).exists():
+            return None
+        return name, task
+
+    def _run_helper(self, name: str, task: str) -> None:
+        started = time.perf_counter()
+        self.agent.messages.append({"role": "user", "content": f"@{name} {task}"})
+        report = self.agent._delegate(name, task)
+        text = report.split("\n", 1)[1] if report.startswith("[") and "\n" in report else report
+        self.agent.messages.append({"role": "assistant", "content": text})
+        self.emit("assistant_message", agent="main", text=text)
+        self.emit("usage", agent="main", model=self.config.model, elapsed=round(time.perf_counter() - started, 2),
+                  context_used=self.agent.budget.usage(self.agent.messages, self.agent.tools()),
+                  context_window=self.config.context_window, files_changed=[], commands=0, commands_failed=0,
+                  helpers=1, prompt=0, completion=0, total=0)
 
     def _run_review(self, source: str) -> None:
         from .tools import execute_tool

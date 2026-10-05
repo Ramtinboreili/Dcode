@@ -66,6 +66,7 @@ DEFAULT_AGENTS = {
     "enabled": True,        # expose the `delegate` tool to the main agent
     "max_parallel": 2,      # read-only sub-agents that may run at once
     "max_steps": 16,        # tool-loop iterations per sub-agent
+    "helper_model": "",     # run helpers on another model (e.g. a small fast one); "" = the main model
 }
 DEFAULT_MEMORY = {
     "enabled": True,        # expose memory tools + inject memory index

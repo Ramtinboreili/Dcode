@@ -55,6 +55,8 @@ from .config import (
     threads_dir,
     write_private_json,
 )
+from .custom_agents import agents_dir, load_specs, save_spec
+from .custom_agents import normalize_name as agent_name
 from .memory import SCOPES, _parse, slugify, write_memory
 from .skills import list_skills, normalize_name, save_skill
 from .theme import css_variables
@@ -199,7 +201,11 @@ class SessionServer:
                 if parsed.path == "/files":  # @mention completion
                     from .mentions import complete
 
-                    return self._json({"files": complete((query.get("q") or [""])[0], Path(outer.session.cwd))})
+                    q = (query.get("q") or [""])[0]
+                    session = outer.session
+                    helpers = ([{"name": n, "description": spec.description} for n, spec in session.agent.specs.items()
+                                if n.startswith(q.lower())] if session.config.agents.get("enabled", True) else [])
+                    return self._json({"files": complete(q, Path(session.cwd)), "helpers": helpers})
                 return self._json({"error": "not found"}, 404)
 
             def do_POST(self) -> None:
@@ -541,6 +547,11 @@ class Hub:
                  "pinned": s.name in pinned, "builtin": s.builtin, "scope": s.scope}
                 for s in list_skills()
             ])
+        if path == "/api/agents":
+            # Project helpers too, but only for a folder a live session is working in.
+            cwd = query.get("cwd", [""])[0]
+            workspace = Path(cwd) if cwd and any(e.get("cwd") == cwd for e in live_sessions()) else None
+            return handler._json([spec.as_dict() for spec in load_specs(workspace).values()])
         if path == "/api/artifacts":
             return handler._json(ArtifactStore().list())
         if path.startswith("/api/artifacts/"):
@@ -614,6 +625,18 @@ class Hub:
         if path.startswith("/api/skills/") and method == "DELETE":
             name = normalize_name(urllib.parse.unquote(path.rsplit("/", 1)[1]))
             (skills_dir() / f"{name}.md").unlink(missing_ok=True)
+            return handler._json({"ok": True})
+        if path == "/api/agents" and method == "POST":
+            name = agent_name(str(body.get("name") or ""))
+            if not name or not str(body.get("description") or "").strip():
+                raise ValueError("a helper needs a name and a description")
+            save_spec(name, str(body.get("description")), str(body.get("prompt") or ""),
+                      str(body.get("tools") or ""), str(body.get("model") or ""))
+            return handler._json({"ok": True, "name": name})
+        if path.startswith("/api/agents/") and method == "DELETE":
+            name = agent_name(urllib.parse.unquote(path.rsplit("/", 1)[1]))
+            if name:
+                (agents_dir() / f"{name}.md").unlink(missing_ok=True)
             return handler._json({"ok": True})
         if path == "/api/artifacts" and method == "POST":
             meta = ArtifactStore().save(

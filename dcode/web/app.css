@@ -628,3 +628,4 @@ a.sb-link { text-decoration: none; }
 .todo.done .todo-box { background: var(--success); border-color: transparent; color: #fff; }
 .todo.in_progress { color: var(--text); font-weight: 600; }
 .todo.in_progress .todo-box { border-color: var(--primary); box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 10px var(--primary); }
+.skill-desc.mono-path { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; opacity: .8; }

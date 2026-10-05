@@ -34,7 +34,7 @@ def test_plan_mode_is_read_only():
     assert "read_file" in names and "delegate" in names
     assert not {"write_file", "edit_file", "run_command", "delete_file", "git_commit"} & set(names)
     assert "PLAN MODE" in agent.system_prompt()
-    assert "only explore and review" in agent._delegate("code", "change things")
+    assert "only read-only helpers" in agent._delegate("code", "change things")
 
 
 def test_manual_mode_asks_before_edits(isolated):

@@ -718,7 +718,8 @@
         const turn = ensureTurn();
         removeThinking();
         closeActivity();
-        const [roleName, ic] = ROLES[ev.role] || ROLES[roleOf(ev.agent)] || ["Helper", "users"];
+        const custom = String(ev.role || roleOf(ev.agent) || "Helper");
+        const [roleName, ic] = ROLES[ev.role] || ROLES[roleOf(ev.agent)] || [custom.charAt(0).toUpperCase() + custom.slice(1).replace(/[-_]/g, " "), "users"];
         const state = h("span", { class: "agent-state" }, h("span", { class: "spin" }), "Working");
         const steps = h("div", { class: "steps" });
         const body = h("div", { class: "agent-body" }, steps);
@@ -989,7 +990,9 @@
     sug.kind = "file"; sug.token = m[1];
     try {
       const r = await api("GET", `/api/s/${S.id}/files?q=${encodeURIComponent(m[1])}`);
-      if (seq === sug.seq) showSuggest((r.files || []).map((f) => ["@" + f, f.endsWith("/") ? "folder" : "file"]));
+      const atStart = input.value.trimStart() === before.trimStart() && before.trimStart() === "@" + m[1];
+      const helpers = atStart ? (r.helpers || []).map((a) => ["@" + a.name, "helper · " + short(a.description, 50)]) : [];
+      if (seq === sug.seq) showSuggest([...helpers, ...(r.files || []).map((f) => ["@" + f, f.endsWith("/") ? "folder" : "file"])].slice(0, 10));
     } catch (_) { hideSuggest(); }
   }
   function showSuggest(items) {
@@ -1002,7 +1005,7 @@
     suggest.replaceChildren(...sug.items.map(([label, meta], i) => h("button", {
       type: "button", role: "option", class: "menu-item" + (i === sug.sel ? " active" : ""),
       onmousedown: (e) => { e.preventDefault(); sug.sel = i; pickSuggest(); } },
-      icon(sug.kind === "file" ? (meta === "folder" ? "folder" : "file") : "zap"),
+      icon(sug.kind === "file" ? (meta === "folder" ? "folder" : meta.startsWith("helper") ? "users" : "file") : "zap"),
       h("span", { class: "row-main" }, label), h("span", { class: "meta" }, meta))));
     suggest.children[sug.sel]?.scrollIntoView({ block: "nearest" });
   }
@@ -1132,7 +1135,10 @@
     if (tab) S.tab = tab;
     openModal("#settings-modal");
     $("#settings-body").replaceChildren(h("div", { class: "empty-state" }, h("span", { class: "spin" })));
-    try { S.cfg = await api("GET", "/api/config"); S.skills = await api("GET", "/api/skills"); }
+    try {
+      S.cfg = await api("GET", "/api/config"); S.skills = await api("GET", "/api/skills");
+      S.helpers = await api("GET", "/api/agents" + (S.info?.cwd ? "?cwd=" + encodeURIComponent(S.info.cwd) : ""));
+    }
     catch (e) { toast(e.message, true); return; }
     renderSettings();
   }
@@ -1187,7 +1193,39 @@
       body.append(section("Helpers", "Dcode can hand focused jobs to helpers that start with a clean slate. Only their short report comes back, which keeps small-context models sharp.",
         setRow("Use helpers", "Explorer, Coder, Reviewer and Tester.", toggle(c.agents.enabled !== false, (v) => (c.agents.enabled = v))),
         setRow("Helpers working at once", "Read-only helpers can run in parallel if your server handles concurrent requests.", seg([1, 2, 3, 4], c.agents.max_parallel ?? 2, (v) => (c.agents.max_parallel = v))),
-        setRow("Steps per helper", "How long a helper may work before reporting back.", textInput(c.agents.max_steps ?? 16, (v) => (c.agents.max_steps = v), { type: "number", min: 2, max: 100, style: "width:90px" }))));
+        setRow("Steps per helper", "How long a helper may work before reporting back.", textInput(c.agents.max_steps ?? 16, (v) => (c.agents.max_steps = v), { type: "number", min: 2, max: 100, style: "width:90px" })),
+        field("Helper model", textInput(c.agents.helper_model || "", (v) => (c.agents.helper_model = v.trim()), { placeholder: `Same as the main model (${c.model})` }),
+          help("Run helpers on another model on the same server, e.g. a small fast one for searching code."))));
+      const list = h("div");
+      for (const a of S.helpers || []) {
+        const tags = [a.scope === "builtin" ? h("span", { class: "tag blue" }, "built-in") : h("span", { class: "tag" }, a.scope),
+          a.model ? h("span", { class: "tag" }, a.model) : "", a.read_only ? h("span", { class: "tag" }, "read-only") : h("span", { class: "tag" }, "can change files")];
+        list.append(h("div", { class: "skill" },
+          h("div", { class: "skill-head" }, icon((ROLES[a.name] || [0, "users"])[1]), h("span", { class: "skill-name" }, "@" + a.name, ...tags),
+            a.scope === "user" ? h("button", { class: "btn sm ghost", title: "Delete", "aria-label": "Delete", onclick: async () => {
+              if (!confirm(`Delete the ${a.name} helper?`)) return;
+              await api("DELETE", "/api/agents/" + encodeURIComponent(a.name)); openSettings("agents");
+            } }, icon("trash")) : ""),
+          h("div", { class: "skill-desc" }, a.description),
+          a.path ? h("div", { class: "skill-desc mono-path" }, a.path) : ""));
+      }
+      const nName = textInput("", () => {}, { placeholder: "ansible-reviewer" });
+      const nDesc = textInput("", () => {}, { placeholder: "When should Dcode use this helper?" });
+      const nTools = textInput("", () => {}, { placeholder: "read-only (default), edit, or e.g. read_file, run_command" });
+      const nModel = textInput("", () => {}, { placeholder: "optional, e.g. qwen2.5-coder:7b" });
+      const nBody = h("textarea", { class: "textarea", rows: 5, placeholder: "You review Ansible code. Check every task for…" });
+      body.append(
+        section("Your helpers", "Start a message with @name to use one directly, or let Dcode pick. Add your own as Markdown files in ~/.dcode/agents or a project's .dcode/agents folder; a file named like a built-in (explore, code, review, test) changes it.", list),
+        section("New helper", null,
+          h("div", { class: "grid2" }, field("Name", nName), field("Model", nModel)),
+          field("Description", nDesc), field("Tools", nTools), field("Instructions", nBody),
+          h("button", { class: "btn", onclick: async () => {
+            if (!nName.value.trim() || !nDesc.value.trim()) return toast("Give the helper a name and a description", true);
+            try {
+              await api("POST", "/api/agents", { name: nName.value, description: nDesc.value, tools: nTools.value, model: nModel.value, prompt: nBody.value });
+              toast("Helper added"); openSettings("agents");
+            } catch (e) { toast(e.message, true); }
+          } }, icon("plus"), "Add helper")));
     } else if (S.tab === "memory") {
       body.append(
         section("Memory", "Dcode remembers project conventions, your preferences and what happened in past sessions, all stored locally as plain text.",

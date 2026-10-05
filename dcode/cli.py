@@ -118,6 +118,8 @@ class TerminalApp:
             if self.session.plan_pending:
                 self._ask_plan()
                 continue
+            ui.HELPERS = ({name: spec.description for name, spec in self.session.agent.specs.items()}
+                          if self.session.config.agents.get("enabled", True) else {})
             try:
                 text = ui.chat_input(self.status_text, mode=lambda: self.session.mode,
                                      on_cycle_mode=self.session.cycle_mode)
@@ -281,7 +283,9 @@ class TerminalApp:
             self.activity = "Thinking"
         elif kind == "agent_start":
             self.running[agent] = {"role": event.get("role", ""), "task": event.get("task", ""), "since": time.time(), "step": ""}
-            ui.show_agent_start(agent, event.get("role", ""), event.get("task", ""))
+            model = str(event.get("model") or "")
+            ui.show_agent_start(agent, event.get("role", ""), event.get("task", ""),
+                                model if model and model != self.session.config.model else "")
         elif kind == "agent_end":
             info = self.running.pop(agent, None)
             ui.show_agent_end(agent, bool(event.get("ok")), time.time() - info["since"] if info else None)
@@ -449,12 +453,18 @@ class TerminalApp:
                     cfg.enabled_skills = [name for name, on in result.items() if on]
                     self._save()
             elif command == "/agents":
+                self._list_helpers()
+                if arg.strip() not in ("settings", "set"):
+                    ui.console.print(f"{ui.PAD}[{MUTED}]Use one with @name <task>. Settings: /agents settings[/]")
+                    return None
                 result = ui.checklist_prompt("Sub-agents", [("enabled", bool(cfg.agents.get("enabled", True)))])
                 cfg.agents["enabled"] = bool(result.get("enabled"))
                 cfg.agents["max_parallel"] = int(ui.select_one(
                     "Max parallel read-only agents", ["1", "2", "3", "4"], str(cfg.agents.get("max_parallel", 2))))
                 cfg.agents["max_steps"] = int(ui.select_one(
                     "Max steps per sub-agent", ["8", "16", "24", "32", "48"], str(cfg.agents.get("max_steps", 16))))
+                cfg.agents["helper_model"] = ui.prompt_input(
+                    "Helper model (empty = same as the main model)", default=str(cfg.agents.get("helper_model") or ""))
                 self._save()
             elif command == "/context":
                 used = session.agent.budget.usage(session.agent.messages, session.agent.tools())
@@ -485,6 +495,19 @@ class TerminalApp:
         except (KeyboardInterrupt, ui.PromptInterrupted):
             pass
         return None
+
+    def _list_helpers(self) -> None:
+        specs = self.session.agent.specs
+        helper_model = str(self.session.config.agents.get("helper_model") or "")
+        ui.console.print(f"{ui.PAD}[bold]Helpers[/]" + (f" [{MUTED}]· default model {ui._escape(helper_model)}[/]"
+                                                         if helper_model else ""))
+        for spec in specs.values():
+            where = "" if spec.scope == "builtin" else f" · {spec.scope}"
+            model = f" · {spec.model}" if spec.model else ""
+            access = "read-only" if spec.read_only else "can change files"
+            ui.console.print(f"{ui.PAD}  [{ACCENT}]@{spec.name}[/] [{MUTED}]{access}{model}{where}[/]  "
+                             f"{ui._escape(spec.description[:90])}")
+        ui.console.print(f"{ui.PAD}[{MUTED}]Add your own: ~/.dcode/agents/<name>.md or .dcode/agents/<name>.md[/]")
 
     def _jobs(self) -> None:
         jobs = self.session.jobs.list()

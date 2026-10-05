@@ -80,21 +80,28 @@ def seed_builtin_skills() -> None:
             pass
 
 
-def _parse(path: Path, scope: str) -> Skill | None:
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None
+def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
+    """Split ``---``-delimited ``key: value`` lines (skills, agents, commands) from the body."""
     meta: dict[str, str] = {}
     body = text
-    if text.startswith("---\n"):
+    if text.startswith("---\n") or text.startswith("---\r\n"):
+        text = text.replace("\r\n", "\n")
         end = text.find("\n---", 4)
         if end != -1:
             for line in text[4:end].splitlines():
                 key, sep, value = line.partition(":")
                 if sep:
-                    meta[key.strip().lower()] = value.strip()
+                    meta[key.strip().lower()] = value.strip().strip("\"'")
             body = text[end + 4:].lstrip("\n")
+    return meta, body
+
+
+def _parse(path: Path, scope: str) -> Skill | None:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    meta, body = parse_frontmatter(text)
     description = meta.get("description", "")
     if not description:
         for line in body.splitlines():

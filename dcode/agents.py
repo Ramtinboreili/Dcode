@@ -122,8 +122,9 @@ REPORT_RULES = (
 )
 
 
-def role_prompt(role: str, cwd: str) -> str:
-    return f"{_ROLE_PROMPTS.get(role, _ROLE_PROMPTS['explore'])}\nWorkspace: {cwd}\n{REPORT_RULES}"
+def role_prompt(role: str, cwd: str, custom: str = "") -> str:
+    base = custom.strip() or _ROLE_PROMPTS.get(role, _ROLE_PROMPTS["explore"])
+    return f"{base}\nWorkspace: {cwd}\n{REPORT_RULES}"
 
 
 MAIN_PROMPT = """You are Dcode, an expert coding agent in the user's terminal. Workspace: {cwd}
@@ -160,8 +161,8 @@ MEMORY_PROMPT = (
 )
 
 
-def delegation_block(window: int) -> str:
-    roles = "\n".join(f"- {name}: {desc}" for name, desc in ROLE_DESCRIPTIONS.items())
+def delegation_block(window: int, descriptions: dict[str, str] | None = None) -> str:
+    roles = "\n".join(f"- {name}: {desc}" for name, desc in (descriptions or ROLE_DESCRIPTIONS).items())
     return DELEGATION_PROMPT.format(window=window, roles=roles)
 
 

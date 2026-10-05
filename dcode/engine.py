@@ -25,6 +25,7 @@ from . import checks, mentions
 from .artifacts import ArtifactStore
 from .config import AppConfig
 from .context import SUMMARY_INSTRUCTIONS, SUMMARY_PREFIX, ContextBudget, compact, render_for_summary
+from .custom_agents import AgentSpec, load_specs
 from .llm import Interrupted, LLMClient
 from .memory import MemoryStore
 from .skills import get_skill, list_skills, normalize_name, save_skill
@@ -115,8 +116,10 @@ class Agent:
         role: str = "main",
         agent_id: str = "main",
         git: dict[str, Any] | None = None,
+        spec: AgentSpec | None = None,
     ) -> None:
         self.config = config
+        self.spec = spec  # helpers only: tools, prompt, model and steps for this role
         self.llm = llm
         self.host = host
         self.memory = memory
@@ -132,6 +135,7 @@ class Agent:
         configure_limits(config.context_window)
         self.artifacts = ArtifactStore()
         self.checkpoints = getattr(host, "checkpoints", None)
+        self.specs: dict[str, AgentSpec] = self._load_specs()
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": self.system_prompt()}]
 
     # --- prompt & tools -------------------------------------------------------------
@@ -158,7 +162,7 @@ class Agent:
             names += roles.SKILL_TOOL_NAMES
             names.append("todo_write")
         else:
-            wanted = roles.ROLE_TOOLS.get(self.role, roles.ROLE_TOOLS["explore"])
+            wanted = self.spec.tools if self.spec else roles.ROLE_TOOLS.get(self.role, roles.ROLE_TOOLS["explore"])
             ungated = {n for n in roles.UNGATED_TOOLS if n != "memory_search" or memory_on}
             names = [n for n in wanted if n in allowed or n in ungated]
         if "run_command" in names and getattr(self.host, "jobs", None) is not None:
@@ -171,19 +175,31 @@ class Agent:
         schemas = []
         for name in self.tool_names():
             schema = TOOL_SCHEMAS.get(name) or roles.EXTRA_TOOL_SCHEMAS.get(name)
+            if schema and name == "delegate" and self.specs:
+                schema = json.loads(json.dumps(schema))  # the role list includes your own helpers
+                schema["function"]["parameters"]["properties"]["role"]["enum"] = list(self.specs)
             if schema:
                 schemas.append(schema)
         return schemas
+
+    def _load_specs(self) -> dict[str, AgentSpec]:
+        if not self.is_main:
+            return {}
+        try:
+            return load_specs(workspace_root())
+        except OSError:
+            return {}
 
     def system_prompt(self) -> str:
         cwd = str(workspace_root())
         window = self.config.context_window
         if not self.is_main:
-            return roles.role_prompt(self.role, cwd)
+            return roles.role_prompt(self.role, cwd, self.spec.prompt if self.spec else "")
 
         parts = [roles.MAIN_PROMPT.format(cwd=cwd)]
         if self.config.agents.get("enabled", True):
-            parts.append(roles.delegation_block(window))
+            descriptions = {name: spec.description for name, spec in self.specs.items()} or None
+            parts.append(roles.delegation_block(window, descriptions))
         if self.memory is not None and self.config.memory.get("enabled", True):
             parts.append(roles.MEMORY_PROMPT)
         if self.config.experimental.get("multi_file_edit"):
@@ -219,6 +235,7 @@ class Agent:
         return "\n\n".join(parts)
 
     def refresh_system_message(self) -> None:
+        self.specs = self._load_specs()  # pick up helpers added since the last turn
         system = {"role": "system", "content": self.system_prompt()}
         if self.messages and self.messages[0].get("role") == "system":
             self.messages[0] = system
@@ -572,7 +589,8 @@ class Agent:
         function = call.get("function") or {}
         if function.get("name") != "delegate":
             return False
-        return parse_arguments(function.get("arguments")).get("role") in roles.PARALLEL_SAFE_ROLES
+        spec = self.specs.get(str(parse_arguments(function.get("arguments")).get("role") or ""))
+        return spec.read_only if spec else False
 
     def _run_parallel_delegations(self, group: list[dict[str, Any]]) -> None:
         workers = max(1, int(self.config.agents.get("max_parallel", 2)))
@@ -818,20 +836,31 @@ class Agent:
         return f"\n{note}" if note else ""
 
     # --- sub-agents ---------------------------------------------------------------------
+    def _llm_for(self, model: str) -> Any:
+        """The client a helper uses: the same server, optionally another model."""
+        if not model or model == self.config.model or not hasattr(self.llm, "with_model"):
+            return self.llm
+        return self.llm.with_model(model)
+
     def _delegate(self, role: str, task: str) -> str:
         if not self.is_main:
             return "Sub-agents cannot delegate further."
-        if role not in roles.ROLE_TOOLS:
+        specs = self.specs or load_specs(None)
+        if role not in specs:
             role = "explore"
-        if self.mode == "plan" and role not in roles.PARALLEL_SAFE_ROLES:
-            return "Plan mode: only explore and review helpers are available until the plan is approved."
+        spec = specs[role]
+        if self.mode == "plan" and not spec.read_only:
+            return "Plan mode: only read-only helpers (like explore and review) are available until the plan is approved."
         if not task.strip():
             return "delegate needs a non-empty task."
         agent_id = f"{role}-{next(_agent_counter)}"
-        self.host.emit("agent_start", agent=agent_id, parent=self.agent_id, role=role, task=task)
-        sub = Agent(self.config, self.llm, self.host, self.memory, role=role, agent_id=agent_id, git=self.git)
+        model = spec.model or str(self.config.agents.get("helper_model") or "")
+        self.host.emit("agent_start", agent=agent_id, parent=self.agent_id, role=role, task=task,
+                       model=model or self.config.model)
+        sub = Agent(self.config, self._llm_for(model), self.host, self.memory, role=role, agent_id=agent_id,
+                    git=self.git, spec=spec)
         try:
-            result = sub.run_turn(task)
+            result = sub.run_turn(task, max_steps=spec.steps or None)
             report = result.text or "(sub-agent returned no report)"
         except Interrupted:
             self.host.emit("agent_end", agent=agent_id, role=role, ok=False, report="interrupted")

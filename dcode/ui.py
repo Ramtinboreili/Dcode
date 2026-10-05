@@ -90,7 +90,7 @@ COMMANDS: dict[str, str] = {
     "/guide": "Open the user guide in your browser (English / فارسی)",
     "/ui": "Open the web UI in your browser",
     "/model": "Switch model + reasoning effort",
-    "/agents": "Sub-agent settings",
+    "/agents": "List helpers (use one with @name) · /agents settings",
     "/context": "Context window + usage",
     "/memory": "List saved memories",
     "/remember": "Save a memory: /remember <text>",
@@ -109,6 +109,8 @@ COMMANDS: dict[str, str] = {
 
 # Commands added at runtime (custom commands from .dcode/commands); shown after the built-ins.
 EXTRA_COMMANDS: dict[str, str] = {}
+# Helpers (name -> description) offered when a message starts with "@".
+HELPERS: dict[str, str] = {}
 
 
 def command_items() -> dict[str, str]:
@@ -398,11 +400,16 @@ def chat_input(
             return []
         if state.get("files_for") != token:  # cache per token: this runs on every repaint
             state["files_for"] = token
+            helpers = []
+            if text.lstrip() == "@" + token:  # a message starting with @name runs that helper
+                helpers = [("@" + name, f"helper · {desc[:60]}") for name, desc in HELPERS.items()
+                           if name.startswith(token.lower())]
             try:
-                state["files"] = [("@" + f, "folder" if f.endswith("/") else "file")
-                                  for f in mentions.complete(token, workspace_root())]
+                files = [("@" + f, "folder" if f.endswith("/") else "file")
+                         for f in mentions.complete(token, workspace_root())]
             except OSError:
-                state["files"] = []
+                files = []
+            state["files"] = (helpers + files)[:8]
         return state["files"]
 
     def accept_suggestion(item: str) -> None:
@@ -904,9 +911,10 @@ def show_todos(items: list) -> None:
             console.print(f"{PAD}  [{MUTED}]○[/] {text}")
 
 
-def show_agent_start(agent: str, role: str, task: str) -> None:
+def show_agent_start(agent: str, role: str, task: str, model: str = "") -> None:
     console.print()
-    console.print(f"{PAD}[{ACCENT}]◆ {agent}[/]  [{MUTED}]{_escape(_short_args(task, 110))}[/]")
+    on = f" [{MUTED}]on {_escape(model)}[/]" if model else ""
+    console.print(f"{PAD}[{ACCENT}]◆ {agent}[/]{on}  [{MUTED}]{_escape(_short_args(task, 110))}[/]")
 
 
 def show_agent_end(agent: str, ok: bool, elapsed: float | None = None) -> None:

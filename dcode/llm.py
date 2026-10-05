@@ -164,6 +164,15 @@ class LLMClient:
     def model(self) -> str:
         return self.config.model
 
+    def with_model(self, model: str) -> LLMClient:
+        """Same server and connection, another model (helpers can run on a smaller one)."""
+        import copy
+        import dataclasses
+
+        clone = copy.copy(self)
+        clone.config = dataclasses.replace(self.config, model=model)
+        return clone
+
     # --- low level --------------------------------------------------------------
     def _create(self, **kwargs: Any) -> Any:
         effort = self.config.reasoning_effort
