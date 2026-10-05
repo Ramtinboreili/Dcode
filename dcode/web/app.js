@@ -675,7 +675,7 @@
         break;
       }
       case "tool_call": {
-        if (ev.name === "delegate" || ev.name === "todo_write") break; // shown as a helper / checklist card instead
+        if (["delegate", "todo_write", "ask_user"].includes(ev.name)) break; // shown as a helper / checklist / question card instead
         if (S.live && agent === "main") { S.live.remove(); S.live = null; }
         const step = stepRow(ev.name, ev.args, history);
         if (ev.id) S.tools[agent + "/" + ev.id] = step;
@@ -750,6 +750,7 @@
         const turn = ensureTurn();
         removeThinking();
         closeActivity();
+        if (ev.kind === "question") { questionCard(ev, turn); break; }
         const what = { run_command: "run a command", delete_file: "delete a file", git_commit: "make a git commit", edit_file: "change a file",
           rule: "do something a rule says to confirm", outside_workspace: "use a file outside the project" }[ev.kind] || ev.kind;
         const who = agent !== "main" ? ` for the ${(ROLES[roleOf(agent)] || ["helper"])[0]}` : "";
@@ -775,6 +776,13 @@
         if (S.info) { S.info.approvals = (S.info.approvals || []).filter((x) => x.id !== ev.id); renderHeader(); }
         const a = S.approvals[ev.id];
         if (!a) break;
+        if (a.question) {
+          a.card.classList.add("done");
+          a.actions.replaceChildren(h("span", { class: "verdict" + (ev.approved ? " ok" : "") }, icon(ev.approved ? "check" : "info"),
+            ev.approved ? `Answered${ev.by === "cli" ? " in the terminal" : ""}: ${ev.answer}` : ev.by === "interrupt" ? "Not answered (task stopped)" : "Skipped — Dcode will decide"));
+          if (!history) showThinking();
+          break;
+        }
         a.card.classList.add("done");
         a.allow.remove(); a.always.remove(); a.deny.remove(); a.subline.remove();
         a.verdict.className = "verdict" + (ev.approved ? " ok" : "");
@@ -903,6 +911,25 @@
       default:
         break;
     }
+  }
+  function questionCard(ev, turn) {
+    const answer = async (text) => {
+      try { await api("POST", `/api/s/${S.id}/approve`, { id: ev.id, approved: !!text, answer: text || "" }); } catch (e) { toast(e.message, true); }
+    };
+    const own = textInput("", () => {}, { placeholder: "Or type your answer…" });
+    own.addEventListener("keydown", (e) => { if (e.key === "Enter" && own.value.trim()) { e.preventDefault(); answer(own.value.trim()); } });
+    const actions = h("div", { class: "question-actions" },
+      ...(ev.options || []).map((o) => h("button", { class: "btn sm", onclick: () => answer(o) }, o)),
+      h("div", { class: "with-btn" }, own, h("button", { class: "btn primary sm", onclick: () => own.value.trim() && answer(own.value.trim()) }, "Send"),
+        h("button", { class: "btn sm ghost", onclick: () => answer("") }, "Skip")));
+    const card = h("div", { class: "approval question" },
+      h("div", { class: "approval-head" }, icon("info"), "Dcode has a question"),
+      h("div", { class: "question-text" }, ev.detail), actions);
+    S.approvals[ev.id] = { card, actions, question: true };
+    turn.body.append(card);
+    if (S.info) { S.info.approvals = [...(S.info.approvals || []), ev]; renderHeader(); }
+    scrollDown(true);
+    own.focus();
   }
   function eventLine(cls, ic, text) {
     closeActivity();

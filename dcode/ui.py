@@ -729,6 +729,26 @@ def approval_prompt(label: str, detail: str, kind_label: str) -> str:
     return ("allow", "session", "deny")[result if isinstance(result, int) else 2]
 
 
+def question_prompt(question: str, options: Sequence[str]) -> str:
+    """The model asks something. Returns the answer, or "" if skipped (Esc).
+
+    Raises PromptInterrupted if the web UI answered first.
+    """
+    typed = "Type my own answer…"
+    choices = list(options) + [typed]
+    result = _selector(f"?  {question}", choices, cancel_result=None, filterable=False,
+                       hint_text="↑↓ move · enter select · esc skip", erase=True)
+    if result is None:
+        answer = ""
+    elif choices[result] == typed:
+        answer = prompt_input("Your answer")
+    else:
+        answer = choices[result]
+    shown = answer or "skipped — Dcode will decide"
+    console.print(f"{PAD}  [{PRIMARY}]?[/] [{MUTED}]{_escape(_short_args(question, 70))} →[/] {_escape(shown)}")
+    return answer
+
+
 def checklist_prompt(title: str, items: Sequence[tuple], hint_text: str = "↑↓ move · space toggle · enter save") -> dict[str, bool]:
     labels = [label for label, _ in items]
     values = [bool(enabled) for _, enabled in items]

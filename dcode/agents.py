@@ -219,6 +219,19 @@ EXTRA_TOOL_SCHEMAS = {
             },
         },
     },
+    "ask_user": {
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "description": "Ask the user a question when a real ambiguity blocks you (not for permission). "
+                           "Give 2-4 short options when you can.",
+            "parameters": {
+                "type": "object",
+                "properties": {"question": {"type": "string"}, "options": {"type": "array", "items": {"type": "string"}}},
+                "required": ["question"],
+            },
+        },
+    },
     "job_status": {
         "type": "function",
         "function": {

@@ -108,9 +108,14 @@ class _Approval:
         self.agent = agent
         self.done = threading.Event()
         self.result = False
+        self.options: list[str] = []  # kind "question": choices offered to the user
+        self.answer = ""
 
     def as_dict(self) -> dict[str, Any]:
-        return {"id": self.id, "kind": self.kind, "detail": self.detail, "agent": self.agent}
+        data = {"id": self.id, "kind": self.kind, "detail": self.detail, "agent": self.agent}
+        if self.kind == "question":
+            data["options"] = self.options
+        return data
 
 
 def transcript_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -191,6 +196,20 @@ class Session:
                 self.resolve_approval(approval.id, False, by="interrupt")
                 break
         return approval.result
+
+    def ask_user(self, question: str, options: list[str], agent: str) -> str:
+        """The model asks the user something (ask_user tool). Returns the answer, "" if skipped."""
+        approval = _Approval(uuid.uuid4().hex[:8], "question", question, agent)
+        approval.options = list(options)
+        with self._approvals_lock:
+            self._approvals[approval.id] = approval
+        self._fire_hooks("approval_needed", tool="question", detail=question)
+        self.emit("approval_request", **approval.as_dict())
+        while not approval.done.wait(0.2):
+            if self._stop.is_set() or self._closed.is_set():
+                self.resolve_approval(approval.id, False, by="interrupt")
+                break
+        return approval.answer if approval.result else ""
 
     # --- commands (from CLI or web) ----------------------------------------------------
     @property
@@ -351,16 +370,21 @@ class Session:
         self._queue.put(("review", "", source))
         self._notify_attention()
 
-    def resolve_approval(self, approval_id: str, approved: bool, by: str = "cli", scope: str = "once") -> bool:
+    def resolve_approval(self, approval_id: str, approved: bool, by: str = "cli", scope: str = "once",
+                         answer: str = "") -> bool:
         with self._approvals_lock:
             approval = self._approvals.pop(approval_id, None)
         if approval is None or approval.done.is_set():
             return False
-        if approved and scope == "session":
+        if approval.kind == "question":
+            approval.answer = " ".join(str(answer or "").split())[:2000]
+            approved = bool(approved and approval.answer)
+        elif approved and scope == "session":
             self.allowed_kinds.add(approval.kind)
         approval.result = bool(approved)
         approval.done.set()
-        self.emit("approval_resolved", id=approval_id, approved=bool(approved), by=by)
+        extra = {"answer": approval.answer} if approval.kind == "question" else {}
+        self.emit("approval_resolved", id=approval_id, approved=bool(approved), by=by, **extra)
         self._notify_attention()
         return True
 

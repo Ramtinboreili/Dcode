@@ -166,6 +166,8 @@ class Agent:
                 names += roles.ARTIFACT_TOOL_NAMES
             names += roles.SKILL_TOOL_NAMES
             names.append("todo_write")
+            if hasattr(self.host, "ask_user"):
+                names.append("ask_user")
         else:
             wanted = self.spec.tools if self.spec else roles.ROLE_TOOLS.get(self.role, roles.ROLE_TOOLS["explore"])
             ungated = {n for n in roles.UNGATED_TOOLS if n != "memory_search" or memory_on}
@@ -738,6 +740,16 @@ class Agent:
             if record is None:
                 return f"No artifact with id '{artifact_id}'. Call artifact_get with no id to list them."
             return _truncate(f"[{record['title']} · {record['kind']}]\n{record['content']}")
+        if name == "ask_user":
+            question = " ".join(str(args.get("question") or "").split())
+            if not question:
+                return "ask_user needs a question."
+            raw = args.get("options")
+            options = [" ".join(str(o).split())[:120] for o in raw if str(o).strip()] if isinstance(raw, list) else []
+            answer = self.host.ask_user(question, options[:6], self.agent_id).strip()
+            if not answer:
+                return "The user skipped the question. Decide sensibly yourself and say what you assumed."
+            return f"The user answered: {answer}"
         if name == "todo_write":
             items = roles.normalize_todos(args.get("items"))
             if not items:
@@ -952,6 +964,7 @@ class NullHost:
         self.stop = False
         self.mode = roles.DEFAULT_MODE
         self.checkpoints = None
+        self.answer = ""  # what ask_user returns ("" = skipped)
 
     def emit(self, type: str, **data: Any) -> None:
         with self._lock:
@@ -959,6 +972,10 @@ class NullHost:
 
     def request_approval(self, kind: str, detail: str, agent: str) -> bool:
         return self._approve
+
+    def ask_user(self, question: str, options: list[str], agent: str) -> str:
+        self.events.append({"type": "question", "question": question, "options": options})
+        return self.answer
 
     def should_stop(self) -> bool:
         return self.stop

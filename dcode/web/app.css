@@ -633,3 +633,7 @@ a.sb-link { text-decoration: none; }
 .rule-rows { display: flex; flex-direction: column; gap: 6px; }
 .rule-row { display: flex; align-items: center; gap: 10px; }
 .rule-pat { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; padding: 6px 10px; border-radius: 8px; background: var(--surface-2); }
+/* ask_user question card */
+.approval.question .question-text { font-size: 14.5px; margin: 6px 0 10px; white-space: pre-wrap; }
+.question-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.question-actions .with-btn { flex: 1 1 100%; }

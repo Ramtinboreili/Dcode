@@ -199,6 +199,15 @@ class TerminalApp:
                 time.sleep(0.05)
 
     def _ask_approval(self, approval: dict[str, Any]) -> None:
+        if approval["kind"] == "question":
+            try:
+                answer = ui.question_prompt(approval["detail"], approval.get("options") or [])
+            except ui.PromptInterrupted:
+                return  # answered from the web UI
+            except KeyboardInterrupt:
+                answer = ""
+            self.session.resolve_approval(approval["id"], bool(answer), by="cli", answer=answer)
+            return
         label = APPROVAL_LABELS.get(approval["kind"], approval["kind"])
         agent = approval.get("agent") or "main"
         if agent != "main":
@@ -259,7 +268,7 @@ class TerminalApp:
                 self.main_step = (step, time.time())
             elif agent in self.running:
                 self.running[agent]["step"] = step
-            if event.get("name") not in ("artifact_save", "todo_write"):  # these print their own line/list
+            if event.get("name") not in ("artifact_save", "todo_write", "ask_user"):  # these print their own line/list
                 ui.show_tool_call(event.get("name", ""), event.get("args"), agent)
         elif kind == "tool_result":
             name, args = self._calls.pop(f"{agent}/{event.get('id', '')}", (event.get("name", ""), {}))
@@ -276,6 +285,8 @@ class TerminalApp:
                 ui.show_edit_diff(str(args.get("old_text", "")), str(args.get("new_text", "")), agent)
             elif name == "todo_write" and output.startswith("Checklist saved"):
                 pass  # the "todos" event draws the checklist
+            elif name == "ask_user":
+                pass  # the question menu already recorded the answer
             elif name == "artifact_save":
                 if output.startswith(("Not saved again", "You called artifact_save with identical")):
                     ui.console.print(f"{ui.PAD}  [{MUTED}]↻ already saved — skipped[/]")
@@ -303,7 +314,10 @@ class TerminalApp:
             level = "success" if state.startswith("exited (0)") or state == "stopped" else "warning"
             ui.notice(f"Background job #{event.get('id')} {state}: {str(event.get('command', ''))[:80]}", level)
         elif kind == "approval_resolved" and event.get("by") == "web":
-            ui.notice(f"{'Approved' if event.get('approved') else 'Denied'} from the web UI", "info")
+            if "answer" in event:
+                ui.notice(f"Answered from the web UI: {event.get('answer') or 'skipped'}", "info")
+            else:
+                ui.notice(f"{'Approved' if event.get('approved') else 'Denied'} from the web UI", "info")
         elif kind == "usage" and agent == "main":
             ui.show_done(float(event.get("elapsed", 0.0)), report=event)
         elif kind == "approval_auto":

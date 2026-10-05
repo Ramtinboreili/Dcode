@@ -258,7 +258,8 @@ class SessionServer:
             return None
         if path == "/approve":
             ok = session.resolve_approval(str(body.get("id", "")), bool(body.get("approved")), by="web",
-                                          scope="session" if body.get("scope") == "session" else "once")
+                                          scope="session" if body.get("scope") == "session" else "once",
+                                          answer=str(body.get("answer") or ""))
             return {"ok": ok}
         if path == "/interrupt":
             session.interrupt(source="web")
