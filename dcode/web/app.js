@@ -844,6 +844,9 @@
       case "undo":
         eventLine("success", "refresh", `Undid “${ev.label}”: restored ${(ev.files || []).join(", ") || "nothing"}`);
         break;
+      case "check":
+        eventLine("warning", "alert", `Check found ${ev.count > 1 ? ev.count + " problems" : "a problem"} in ${ev.path} — Dcode will fix ${ev.count > 1 ? "them" : "it"}: ${short(String(ev.problems || "").split("\n")[0], 100)}`);
+        break;
       case "skill_saved":
         eventLine("success", "zap", `New skill saved: ${ev.name}`);
         break;
@@ -1114,6 +1117,9 @@
       body.append(
         section("What Dcode may do", "Abilities you turn off are hidden from the model completely.",
           ...Object.entries(perms).map(([k, [t, d]]) => setRow(t, d, toggle(c.permissions[k] !== false, (v) => (c.permissions[k] = v))))),
+        section("Checks after edits", "Dcode checks each file right after changing it (syntax errors, undefined names) and fixes what it finds. Uses tools you already have, like ruff, node or bash.",
+          setRow("Check files after edits", null, toggle((c.checks || {}).enabled !== false, (v) => ((c.checks ||= {}).enabled = v))),
+          setRow("Also format them", "Runs ruff or black, gofmt, rustfmt, or the project's own prettier.", toggle(!!(c.checks || {}).format, (v) => ((c.checks ||= {}).format = v)))),
         section("Artifacts", null, setRow("Create artifacts", "Let Dcode save pages, diagrams and reports to the Artifacts library.", toggle((c.artifacts || {}).enabled !== false, (v) => ((c.artifacts ||= {}).enabled = v)))),
         section("Advanced", null, ...Object.entries(exp).map(([k, [t, d]]) => setRow(t, d, toggle(!!c.experimental[k], (v) => (c.experimental[k] = v))))));
     } else if (S.tab === "skills") {

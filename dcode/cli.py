@@ -308,6 +308,11 @@ class TerminalApp:
                 where = f"  {ui.link(full, short)}" if full else ""
                 ui.console.print(f"{ui.PAD}[{SUCCESS}]◆ Artifact[/] [bold]{ui._escape(str(event.get('title', '')))}[/]"
                                  f"[{MUTED}] · v{event.get('versions', 1)}[/]{where}", soft_wrap=True)
+        elif kind == "check":
+            first = str(event.get("problems", "")).splitlines()[0][:110] if event.get("problems") else ""
+            count = int(event.get("count") or 1)
+            ui.console.print(f"{ui.PAD}  [{WARNING}]⚠ check found {count} problem{'s' if count > 1 else ''}[/] "
+                             f"[{MUTED}]· {ui._escape(first)}[/]", soft_wrap=True)
         elif kind == "skill_saved":
             ui.notice(f"Skill saved: {event.get('name')}", "success")
         elif kind == "compaction":

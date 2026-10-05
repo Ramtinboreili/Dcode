@@ -75,6 +75,13 @@ DEFAULT_MEMORY = {
 DEFAULT_ARTIFACTS = {
     "enabled": True,        # expose artifact_save / artifact_get to the main agent
 }
+DEFAULT_CHECKS = {
+    "enabled": True,        # check each file right after Dcode edits it; errors go back to the model
+    "format": False,        # also run a formatter (ruff/black, gofmt, rustfmt, the project's prettier)
+    "timeout": 15,          # seconds per check
+    "commands": {},         # your own checks per extension, e.g. {".ts": "npx --no-install tsc --noEmit -p ."}
+    "formatters": {},       # your own formatters per extension, e.g. {".py": "black -q $FILE"}
+}
 DEFAULT_UI = {
     "enabled": True,        # start / join the localhost hub UI
     "port": 0,              # 0 = deterministic per-user port
@@ -99,6 +106,7 @@ class AppConfig:
     memory: dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_MEMORY))
     ui: dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_UI))
     artifacts: dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_ARTIFACTS))
+    checks: dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_CHECKS))
     enabled_skills: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -116,6 +124,7 @@ class AppConfig:
             "memory": dict(self.memory),
             "ui": dict(self.ui),
             "artifacts": dict(self.artifacts),
+            "checks": dict(self.checks),
             "enabled_skills": list(self.enabled_skills),
         }
 
@@ -257,6 +266,7 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig | None:
         memory=_merge_defaults(data.get("memory"), DEFAULT_MEMORY),
         ui=_merge_defaults(data.get("ui"), DEFAULT_UI),
         artifacts=_merge_defaults(data.get("artifacts"), DEFAULT_ARTIFACTS),
+        checks=_merge_defaults(data.get("checks"), DEFAULT_CHECKS),
         enabled_skills=[str(name) for name in enabled_skills],
     )
 

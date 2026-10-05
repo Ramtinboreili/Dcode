@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from . import agents as roles
+from . import checks
 from .artifacts import ArtifactStore
 from .config import AppConfig
 from .context import SUMMARY_INSTRUCTIONS, SUMMARY_PREFIX, ContextBudget, compact, render_for_summary
@@ -755,12 +756,26 @@ class Agent:
             self._checkpoint(str(args.get("path", "")))
 
         output = execute_tool(name, args)
+        if name in ("write_file", "edit_file") and output.startswith(("Wrote", "Edited")):
+            output += self._post_edit_check(str(args.get("path", "")))
         if name in ("write_file", "edit_file") and experimental.get("auto_commit") and self.is_main:
             auto_message = f"Auto commit after write: {Path(str(args.get('path', 'file'))).name}"
             if self._approve("git_commit", auto_message):
                 execute_tool("git_commit", {"message": auto_message})
                 self.git = git_summary()
         return output
+
+    def _post_edit_check(self, path: str) -> str:
+        """Run the file's checker right away, so the model fixes errors in its next step."""
+        try:
+            target = _safe_path(path)
+            note, problems = checks.after_edit(target, self.config.checks, workspace_root())
+        except Exception:
+            return ""  # a broken checker must never break editing
+        if problems:
+            self.host.emit("check", agent=self.agent_id, path=path, ok=False,
+                           problems=problems, count=len(problems.splitlines()))
+        return f"\n{note}" if note else ""
 
     # --- sub-agents ---------------------------------------------------------------------
     def _delegate(self, role: str, task: str) -> str:
