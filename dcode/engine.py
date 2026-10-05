@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from . import agents as roles
-from . import checks
+from . import checks, mentions
 from .artifacts import ArtifactStore
 from .config import AppConfig
 from .context import SUMMARY_INSTRUCTIONS, SUMMARY_PREFIX, ContextBudget, compact, render_for_summary
@@ -268,6 +268,8 @@ class Agent:
                 self.recalled = ""
         self.refresh_system_message()
         self.messages.append({"role": "user", "content": user_text})
+        if self.is_main:
+            self._attach_mentions(user_text)
 
         steps = 0
         nudged = False
@@ -341,6 +343,28 @@ class Agent:
             **usage,
         )
         return TurnResult(text=final, usage=usage, elapsed=elapsed, steps=steps)
+
+    def _attach_mentions(self, user_text: str) -> None:
+        """Put @mentioned files into context as if the model had read them (no tool call spent)."""
+        paths = mentions.find(user_text, workspace_root())
+        if not paths:
+            return
+        attach, named = paths[:mentions.MAX_ATTACH], paths[mentions.MAX_ATTACH:]
+        calls = []
+        for rel in attach:
+            name, args = ("list_files", {"path": rel}) if rel.endswith("/") else ("read_file", {"path": rel})
+            calls.append({"id": f"call_{uuid.uuid4().hex[:12]}", "type": "function",
+                          "function": {"name": name, "arguments": json.dumps(args)}})
+        self.messages.append({"role": "assistant", "content": "", "tool_calls": calls})
+        for call in calls:
+            function = call["function"]
+            output = execute_tool(function["name"], parse_arguments(function["arguments"]))
+            self.messages.append({"role": "tool", "tool_call_id": call["id"], "name": function["name"],
+                                  "content": output})
+        if named:
+            self.messages.append({"role": "user", "content": (
+                "Also mentioned (not attached, read them if needed): " + ", ".join(named))})
+        self.host.emit("mentions", agent=self.agent_id, attached=attach, named=named)
 
     def _follow_up(self, turn: Any, user_text: str) -> str:
         """Why the model must keep going although it sent no tool call ('' = it's really done)."""

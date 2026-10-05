@@ -847,6 +847,11 @@
       case "check":
         eventLine("warning", "alert", `Check found ${ev.count > 1 ? ev.count + " problems" : "a problem"} in ${ev.path} — Dcode will fix ${ev.count > 1 ? "them" : "it"}: ${short(String(ev.problems || "").split("\n")[0], 100)}`);
         break;
+      case "mentions": {
+        const files = [...(ev.attached || [])];
+        if (files.length) eventLine("", "file", `Attached ${files.join(", ")}`);
+        break;
+      }
       case "skill_saved":
         eventLine("success", "zap", `New skill saved: ${ev.name}`);
         break;
@@ -949,8 +954,75 @@
     renderSend();
   }
   input.addEventListener("input", autosize);
+
+  // ---------- @file and /command suggestions ----------
+  const suggest = $("#suggest");
+  const WEB_COMMANDS = [["/review", "Review the uncommitted changes"], ["/compact", "Summarize the chat to free context"],
+    ["/undo", "Undo the file changes from the last task"], ["/mode", "Switch mode: manual, accept, auto, plan"],
+    ["/new", "Start a new chat"], ["/rename", "Rename this chat"]];
+  const sug = { items: [], sel: 0, token: "", kind: "", seq: 0 };
+  function hideSuggest() { suggest.hidden = true; sug.items = []; }
+  async function updateSuggest() {
+    if (S.mode !== "session" || S.ended) return hideSuggest();
+    const before = input.value.slice(0, input.selectionStart);
+    const seq = ++sug.seq;
+    if (/^\/\S*$/.test(before) && before === input.value) {
+      const custom = ((S.info && S.info.commands) || []).map((c) => ["/" + c.name, c.description || "Custom command"]);
+      sug.kind = "command"; sug.token = before;
+      return showSuggest([...WEB_COMMANDS, ...custom].filter(([c]) => c.startsWith(before)).slice(0, 10));
+    }
+    const m = /(?:^|\s)@(\S*)$/.exec(before);
+    if (!m) return hideSuggest();
+    sug.kind = "file"; sug.token = m[1];
+    try {
+      const r = await api("GET", `/api/s/${S.id}/files?q=${encodeURIComponent(m[1])}`);
+      if (seq === sug.seq) showSuggest((r.files || []).map((f) => ["@" + f, f.endsWith("/") ? "folder" : "file"]));
+    } catch (_) { hideSuggest(); }
+  }
+  function showSuggest(items) {
+    sug.items = items; sug.sel = 0;
+    if (!items.length) return hideSuggest();
+    drawSuggest();
+    suggest.hidden = false;
+  }
+  function drawSuggest() {
+    suggest.replaceChildren(...sug.items.map(([label, meta], i) => h("button", {
+      type: "button", role: "option", class: "menu-item" + (i === sug.sel ? " active" : ""),
+      onmousedown: (e) => { e.preventDefault(); sug.sel = i; pickSuggest(); } },
+      icon(sug.kind === "file" ? (meta === "folder" ? "folder" : "file") : "zap"),
+      h("span", { class: "row-main" }, label), h("span", { class: "meta" }, meta))));
+    suggest.children[sug.sel]?.scrollIntoView({ block: "nearest" });
+  }
+  function pickSuggest() {
+    const [label] = sug.items[sug.sel] || [];
+    if (!label) return;
+    const caret = input.selectionStart;
+    const before = input.value.slice(0, caret), after = input.value.slice(caret);
+    const head = sug.kind === "command" ? label + " "
+      : before.slice(0, before.length - sug.token.length - 1) + label + (label.endsWith("/") ? "" : " ");
+    input.value = head + after;
+    input.selectionStart = input.selectionEnd = head.length;
+    hideSuggest(); autosize(); input.focus();
+    if (label.endsWith("/")) updateSuggest();  // keep drilling into the folder
+  }
+  input.addEventListener("input", updateSuggest);
+  input.addEventListener("click", updateSuggest);
+  input.addEventListener("blur", () => setTimeout(hideSuggest, 120));
+
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("#composer").requestSubmit(); }
+    if (!suggest.hidden && sug.items.length) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        sug.sel = (sug.sel + (e.key === "ArrowDown" ? 1 : -1) + sug.items.length) % sug.items.length;
+        return drawSuggest();
+      }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && !e.isComposing && sug.kind === "file")) { e.preventDefault(); return pickSuggest(); }
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); return hideSuggest(); }
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing && sug.kind === "command" && input.value.trim() !== sug.items[sug.sel][0]) {
+        e.preventDefault(); pickSuggest(); input.value = input.value.trim(); hideSuggest(); return $("#composer").requestSubmit();
+      }
+    }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); hideSuggest(); $("#composer").requestSubmit(); }
   });
   $("#composer").addEventListener("submit", (e) => { e.preventDefault(); const t = input.value.trim(); if (t) { input.value = ""; autosize(); sendText(t); } });
   $("#stop").addEventListener("click", () => api("POST", `/api/s/${S.id}/interrupt`, {}).catch((e) => toast(e.message, true)));

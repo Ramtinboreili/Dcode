@@ -193,9 +193,13 @@ class SessionServer:
                 parsed = urllib.parse.urlsplit(self.path)
                 if parsed.path == "/state":
                     return self._json(outer.session.state())
+                query = urllib.parse.parse_qs(parsed.query)
                 if parsed.path == "/events":
-                    query = urllib.parse.parse_qs(parsed.query)
                     return outer._stream(self, int((query.get("since") or ["0"])[0] or 0))
+                if parsed.path == "/files":  # @mention completion
+                    from .mentions import complete
+
+                    return self._json({"files": complete((query.get("q") or [""])[0], Path(outer.session.cwd))})
                 return self._json({"error": "not found"}, 404)
 
             def do_POST(self) -> None:

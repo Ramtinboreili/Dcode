@@ -251,3 +251,13 @@ def test_health_reports_version_and_assets(stack):
         assert not server.hub_usable(info)
     finally:
         server.hub_health = real
+
+
+def test_file_completion_through_the_hub(stack, isolated):
+    from dcode import mentions
+
+    mentions._index.clear()
+    (isolated / "deploy.yaml").write_text("x: 1")
+    sid = stack["session"].id
+    status, body, _ = req(stack, "GET", f"/api/s/{sid}/files?q=depl")
+    assert status == 200 and body["files"][0] == "deploy.yaml"

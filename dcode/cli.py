@@ -308,6 +308,10 @@ class TerminalApp:
                 where = f"  {ui.link(full, short)}" if full else ""
                 ui.console.print(f"{ui.PAD}[{SUCCESS}]◆ Artifact[/] [bold]{ui._escape(str(event.get('title', '')))}[/]"
                                  f"[{MUTED}] · v{event.get('versions', 1)}[/]{where}", soft_wrap=True)
+        elif kind == "mentions":
+            attached = ", ".join(event.get("attached") or [])
+            if attached:
+                ui.console.print(f"{ui.PAD}  [{MUTED}]+ attached {ui._escape(attached)}[/]")
         elif kind == "check":
             first = str(event.get("problems", "")).splitlines()[0][:110] if event.get("problems") else ""
             count = int(event.get("count") or 1)

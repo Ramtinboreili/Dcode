@@ -25,8 +25,9 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
-from . import __version__
+from . import __version__, mentions
 from .theme import ACCENT, DANGER, LOGO_LINES, MUTED, PLAN, PRIMARY, PRIMARY_SOFT, SUCCESS, SURFACE_2, TEXT, WARNING
+from .tools import workspace_root
 
 MODE_COLORS = {"manual": MUTED, "accept_edits": PRIMARY, "auto": SUCCESS, "plan": PLAN}
 
@@ -106,12 +107,20 @@ COMMANDS: dict[str, str] = {
 }
 
 
+# Commands added at runtime (custom commands from .dcode/commands); shown after the built-ins.
+EXTRA_COMMANDS: dict[str, str] = {}
+
+
+def command_items() -> dict[str, str]:
+    return {**COMMANDS, **{k: v for k, v in EXTRA_COMMANDS.items() if k not in COMMANDS}}
+
+
 class _SlashCommandCompleter(Completer):
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
         if not text.startswith("/") or " " in text:
             return
-        for command, meta in COMMANDS.items():
+        for command, meta in command_items().items():
             if command.startswith(text):
                 yield Completion(command, start_position=-len(text), display_meta=meta)
 
@@ -216,7 +225,7 @@ def show_help() -> None:
     table = Table.grid(padding=(0, 2))
     table.add_column(style=f"bold {PRIMARY}", no_wrap=True)
     table.add_column(style=TEXT)
-    for command, meta in COMMANDS.items():
+    for command, meta in command_items().items():
         table.add_row(command, meta)
     console.print(Panel(table, title="[bold]Commands[/]", title_align="left", border_style=MUTED))
 
@@ -380,10 +389,31 @@ def chat_input(
     state["sel"] = 0
 
     def suggestions() -> list[tuple[str, str]]:
+        """/commands while typing one; project files after an "@" (fuzzy)."""
         text = area.text
-        if not text.startswith("/") or " " in text or "\n" in text:
+        if text.startswith("/") and " " not in text and "\n" not in text:
+            return [(command, meta) for command, meta in command_items().items() if command.startswith(text)]
+        token = mentions.typing_token(area.buffer.document.text_before_cursor)
+        if token is None:
             return []
-        return [(command, meta) for command, meta in COMMANDS.items() if command.startswith(text)]
+        if state.get("files_for") != token:  # cache per token: this runs on every repaint
+            state["files_for"] = token
+            try:
+                state["files"] = [("@" + f, "folder" if f.endswith("/") else "file")
+                                  for f in mentions.complete(token, workspace_root())]
+            except OSError:
+                state["files"] = []
+        return state["files"]
+
+    def accept_suggestion(item: str) -> None:
+        buffer = area.buffer
+        if item.startswith("@"):
+            token = mentions.typing_token(buffer.document.text_before_cursor) or ""
+            buffer.delete_before_cursor(len(token) + 1)
+            buffer.insert_text(item + ("" if item.endswith("/") else " "))
+        else:
+            buffer.text = item + " "
+            buffer.cursor_position = len(buffer.text)
 
     def on_change(_buffer) -> None:
         state["sel"] = 0
@@ -423,15 +453,16 @@ def chat_input(
     @kb.add("tab", filter=showing)
     def _sugg_complete(event) -> None:
         items = suggestions()[:8]
-        command = items[min(state["sel"], len(items) - 1)][0]
-        area.buffer.text = command + " "
-        area.buffer.cursor_position = len(area.buffer.text)
+        accept_suggestion(items[min(state["sel"], len(items) - 1)][0])
 
     @kb.add("enter")
     @kb.add("c-j")
     def _submit(event) -> None:
         buffer = area.buffer
         items = suggestions()[:8]
+        if items and items[0][0].startswith("@"):  # Enter picks the highlighted file
+            accept_suggestion(items[min(state["sel"], len(items) - 1)][0])
+            return
         if items:  # run the highlighted command
             buffer.text = items[min(state["sel"], len(items) - 1)][0]
         if buffer.document.text_before_cursor.endswith("\\"):  # "\" + Enter → newline

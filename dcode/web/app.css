@@ -607,3 +607,11 @@ a.sb-link { text-decoration: none; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* @file and /command suggestions above the composer */
+.composer { position: relative; }
+.suggest { top: auto; bottom: calc(100% + 8px); left: 12px; min-width: 320px; max-width: min(560px, calc(100% - 24px)); max-height: 320px; overflow-y: auto; }
+.suggest .menu-item { padding: 7px 10px; }
+.suggest .menu-item.active { background: var(--surface-2); }
+.suggest .row-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; }
+.suggest .i { width: 15px; height: 15px; color: var(--muted); flex: none; }
