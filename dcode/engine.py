@@ -21,7 +21,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from . import agents as roles
-from . import checks, mentions
+from . import checks, mentions, tools
+from . import rules as permission_rules
 from .artifacts import ArtifactStore
 from .config import AppConfig
 from .context import SUMMARY_INSTRUCTIONS, SUMMARY_PREFIX, ContextBudget, compact, render_for_summary
@@ -66,6 +67,9 @@ PROMISE = re.compile(
     re.IGNORECASE,
 )
 COMPACT_ARG_TOOLS = {"artifact_save", "skill_save"}
+# Tools whose "path" argument the file rules (and the outside-workspace rule) apply to.
+FILE_ARG_TOOLS = {"read_file", "edit_file", "write_file", "delete_file", "create_directory", "list_files",
+                  "search_in_files", "git_diff"}
 
 
 class Host(Protocol):
@@ -136,6 +140,7 @@ class Agent:
         self.artifacts = ArtifactStore()
         self.checkpoints = getattr(host, "checkpoints", None)
         self.specs: dict[str, AgentSpec] = self._load_specs()
+        self.rules = self._load_rules()
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": self.system_prompt()}]
 
     # --- prompt & tools -------------------------------------------------------------
@@ -234,8 +239,15 @@ class Agent:
             parts.append(skills)
         return "\n\n".join(parts)
 
+    def _load_rules(self) -> permission_rules.RuleSet:
+        ruleset = permission_rules.load(self.config.rules, workspace_root())
+        tools.set_file_guard(ruleset.denies_file)  # denied files are blocked for every tool, @mentions too
+        return ruleset
+
     def refresh_system_message(self) -> None:
         self.specs = self._load_specs()  # pick up helpers added since the last turn
+        if self.is_main:
+            self.rules = self._load_rules()  # ...and rule changes (config or .dcode/rules.json)
         system = {"role": "system", "content": self.system_prompt()}
         if self.messages and self.messages[0].get("role") == "system":
             self.messages[0] = system
@@ -662,7 +674,6 @@ class Agent:
         return self.host.request_approval(kind, detail, self.agent_id)
 
     def _dispatch(self, name: str, args: dict[str, Any]) -> str:
-        experimental = self.config.experimental
         if name == "delegate":
             return self._delegate(str(args.get("role") or "explore"), str(args.get("task") or ""))
         if name == "artifact_save" and args.get("append") and args.get("id"):
@@ -754,6 +765,42 @@ class Agent:
                 return "(no matching memories)"
             return _truncate("\n\n".join(f"### {m.name} ({m.scope})\n{m.body}" for m in hits), 6000)
 
+        refusal, outside_ok = self._file_rules(name, args)
+        if refusal:
+            return refusal
+        with tools.outside_workspace_allowed(outside_ok):
+            return self._dispatch_builtin(name, args)
+
+    def _ruleset(self) -> permission_rules.RuleSet:
+        return self.rules if self.rules is not None else permission_rules.load(self.config.rules)
+
+    def _file_rules(self, name: str, args: dict[str, Any]) -> tuple[str, bool]:
+        """Apply file rules before a file tool runs: (refusal or "", may it go outside the workspace)."""
+        if name not in FILE_ARG_TOOLS or not str(args.get("path") or "").strip():
+            return "", False
+        raw = str(args["path"])
+        root = workspace_root()
+        target = Path(raw).expanduser()
+        target = (target if target.is_absolute() else root / target).resolve()
+        inside = target == root or root in target.parents
+        outside_ok = False
+        if not inside and not tools._allow_outside_workspace():
+            decision = self._ruleset().outside_workspace
+            if decision == "deny":
+                return "", False  # the tool reports the sandbox error itself
+            if decision == "ask" and not self._approve("outside_workspace", f"{name} {target}"):
+                return f"{name} cancelled: the user did not allow access to {target} (outside the project).", False
+            outside_ok = True
+        rel = str(target.relative_to(root)) if inside else str(target)
+        decision, pattern = self._ruleset().file(rel)
+        if decision == "deny":
+            return f"Blocked: '{rel}' is protected by the rule '{pattern}'. Don't read or change it.", False
+        if decision == "ask" and not self._approve("rule", f"{name} {rel}   (rule: {pattern})"):
+            return f"{name} cancelled by user for {rel}.", False
+        return "", outside_ok
+
+    def _dispatch_builtin(self, name: str, args: dict[str, Any]) -> str:
+        experimental = self.config.experimental
         mode = self.mode
         if mode == "plan" and name in roles.PLAN_BLOCKED_TOOLS:
             return f"Plan mode: {name} is disabled. Finish the plan and ask the user to approve it."
@@ -763,7 +810,15 @@ class Agent:
             command = str(args.get("command", ""))
             background = bool(args.get("background")) and getattr(self.host, "jobs", None) is not None
             detail = f"{command}   (background)" if background else command
-            if not (auto or experimental.get("auto_approve_commands")) and not self._approve("run_command", detail):
+            decision, pattern = self._ruleset().command(command)
+            if decision == "deny":
+                return (f"Blocked: the rule '{pattern}' denies this command. Don't retry it — "
+                        "find another way or ask the user to run it.")
+            if decision == "ask":
+                if not self._approve("rule", f"{detail}   (rule: {pattern})"):
+                    return "Command cancelled by user."
+            elif decision != "allow" and not (auto or experimental.get("auto_approve_commands")) \
+                    and not self._approve("run_command", detail):
                 return "Command cancelled by user."
             if background:
                 job = self.host.jobs.start(command, str(workspace_root()))

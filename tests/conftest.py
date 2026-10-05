@@ -21,6 +21,9 @@ def isolated(tmp_path, monkeypatch):
                 "WORKSPACE", "ALLOW_OUTSIDE_WORKSPACE", "NO_UI"):
         monkeypatch.delenv(f"DCODE_{var}", raising=False)
         monkeypatch.delenv(f"CODE_ONE_{var}", raising=False)
+    from dcode import tools
+
+    tools.set_file_guard(None)  # rules from an earlier test must not leak
     return work
 
 

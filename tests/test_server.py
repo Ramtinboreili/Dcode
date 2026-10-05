@@ -261,3 +261,12 @@ def test_file_completion_through_the_hub(stack, isolated):
     sid = stack["session"].id
     status, body, _ = req(stack, "GET", f"/api/s/{sid}/files?q=depl")
     assert status == 200 and body["files"][0] == "deploy.yaml"
+
+
+def test_rules_are_replaced_whole_from_the_web(stack):
+    status, cfg, _ = req(stack, "GET", "/api/config")
+    assert cfg["rules"]["files"][".env"] == "deny"
+    rules = {"commands": {"git *": "allow", "bad": "maybe"}, "files": {}, "outside_workspace": "deny"}
+    assert req(stack, "PUT", "/api/config", {"rules": rules})[0] == 200
+    saved = load_config().rules
+    assert saved["commands"] == {"git *": "allow"} and saved["files"] == {} and saved["outside_workspace"] == "deny"

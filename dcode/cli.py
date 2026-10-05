@@ -22,7 +22,7 @@ from .agents import MODE_LABELS, MODE_SHORT, MODES
 from .config import REASONING_EFFORTS, list_skill_files, list_threads, save_config
 from .engine import git_summary
 from .session import Session
-from .theme import ACCENT, MUTED, PRIMARY, SUCCESS, WARNING
+from .theme import ACCENT, DANGER, MUTED, PRIMARY, SUCCESS, WARNING
 
 PERMISSION_LABELS = {
     "read_file": "read files",
@@ -39,8 +39,12 @@ EXPERIMENTAL_LABELS = {
     "auto_approve_commands": "auto_approve_commands",
 }
 APPROVAL_LABELS = {"run_command": "Dcode wants to run a command", "delete_file": "Dcode wants to delete a file",
-                   "git_commit": "Dcode wants to make a git commit"}
-APPROVAL_KINDS = {"run_command": "commands", "delete_file": "deletions", "git_commit": "commits"}
+                   "git_commit": "Dcode wants to make a git commit",
+                   "rule": "A rule says to confirm this", "outside_workspace": "Dcode wants a file outside the project",
+                   "edit_file": "Dcode wants to change a file"}
+APPROVAL_KINDS = {"run_command": "commands", "delete_file": "deletions", "git_commit": "commits",
+                  "rule": "rule-matched actions", "outside_workspace": "files outside the project",
+                  "edit_file": "file changes"}
 CONTEXT_CHOICES = ["4096", "8192", "16384", "32768", "65536", "131072"]
 
 
@@ -442,6 +446,8 @@ class TerminalApp:
                 for key, label in PERMISSION_LABELS.items():
                     cfg.permissions[key] = bool(result.get(label, True))
                 self._save()
+            elif command == "/rules":
+                self._rules(arg.strip())
             elif command == "/experimental":
                 result = ui.checklist_prompt("Experimental", [(label, cfg.experimental.get(k, False))
                                                               for k, label in EXPERIMENTAL_LABELS.items()])
@@ -499,6 +505,51 @@ class TerminalApp:
         except (KeyboardInterrupt, ui.PromptInterrupted):
             pass
         return None
+
+    def _rules(self, arg: str) -> None:
+        """/rules · /rules allow|ask|deny <command pattern> · /rules file allow|ask|deny <pattern> · /rules remove <pattern>"""
+        import shlex
+
+        cfg = self.session.config
+        rules = cfg.rules
+        try:
+            words = shlex.split(arg)
+        except ValueError as exc:
+            ui.notice(f"Couldn't read that: {exc}", "warning")
+            return
+        table = "commands"
+        if words and words[0] in ("file", "files"):
+            table, words = "files", words[1:]
+        if len(words) >= 2 and words[0] in ("allow", "ask", "deny"):
+            pattern = " ".join(words[1:])
+            rules.setdefault(table, {})[pattern] = words[0]
+            self._save()
+            ui.notice(f"Rule saved: {words[0]} {'file' if table == 'files' else 'command'} “{pattern}”", "success")
+            return
+        if len(words) >= 2 and words[0] == "remove":
+            pattern = " ".join(words[1:])
+            removed = [t for t in ("commands", "files") if rules.get(t, {}).pop(pattern, None)]
+            if removed:
+                self._save()
+            ui.notice(f"Removed “{pattern}”" if removed else f"No rule “{pattern}”", "success" if removed else "warning")
+            return
+        if words:
+            ui.notice("Usage: /rules · /rules allow|ask|deny <pattern> · /rules file deny <pattern> · /rules remove <pattern>",
+                      "warning")
+            return
+        colors = {"allow": SUCCESS, "ask": WARNING, "deny": DANGER}
+        ruleset = self.session.agent.rules
+        for title, key, extra in (("Commands", "commands", ruleset.project_commands),
+                                  ("Files", "files", ruleset.project_files)):
+            ui.console.print(f"{ui.PAD}[bold]{title}[/]")
+            entries = list((rules.get(key) or {}).items()) + [(p, d + " · project") for p, d in extra.items()]
+            if not entries:
+                ui.console.print(f"{ui.PAD}  [{MUTED}]none — the mode decides[/]")
+            for pattern, decision in entries:
+                color = colors.get(decision.split()[0], MUTED)
+                ui.console.print(f"{ui.PAD}  [{color}]{decision:<7}[/] {ui._escape(pattern)}")
+        ui.console.print(f"{ui.PAD}[bold]Outside the project[/] [{MUTED}]{rules.get('outside_workspace', 'ask')}[/]")
+        ui.console.print(f"{ui.PAD}[{MUTED}]Add: /rules deny \"rm -rf *\" · /rules file ask \"*.pem\" · the last match wins[/]")
 
     def _list_helpers(self) -> None:
         specs = self.session.agent.specs

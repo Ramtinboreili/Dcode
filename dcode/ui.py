@@ -96,6 +96,7 @@ COMMANDS: dict[str, str] = {
     "/memory": "List saved memories",
     "/remember": "Save a memory: /remember <text>",
     "/permissions": "Tool permissions",
+    "/rules": "Allow / ask / deny commands and files by pattern",
     "/experimental": "Feature flags",
     "/skills": "Pin skills to every prompt",
     "/review": "Review the git diff (sub-agent)",

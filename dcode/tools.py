@@ -5,8 +5,10 @@ import json
 import os
 import re
 import subprocess
+import threading
 import traceback
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -57,7 +59,43 @@ def workspace_root() -> Path:
 
 
 def _allow_outside_workspace() -> bool:
+    if getattr(_local, "outside_ok", False):  # approved for this one tool call (rules)
+        return True
     return _env_flag("ALLOW_OUTSIDE_WORKSPACE").lower() in {"1", "true", "yes"}
+
+
+_local = threading.local()
+# Set by the engine from the permission rules: rel_path -> True if the file is denied.
+_file_guard: Callable[[str], bool] | None = None
+
+
+def set_file_guard(guard: Callable[[str], bool] | None) -> None:
+    global _file_guard
+    _file_guard = guard
+
+
+def _denied(path: Path) -> bool:
+    if _file_guard is None:
+        return False
+    try:
+        rel = str(path.relative_to(workspace_root()))
+    except ValueError:
+        rel = str(path)
+    try:
+        return rel != "." and _file_guard(rel)
+    except Exception:
+        return False
+
+
+@contextmanager
+def outside_workspace_allowed(allowed: bool = True):
+    """Let this thread's next file tools reach outside the workspace (after a rule or approval)."""
+    previous = getattr(_local, "outside_ok", False)
+    _local.outside_ok = allowed
+    try:
+        yield
+    finally:
+        _local.outside_ok = previous
 
 
 def _safe_path(value: str) -> Path:
@@ -69,6 +107,8 @@ def _safe_path(value: str) -> Path:
     if not resolved.is_absolute():
         resolved = workspace_root() / resolved
     resolved = resolved.resolve()
+    if _denied(resolved):
+        raise WorkspaceError(f"'{_rel(resolved)}' is protected by a permission rule. Don't read or change it.")
     if _allow_outside_workspace():
         return resolved
     root = workspace_root()
@@ -318,7 +358,7 @@ def _search(arguments: dict[str, Any]) -> str:
     candidates = [base] if base.is_file() else (p for p in base.rglob("*") if not _skip_dir(p.relative_to(base)))
     matches: list[str] = []
     for item in candidates:
-        if not item.is_file() or (glob and not fnmatch.fnmatch(item.name, glob)):
+        if not item.is_file() or (glob and not fnmatch.fnmatch(item.name, glob)) or _denied(item):
             continue
         try:
             if item.stat().st_size > MAX_READ_BYTES:

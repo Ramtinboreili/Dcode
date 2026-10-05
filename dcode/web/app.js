@@ -750,7 +750,8 @@
         const turn = ensureTurn();
         removeThinking();
         closeActivity();
-        const what = { run_command: "run a command", delete_file: "delete a file", git_commit: "make a git commit" }[ev.kind] || ev.kind;
+        const what = { run_command: "run a command", delete_file: "delete a file", git_commit: "make a git commit", edit_file: "change a file",
+          rule: "do something a rule says to confirm", outside_workspace: "use a file outside the project" }[ev.kind] || ev.kind;
         const who = agent !== "main" ? ` for the ${(ROLES[roleOf(agent)] || ["helper"])[0]}` : "";
         const verdict = h("span", { class: "verdict" });
         const decide = async (approved, scope) => {
@@ -1241,6 +1242,7 @@
       body.append(
         section("What Dcode may do", "Abilities you turn off are hidden from the model completely.",
           ...Object.entries(perms).map(([k, [t, d]]) => setRow(t, d, toggle(c.permissions[k] !== false, (v) => (c.permissions[k] = v))))),
+        rulesSection(c),
         section("Checks after edits", "Dcode checks each file right after changing it (syntax errors, undefined names) and fixes what it finds. Uses tools you already have, like ruff, node or bash.",
           setRow("Check files after edits", null, toggle((c.checks || {}).enabled !== false, (v) => ((c.checks ||= {}).enabled = v))),
           setRow("Also format them", "Runs ruff or black, gofmt, rustfmt, or the project's own prettier.", toggle(!!(c.checks || {}).format, (v) => ((c.checks ||= {}).format = v)))),
@@ -1303,6 +1305,31 @@
         setRow("Open the browser automatically", null, toggle(!!c.ui.open_browser, (v) => (c.ui.open_browser = v))),
         setRow("Port", "Takes effect next time the UI starts. Empty means automatic.", textInput(c.ui.port || "", (v) => (c.ui.port = v), { type: "number", placeholder: "auto", style: "width:110px" }))));
     }
+  }
+  function rulesSection(c) {
+    c.rules ||= { commands: {}, files: {}, outside_workspace: "ask" };
+    const DEC = ["allow", "ask", "deny"];
+    const table = (key, placeholder) => {
+      const rows = h("div", { class: "rule-rows" });
+      const draw = () => {
+        rows.replaceChildren(...Object.entries(c.rules[key] || {}).map(([pat, dec]) => h("div", { class: "rule-row" },
+          h("code", { class: "rule-pat", title: pat }, pat),
+          seg(DEC, dec, (v) => { c.rules[key][pat] = v; }),
+          h("button", { class: "btn sm ghost", title: "Remove", "aria-label": "Remove", onclick: () => { delete c.rules[key][pat]; draw(); } }, icon("x")))));
+        if (!rows.children.length) rows.append(h("div", { class: "skill-desc" }, "No rules yet."));
+      };
+      draw();
+      const pat = textInput("", () => {}, { placeholder });
+      const add = h("button", { class: "btn sm", onclick: () => {
+        const v = pat.value.trim(); if (!v) return;
+        (c.rules[key] ||= {})[v] = "ask"; pat.value = ""; draw();
+      } }, icon("plus"), "Add");
+      return h("div", {}, rows, h("div", { class: "with-btn", style: "margin-top:8px" }, pat, add));
+    };
+    return section("Rules", "Exceptions to the mode, by pattern (* matches anything; the last match wins). Allow runs without asking, ask always asks (even in auto mode), deny refuses. Projects can add stricter rules in .dcode/rules.json.",
+      field("Commands", table("commands", "e.g. git status*  or  rm -rf *")),
+      field("Files", table("files", "e.g. *.pem  or  secrets/*"), help(".env files are protected by default.")),
+      setRow("Files outside the project", null, seg(DEC, c.rules.outside_workspace || "ask", (v) => (c.rules.outside_workspace = v))));
   }
   $("#settings-save").addEventListener("click", async () => {
     const c = { ...S.cfg };
