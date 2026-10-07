@@ -2,7 +2,7 @@
 
 ## Current status (October 5, 2026)
 
-- **Released:** v0.3.1, tagged locally and pushed to `origin/dev`. The tags `v0.3.0` and `v0.3.1` are **not pushed** yet.
+- **Released:** v0.3.1. On 2026-10-07 everything was pushed: `main` and `dev` (same commit), the tags `v0.3.0` and `v0.3.1`, the macOS binary in `builds/`, and Claude's memory files in `docs/claude-memory/`.
 - **After 0.3.1** (committed, unreleased): the hub fix (clean environment, version and asset health check), these docs, and **Phase 3** (Tier 1 + 2 from the opencode comparison: post-edit checks, `@file` mentions, checklist, `/init`, helper model, custom helpers and commands, permission rules, hooks, questions). See CHANGELOG "Unreleased".
 - **Quality bar:** 154 unit tests. `docs/dev/terminal_e2e.py` runs 31 real-terminal checks, all passing on macOS arm64.
 - **Pending decision:** the user wanted **v1.0.0**; Claude recommended **1.0.0-rc.1** (see below). The user said "don't build it yet".

@@ -1,0 +1,4 @@
+- [Dcode project goals](dcode-project-goals.md) — air-gapped coding agent for ≤32K models; phases, current status, docs location
+- [Git & release workflow](git-and-release-workflow.md) — commit in parts on dev, push only when asked, user picks versions
+- [Dcode UI preferences](dcode-ui-preferences.md) — CC-like CLI with own identity, white text/blue structure, one artifact per chat
+- [macOS hidden .pth quirk](macos-editable-install-hidden-pth.md) — editable install only imports from repo root; use PYTHONPATH
