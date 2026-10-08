@@ -5,7 +5,7 @@ Ready-made binaries, so a new machine can run Dcode without building it first.
 | File | Platform | Built from | Reports version |
 |---|---|---|---|
 | `macos-arm64/dcode` | macOS, Apple Silicon | commit `0456097` on 2026-10-07 (0.3.1 plus the unreleased Phase 3 work) | 0.3.1 |
-| `linux-amd64/dcode_0.4.0_amd64.deb` | Linux x86_64 (built on Ubuntu 22.04, glibc 2.35) | the `Release 0.4.0` commit, 2026-10-08 | 0.4.0 |
+| `linux-amd64/` (`.deb`, `.rpm`, `.tar.gz`, `.vsix`) | Linux x86_64, any distribution with glibc 2.28 or newer (built on AlmaLinux 8 with `make packages`) | the `Release 0.5.0` commit, 2026-10-08 | 0.5.0 |
 
 SHA-256 of `macos-arm64/dcode`: `fb577199db5ab6e731de7f2fc893fb6f2dc10930c6726ac6d06ba239b835c4d8`
 
@@ -18,25 +18,30 @@ dcode --version
 
 It passed all 31 checks of `docs/dev/terminal_e2e.py --binary`.
 
-## Linux (x86_64)
+## Linux (x86_64), 0.5.0
 
-SHA-256 of `linux-amd64/dcode_0.4.0_amd64.deb`: `7ba982e304b64b81f4bce655e049b0b9d9760699560bfd783698cfc0b6fffcf2`
+SHA-256:
 
-```bash
-sudo packaging/install-airgap.sh builds/linux-amd64/dcode_0.4.0_amd64.deb   # Debian / Ubuntu (or: sudo dpkg -i …)
-dcode --version
-
-# Any other Linux, or without root: take the binary out of the package
-dpkg-deb -x builds/linux-amd64/dcode_0.4.0_amd64.deb /tmp/dcode-pkg && install -m 0755 /tmp/dcode-pkg/usr/bin/dcode ~/.local/bin/dcode
+```
+cf40d9c4bca1a5cd0970d720c73c1f914115b24b0c72521a63dbe13b9e6654a3  dcode-0.5.0-1.x86_64.rpm
+b9e307daf491b9e32ce7f990e7294f9ea8dc3256adc35407ae29f209b7545698  dcode-0.5.0-linux-x86_64.tar.gz
+5581855a1ac2464b79edc8100b71461e40aa8d87d8fc1d845e7a4c3abcde15ad  dcode-0.5.0.vsix
+f1780249e964d2dfa99b480ac820c31840b3301ecfce4ec2d50419ca65f90de6  dcode_0.5.0_amd64.deb
 ```
 
-- Python and every dependency are inside, including the PostgreSQL and MySQL drivers. Nothing else is needed on the server.
-- It was built on Ubuntu 22.04, so it needs **glibc 2.35 or newer**: Ubuntu 22.04+, Debian 12+, Fedora 36+. It does **not** run on RHEL / Rocky / Alma 8 or 9 (glibc 2.28 and 2.34), Debian 11 or Ubuntu 20.04. (An earlier version of this note wrongly listed RHEL 9.2+.)
-- The package is zstd-compressed, which `dpkg` on Debian 11 and older can't open.
-- Both limits are gone in builds made with `make packages` (see `docs/operations.md`): the binary is built on glibc 2.28 and the `.deb` uses xz. The next release should be built that way; this file is kept as the 0.4.0 that was published.
-- The binary from this package passed all 42 checks of `docs/dev/terminal_e2e.py --binary`.
-- The macOS binary above is still 0.3.1; rebuild it on a Mac for 0.4.0.
+```bash
+sudo packaging/install-airgap.sh builds/linux-amd64/dcode_0.5.0_amd64.deb       # Debian / Ubuntu
+sudo packaging/install-airgap.sh builds/linux-amd64/dcode-0.5.0-1.x86_64.rpm    # RHEL / Rocky / Alma / Fedora / SUSE
+tar -xzf builds/linux-amd64/dcode-0.5.0-linux-x86_64.tar.gz && ./dcode-0.5.0-linux-x86_64/install.sh   # any Linux, no root
+code --install-extension builds/linux-amd64/dcode-0.5.0.vsix                    # the VS Code extension (any OS)
+dcode --version
+```
 
-For another CPU (arm64) build on a machine of that kind: `make deb PYTHON=.venv/bin/python` (see `docs/operations.md`).
+- All three packages hold the same binary. Python and every dependency are inside, including the PostgreSQL and MySQL drivers.
+- It was built on glibc 2.28, so it runs on RHEL 8+, Debian 10+ and Ubuntu 20.04+. Installed and run in AlmaLinux 8 and 9, Debian 11 and Ubuntu 20.04 containers.
+- The binary passed all 59 checks of `docs/dev/terminal_e2e.py --binary`.
+- The Docker image is not stored here (85 MB): `make docker` builds `dist/dcode-0.5.0-docker-x86_64.tar.gz`.
+- The 0.4.0 `.deb` was removed: it needed glibc 2.35 and Debian 11 could not open it.
+- The macOS binary above is still 0.3.1; rebuild it on a Mac. There is no arm64 Linux build.
 
 To rebuild: `make mac PYTHON=.venv/bin/python`, then copy `dist/dcode` here.

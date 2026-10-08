@@ -2,7 +2,7 @@
   "name": "dcode",
   "displayName": "Dcode",
   "description": "Dcode, the coding agent for local and air-gapped models, inside VS Code: start a session, open its web UI, send code to it.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "dcode",
   "repository": { "type": "git", "url": "https://github.com/Ramtinboreili/Dcode" },
   "engines": { "vscode": "^1.75.0" },

@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased — Phase 4 (the rest of the opencode comparison: Tier 3 and Tier 4)
+## 0.5.0 — Phase 4 (the rest of the opencode comparison: Tier 3 and Tier 4)
 
-Not released yet: the version is still 0.4.0 until the owner picks one.
+Linux packages are built from one portable binary (glibc 2.28): `.deb`, `.rpm` and `.tar.gz` in `builds/linux-amd64/`.
 
 ### In the terminal
 - **`!command`** runs a shell command yourself: no approval, no model call, and Dcode sees the command and its output. Works in the web UI too. Ctrl+C stops it.
