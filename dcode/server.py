@@ -315,6 +315,29 @@ def _session_request(entry: dict[str, Any], method: str, path: str, token: str,
         conn.close()
 
 
+def _get_json(url: str, api_key: str, timeout: float = 10.0) -> dict[str, Any]:
+    """GET a JSON document from the model server.
+
+    Plain urllib, so the hub doesn't load a whole HTTP client stack (several MB) for one request.
+    python.org builds on macOS have no CA store, so HTTPS uses certifi's bundle when it's installed.
+    """
+    context = None
+    if url.lower().startswith("https:"):
+        import ssl
+
+        try:
+            import certifi
+
+            context = ssl.create_default_context(cafile=certifi.where())
+        except ImportError:
+            context = ssl.create_default_context()
+    request = urllib.request.Request(url, headers={
+        "Authorization": f"Bearer {api_key}", "Accept": "application/json", "User-Agent": f"dcode/{__version__}"})
+    with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
+        payload = json.loads(response.read().decode("utf-8", errors="replace"))
+    return payload if isinstance(payload, dict) else {}
+
+
 def _mask(key: str) -> str:
     return ("•" * 8 + key[-4:]) if key and len(key) > 4 else ("•" * len(key))
 
@@ -694,15 +717,8 @@ class Hub:
         cfg = config_from_dict(apply_env_overrides(load_raw_config()))
         if cfg is None:
             return {"models": [], "error": "not configured"}
-        # httpx ships its own CA bundle (certifi); urllib relies on the OS store,
-        # which python.org builds on macOS don't have.
-        import httpx
-
         try:
-            response = httpx.get(cfg.base_url.rstrip("/") + "/models", timeout=10.0, follow_redirects=True,
-                                 headers={"Authorization": f"Bearer {cfg.api_key}"})
-            response.raise_for_status()
-            payload = response.json()
+            payload = _get_json(cfg.base_url.rstrip("/") + "/models", cfg.api_key)
         except Exception as exc:
             return {"models": [], "error": str(exc)}
         models = sorted({str(item.get("id")) for item in payload.get("data", []) if isinstance(item, dict)})
@@ -795,6 +811,21 @@ def run_hub(port: int = 0) -> None:
 
     signal.signal(signal.SIGTERM, _terminate)
     Hub(port).serve()
+
+
+def hub_main(argv: list[str]) -> None:
+    """``dcode hub [--port N]`` without the terminal app's imports.
+
+    The hub lives as long as any session does, so it shouldn't carry click, rich and
+    prompt_toolkit (about 12 MB) that only the terminal uses.
+    """
+    port = 0
+    for index, arg in enumerate(argv):
+        value = arg.split("=", 1)[1] if arg.startswith("--port=") else (
+            argv[index + 1] if arg == "--port" and index + 1 < len(argv) else "")
+        if value.isdigit():
+            port = int(value)
+    run_hub(port)
 
 
 # --- client side (used by a starting session) --------------------------------------------------

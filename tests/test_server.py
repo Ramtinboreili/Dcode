@@ -270,3 +270,50 @@ def test_rules_are_replaced_whole_from_the_web(stack):
     assert req(stack, "PUT", "/api/config", {"rules": rules})[0] == 200
     saved = load_config().rules
     assert saved["commands"] == {"git *": "allow"} and saved["files"] == {} and saved["outside_workspace"] == "deny"
+
+
+def test_hub_process_skips_the_terminal_libraries():
+    """The hub outlives sessions, so it must not load the terminal app's stack (memory)."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    code = ("import sys; sys.argv = ['dcode', 'hub', '--port', '7411']\n"
+            "import dcode.server as s\n"
+            "s.run_hub = lambda port=0: print('port', port)\n"
+            "import dcode.__main__ as m; m.main()\n"
+            "print('heavy', [n for n in ('click', 'rich', 'prompt_toolkit', 'openai', 'httpx') if n in sys.modules])")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60,
+                         cwd=Path(server.__file__).resolve().parents[1]).stdout
+    assert "port 7411" in out and "heavy []" in out
+
+
+def test_model_list_is_fetched_without_an_http_client_library(stack):
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    seen = {}
+
+    class Models(BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen["path"], seen["auth"] = self.path, self.headers.get("Authorization")
+            body = json.dumps({"data": [{"id": "qwen2.5-coder:7b"}, {"id": "deepseek-coder"}, "junk"]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    upstream = HTTPServer(("127.0.0.1", 0), Models)
+    threading.Thread(target=upstream.serve_forever, daemon=True).start()
+    try:
+        save_config(make_config(base_url=f"http://127.0.0.1:{upstream.server_port}/v1/"))
+        status, data, _ = req(stack, "GET", "/api/models")
+        assert status == 200 and data["models"] == ["deepseek-coder", "qwen2.5-coder:7b"]
+        assert seen == {"path": "/v1/models", "auth": "Bearer secret"}
+    finally:
+        upstream.shutdown()
+    save_config(make_config(base_url="http://127.0.0.1:9/v1"))  # nothing listens: an error, not a crash
+    status, data, _ = req(stack, "GET", "/api/models")
+    assert status == 200 and data["models"] == [] and data["error"]
