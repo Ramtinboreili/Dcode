@@ -49,4 +49,3 @@
 ## Open housekeeping
 
 - `Screenshot 1405-07-12 at 16.21.19.png` sits in the repo root, untracked. It's the user's screenshot of the duplicate-artifact bug. Delete it or move it out.
-- The GitHub repo is still named `code-one-cli`; rename it in GitHub settings if wanted.

@@ -23,7 +23,7 @@ What Claude learned while working on Dcode. It complements the persistent Claude
 - The repo is at `~/Documents/devops repos/Codeone` (iCloud-synced, which causes the hidden `.pth` problem in `.venv`).
 - `sudo` can't prompt from Claude Code's shell, so install to `/opt/homebrew/bin` (user-writable, on PATH).
 - The user's live endpoint during testing was an OpenAI-compatible gateway (`services.irangpu.com`, 466 models), running models like `apodex-1.1-mini` and a DeepSeek variant (which leaks DSML markup into tool names).
-- The GitHub remote is `Ramtinboreili/code-one-cli` (not yet renamed).
+- The GitHub remote is `git@github.com:Ramtinboreili/Dcode.git` (renamed from `code-one-cli` on 2026-10-08).
 
 ## Things that went wrong in *Claude's own* process (learn from them)
 - Shipped a vague history stub that caused a model loop. Make anything the model reads back unambiguous.

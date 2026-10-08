@@ -15,7 +15,7 @@ A copy of Claude Code's memory files for this project, taken on 2026-10-07, so w
 Claude Code keeps memory per project folder, under a name made from the folder's full path with every `/` and space turned into `-`. After cloning the repo:
 
 ```bash
-cd /path/to/code-one-cli
+cd /path/to/Dcode
 DEST=~/.claude/projects/$(pwd | sed 's|[/ ]|-|g')/memory
 mkdir -p "$DEST" && cp docs/claude-memory/*.md "$DEST"/ && rm "$DEST/README.md"
 ```

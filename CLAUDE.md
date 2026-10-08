@@ -1,6 +1,6 @@
 # CLAUDE.md — working on Dcode
 
-Dcode is a coding agent (terminal + per-user localhost web UI) for **local / air-gapped LLMs with small context windows (≤32K)**. Python ≥3.10, package `dcode/`. Repo/GitHub name is still `code-one-cli` (formerly "code-one").
+Dcode is a coding agent (terminal + per-user localhost web UI) for **local / air-gapped LLMs with small context windows (≤32K)**. Python ≥3.10, package `dcode/`. GitHub repo: `Ramtinboreili/Dcode` (formerly `code-one-cli`).
 
 ## Rules that matter most
 - **Air-gapped target:** no new runtime dependencies without strong reason; stdlib HTTP only; web assets must work offline (no CDNs, no web fonts).
