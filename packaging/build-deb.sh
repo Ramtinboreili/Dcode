@@ -64,6 +64,7 @@ EOF
 chmod 0755 "${STAGE}/DEBIAN/postinst"
 
 OUT="dist/${PKG_NAME}_${VERSION}_${ARCH}.deb"
-dpkg-deb --root-owner-group --build "${STAGE}" "${OUT}"
+# xz, not the newer default (zstd): Debian 11 and older dpkg can't open a zstd package.
+dpkg-deb -Zxz --root-owner-group --build "${STAGE}" "${OUT}"
 echo ">> Built ${OUT}"
 dpkg-deb --info "${OUT}" | sed 's/^/   /'

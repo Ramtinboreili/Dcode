@@ -1,4 +1,4 @@
-.PHONY: help install dev test lint binary mac deb clean
+.PHONY: help install dev test lint binary mac deb linux rpm tarball docker vsix packages clean
 
 PYTHON ?= python3
 # Optional: point at a private/offline PyPI mirror, e.g.
@@ -15,6 +15,9 @@ help:
 	@echo "  binary   Build a self-contained binary (dist/dcode)"
 	@echo "  mac      Build dist/dcode with the current venv and install it to /opt/homebrew/bin"
 	@echo "  deb      Build a .deb from the binary (Debian/Ubuntu build host)"
+	@echo "  linux    Build dist/dcode and the .rpm in an old-glibc container (runs on RHEL 8+, Debian 10+, Ubuntu 20.04+)"
+	@echo "  packages linux + .deb + .tar.gz + Docker image + .vsix, all from that one binary"
+	@echo "  rpm | tarball | docker | vsix   One of them, from an existing dist/dcode"
 	@echo "  clean    Remove build artifacts"
 
 install:
@@ -46,6 +49,26 @@ mac:
 
 deb: binary
 	bash packaging/build-deb.sh
+
+# One portable binary (built on glibc 2.28), then every package from it.
+linux:
+	bash packaging/build-in-docker.sh
+
+rpm:
+	bash packaging/build-rpm.sh
+
+tarball:
+	PYTHON=$(PYTHON) bash packaging/build-tarball.sh
+
+docker:
+	PYTHON=$(PYTHON) bash packaging/build-docker.sh
+
+vsix:
+	$(PYTHON) editors/vscode/build_vsix.py dist
+
+packages: linux tarball docker vsix
+	bash packaging/build-deb.sh
+	@ls -lh dist | awk 'NR>1 {print "  " $$5, $$9}'
 
 clean:
 	rm -rf build dist *.egg-info dcode.egg-info
