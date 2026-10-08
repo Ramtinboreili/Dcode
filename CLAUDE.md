@@ -15,13 +15,14 @@ Dcode is a coding agent (terminal + per-user localhost web UI) for **local / air
 ## Commands
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/python -m pytest -q                 # ~199 tests, ~30 s
+.venv/bin/python -m pytest -q                 # ~256 tests, ~45 s
 .venv/bin/ruff check dcode tests              # must pass
 PYTHONPATH=. .venv/bin/dcode                  # run from source (see macOS .pth gotcha)
-python docs/dev/terminal_e2e.py [--binary /opt/homebrew/bin/dcode] [--verbose]   # 42 real-terminal checks
+python docs/dev/terminal_e2e.py [--binary /opt/homebrew/bin/dcode] [--verbose]   # 59 real-terminal checks
 python docs/dev/screen.py --type "say hello" [--html out.html]       # rendered screen (needs pyte)
 make mac PYTHON=.venv/bin/python              # macOS binary → /opt/homebrew/bin/dcode (no sudo)
 make deb                                      # Linux .deb (build on matching Linux host)
+make packages                                 # needs docker: portable binary (glibc 2.28) + .deb .rpm .tar.gz Docker image .vsix
 ```
 
 ## Map
@@ -31,6 +32,7 @@ make deb                                      # Linux .deb (build on matching Li
 - `server.py` — per-session API + per-user hub (UI, settings, memory, skills, artifacts, proxy/SSE, lifecycle).
 - `llm.py` (server quirks, `<think>`, text tool-call recovery, name cleaning, `with_model`), `context.py` (budget/compaction), `tools.py` (sandboxed tools, file guard, outside-workspace allowance), `agents.py` (prompts, roles, modes, extra schemas, todo helpers), `memory.py`, `artifacts.py`, `skills.py` (+ `skills/*.md`, `parse_frontmatter`), `checkpoints.py`, `jobs.py`, `config.py`, `theme.py`.
 - Databases: `db.py` (connections, `Link` = the only engine-specific code, schema, guarded `run_query`, exports). Scheduled jobs: `schedules.py` (cron parser, runs/logs, `Scheduler` thread in the hub) + `headless.py` (`dcode run`). Entry point: `__main__.py` (`hub` and `run` skip the terminal imports).
+- Phase 4: `transcripts.py` (chat → events, export md/html/json, import, `HelperLog`), `stats.py` (usage counts), `mcp.py` (stdio MCP client, names-only index), `attach.py` (`dcode attach`: `RemoteSession` + `AttachApp`), `acp.py` (`dcode acp` for editors), `openapi.py` (the hub API, one `ROUTES` table). `editors/vscode` is the extension; `packaging/` builds every package.
 - Phase 3: `checks.py` (post-edit checks), `mentions.py` (`@path`), `custom_agents.py` (`.dcode/agents`), `commands.py` (`.dcode/commands`), `rules.py` (allow/ask/deny), `hooks.py`.
 - `web/` — `index.html`/`app.js`/`app.css` (main UI), `artifact.html` (`/a/<id>`), `guide.html` (bilingual user guide, `/guide`).
 - Details: `docs/architecture.md`. History & every past bug: `docs/history.md`. Rationale: `docs/decisions.md`.
@@ -43,6 +45,10 @@ make deb                                      # Linux .deb (build on matching Li
 - User-facing text: humanized, short. Guide is bilingual — update **both** English and Persian sections.
 - Security boundaries: anything read from a project folder (`.dcode/agents`, `.dcode/commands`, `.dcode/rules.json`) is untrusted — project rules may only tighten, hooks come only from `~/.dcode/config.json`, and command `` !`shell` `` goes through mode + rules.
 - Databases: the read-only session is the guard (the SQL classifier only picks the path); a change needs `confirmed=True` after the user saw it, in every mode, never per session; never return a saved password; estimate sizes from the catalog, never by scanning.
+- MCP: servers only from `~/.dcode/config.json`, never a project; their tool schemas never enter the tool list (names in the prompt, `mcp_tools` on demand); every call asks unless auto mode or the server is `allow`; never return a server's `env` values.
+- A new hub or session route also goes into `openapi.ROUTES` (a test calls every documented route). A new way to act on a session passes its own `source` (`cli`, `web`, `attach`, `acp`, `run`).
+- The model's reasoning is display-only (`thinking` event): never put it in `messages`.
+- An imported chat file is untrusted: keep only the message shapes Dcode writes.
 - Scheduled jobs come only from `~/.dcode/cron`; the model gets no tool to create one; unattended runs deny approvals.
 - Keep the system prompt stable within a turn (local servers cache the prompt prefix): only refresh it at turn start and after compaction.
 
@@ -58,11 +64,15 @@ make deb                                      # Linux .deb (build on matching Li
 - **Headless Chrome:** `--virtual-time-budget` hangs on SSE pages; late iframes may not paint; min viewport 500 px. Never let tests open real browsers (`BROWSER=true`).
 - **PyMySQL unbuffered cursors** drain the rest of a result when dropped (slow, and noisy after the socket closed) → `Link.close()` clears `unbuffered_active` first.
 - **pg8000 loads whole results into memory** → big reads go through `DECLARE … CURSOR` / `FETCH`.
+- **A PyInstaller binary needs the build machine's glibc or newer** → build releases with `make linux` (AlmaLinux 8 container), not on the dev host. The first Linux build (Ubuntu 22.04) could not run on RHEL 9.
+- **`dpkg-deb` on Ubuntu 22.04 defaults to zstd**, which Debian 11 can't open → `build-deb.sh` passes `-Zxz`.
+- **rich reads `[word]` as a style tag** and drops it → `_escape()` any text that may hold square brackets (`/help` lost "[focus]").
+- **A keyword named like a positional parameter** (`update(kind, **fields)` with a `kind` field) raises inside a bus listener, where exceptions are swallowed → silent missing events. Name such parameters distinctly.
 - **`pkill -f pattern` in a shell command kills that shell too** (its own command line matches) → write `[p]attern`.
 - Session approvals: don't send an "attention" ping on `approval_request` (it closes the terminal's own menu); only when the web answers.
 
 ## Release checklist
-`dcode/__init__.py` version → `guide.html` (4 version spots + `.deb` names) → `README.md` `.deb` name → `CHANGELOG.md` → pytest + ruff → `make mac` → `terminal_e2e.py --binary …` → commit `Release X.Y.Z` → `git tag -a vX.Y.Z` → push only if asked.
+`dcode/__init__.py` version → `guide.html` (4 version spots + package names) → `README.md` and `docs/operations.md` package names → `editors/vscode/package.json` version → `CHANGELOG.md` → pytest + ruff → `make mac` (and `make packages` on Linux) → `terminal_e2e.py --binary …` → commit `Release X.Y.Z` → `git tag -a vX.Y.Z` → push only if asked.
 
 ## The owner
 Builds for air-gapped DevOps work; tests by real use and pastes terminal output/screenshots — treat those as bug reports. Prefers concise updates, honest assessments, ChatGPT-like web UI, Claude-Code-like CLI with Dcode's own identity, one artifact per chat. More in `docs/memory.md`.

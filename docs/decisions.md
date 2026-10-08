@@ -19,6 +19,19 @@ Why Dcode is built the way it is. Each decision gives the choice and the reason;
 - **Unattended runs deny approvals instead of waiting.** Nobody is there; a job that hangs on a question forever is worse than one that fails loudly. The job's mode says what it may do.
 - **The model has no tool to create scheduled jobs**, and nothing in a project folder can add one: a schedule is standing permission to run things later.
 
+## External tools, editors and packaging (Phase 4)
+- **MCP tool schemas never enter the tool list.** A typical server's schemas would cost thousands of tokens on every turn of a 32K model. The prompt carries names only; two fixed tools fetch details and run calls. The cost is one extra model step the first time a tool is used.
+- **MCP servers only from the user's own config.** Adding a server means running a command, so it follows the hooks rule: never from a project folder. Editors may pass servers over ACP (that is the user's editor configuration).
+- **A server's "read-only" note is not trusted to skip approval.** It is the server's own claim. It is enough to let a tool run in plan mode, where the user still approves it.
+- **stdio transport only.** Air-gapped sites run local programs; HTTP and OAuth transports need a network and were left out with the other cloud-only features.
+- **`dcode attach` goes through the hub's HTTP API, not a new protocol.** The web UI already proved that API can drive a session; a terminal client is one more consumer, and an SSH tunnel makes it remote without opening a port.
+- **ACP sends whole messages, not streamed deltas.** Deltas still contain `<think>` text and text-form tool calls that are cleaned only at the end of a model call; sending them would show the editor text that is then taken back.
+- **Reasoning is display-only.** It is emitted as its own event and never stored in the message history, so it costs no context.
+- **`!command` output is recorded as a tool call**, not as user text, so compaction can shrink it like any other tool result.
+- **Usage statistics hold counts only**, in a plain local file. Prompts and file contents never go in.
+- **Linux binaries are built on an old glibc in a container** (AlmaLinux 8, glibc 2.28). A PyInstaller binary needs at least the build machine's glibc; the first Linux build (Ubuntu 22.04) could not run on RHEL 9.
+- **The VS Code extension is plain JavaScript with no build step and no dependencies**, packed by a Python script: the project has no node toolchain and targets machines without a registry.
+
 ## Architecture
 - **The engine has no I/O.** It reports through a `Host` (events and approvals). That's what lets the terminal and the web UI drive the *same* session, and what makes the engine testable with a fake LLM.
 - **Approvals: the first answer wins.** Either surface can answer. The session raises an "attention" ping to close the terminal prompt only when the *web* answers. Pinging on the request itself closed the menu the terminal was about to open.

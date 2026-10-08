@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased — Phase 4 (the rest of the opencode comparison: Tier 3 and Tier 4)
+
+Not released yet: the version is still 0.4.0 until the owner picks one.
+
+### In the terminal
+- **`!command`** runs a shell command yourself: no approval, no model call, and Dcode sees the command and its output. Works in the web UI too. Ctrl+C stops it.
+- **`/editor`** writes a long message in `$EDITOR`.
+- **`/thinking`** shows the model's reasoning (from `<think>` blocks or the server's `reasoning_content`), dimmed. It never goes back into the context. The web UI shows it as a closed "Thought it through" step.
+- **`/details`** hides tool calls and results; Ctrl+O still expands the last task.
+- **`/notify off|bell|desktop`**: a bell or a desktop notification when a task of 10 seconds or more ends, or when Dcode needs an answer.
+- **`/redo`** brings back what the last `/undo` removed, until Dcode changes a file again.
+- **`/sessions [words]`** switches to a saved chat (this folder's first) and shows where it left off. **`dcode --continue`** continues this folder's last chat; **`--resume NAME`** one by name.
+- **`/export [md|html|json]`**, `dcode export` and an export menu in the web UI save a chat as Markdown, as one self-contained HTML page (no scripts, nothing loaded) or as JSON. **`dcode import`** and an import button bring a JSON export back; the file is treated as untrusted.
+- **`/stats`**, `dcode stats` and Settings → Usage: tasks, tokens, working time and tools, by model and project. Counted in `~/.dcode/stats.jsonl`; numbers only, nothing leaves the machine.
+
+### Helper sessions
+- Each helper's own steps are now kept and saved with the chat. The web UI opens a helper's session from its card: task, steps with results, time, tokens, report. Saved chats show their helper cards again (they were missing).
+
+### External tools (MCP)
+- **Local MCP servers** (stdio) give Dcode extra tools: `/mcp add <name> <command…>`, or Settings → External tools.
+- **Lazy tool index:** only tool names go into the prompt. The model reads one tool's description and arguments with `mcp_tools` and runs it with `mcp_call`, so a server with 46 tools costs under 400 characters of prompt instead of every schema on every turn.
+- Every call asks first, unless the mode is auto or the server is marked `allow`. Plan mode runs only tools the server marks read-only. Servers come from `~/.dcode/config.json` only.
+
+### Other terminals, editors, scripts
+- **`dcode attach`** joins a running session from another terminal (also over an SSH tunnel to a server): follow the task, send messages, answer approvals, switch mode, detach without stopping anything.
+- **`/api/openapi.json`** describes the hub's HTTP API (79 operations, OpenAPI 3.1). A test calls every documented route.
+- **`dcode acp`** speaks the Agent Client Protocol (v1) for Zed and other ACP editors: messages, reasoning, tool calls with diffs, the checklist as a plan, approvals, modes, cancel.
+- **VS Code extension** in `editors/vscode` (start, continue, attach, open the web UI, send the selection or file). `build_vsix.py` packs it without node.
+
+### Packaging
+- **One portable Linux binary:** `make linux` builds on AlmaLinux 8 (glibc 2.28) in a container, so the binary runs on RHEL 8+, Debian 10+ and Ubuntu 20.04+. Before, it needed the build machine's glibc (2.35 on Ubuntu 22.04).
+- **`.rpm`, `.tar.gz` (with an installer that needs no root) and a Docker image** saved as a file; `make packages` builds them all. `install-airgap.sh` installs `.rpm` and `.tar.gz` too.
+
+### Fixed
+- `/help` dropped text in square brackets, such as `[focus]` in `/compact [focus]`.
+- The `.deb` is now xz-compressed. Built on Ubuntu 22.04 it used zstd, which Debian 11's `dpkg` can't open (this affects the published `dcode_0.4.0_amd64.deb`).
+- Correction to the 0.4.0 notes: that binary needs glibc 2.35, so it does **not** run on RHEL 9 (glibc 2.34).
+
+### Numbers
+- 256 unit tests. 59 real-terminal checks, passing from source and against the binary built in the container. Packages installed and run in AlmaLinux 8 and 9, Debian 11 and 12, and Ubuntu 20.04 containers. The MCP client was checked against a server built with the official Python SDK; every message `dcode acp` sends was validated against the official ACP v1 schema.
+- **Not checked:** `dcode acp` inside a real Zed, and the extension inside a real VS Code.
+
 ## 0.4.0 — Phase 3 (ideas from opencode), databases and scheduled jobs
 
 The first version built and checked on Linux (x86_64).

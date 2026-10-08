@@ -42,6 +42,9 @@ Dcode works with any OpenAI-compatible server (Ollama, vLLM, llama.cpp, LM Studi
   - The model can ask you multiple-choice questions.
 - **Databases.** Save a connection to PostgreSQL, MySQL / MariaDB or SQLite and browse it like a small DBeaver in the web UI (tables, data, structure, SQL editor, summary, export), use `/db` in the terminal, or just ask Dcode. Dcode has the rights of the database user you give it. Reads are read-only and limited; every change needs your confirmation in every mode; heavy tables are not exported whole.
 - **Scheduled jobs.** Run a shell command or a Dcode prompt on a cron schedule and read each run's log (`/cron`, or the Scheduled screen). They run in the background with no terminal open. `dcode run "<prompt>"` does one task unattended.
+- **External tools (MCP).** Local MCP servers add tools (`/mcp add …`). Only the tool names go into the prompt; the model loads one tool's details when it needs them, so many tools cost little context.
+- **More than one way in.** `dcode attach` joins a running session from another terminal (also through an SSH tunnel). `dcode acp` puts Dcode inside Zed and other ACP editors, and `editors/vscode` holds a small VS Code extension. The hub's HTTP API is described at `/api/openapi.json`.
+- **Everyday conveniences.** `!command` to run something yourself, `/editor`, `/thinking`, `/details`, `/notify`, `/undo` and `/redo`, `/sessions` and `dcode --continue`, `/export` and `dcode import`, `/stats`.
 - **One look.** The terminal and the web UI share the same blue palette, defined once in `dcode/theme.py`.
 
 > 🛠 **Developer docs:** [`docs/`](docs/README.md) (architecture, history, decisions, roadmap, testing, operations) · agent instructions in [`CLAUDE.md`](CLAUDE.md).
@@ -97,9 +100,16 @@ dcode/
   db.py        database connections, schema, guarded queries, export
   schedules.py scheduled jobs (cron), runs and logs, the scheduler
   headless.py  `dcode run`: one unattended task
+  attach.py    `dcode attach`: a second terminal on a running session
+  acp.py       `dcode acp`: Agent Client Protocol for editors
+  mcp.py       MCP stdio client: external tools, described on demand
+  transcripts.py  chat export (md / html / json), import, helper sessions
+  stats.py     usage numbers (~/.dcode/stats.jsonl)
+  openapi.py   the hub's HTTP API as an OpenAPI document
   server.py    session API + per-user hub
   web/         index.html, app.css, app.js (no external assets)
-packaging/     PyInstaller binary, .deb, offline installer
+packaging/     PyInstaller binary, .deb, .rpm, tarball, Docker image, offline installer
+editors/       VS Code extension
 tests/         pytest suite (fake LLM, no network)
 ```
 
@@ -138,7 +148,13 @@ Settings live in `~/.dcode/config.json` (mode `0600`). You can edit them with `/
 | `/memory`, `/remember <text>` | List memories or save one |
 | `/permissions`, `/experimental`, `/skills` | Tool access, feature flags, prompt skills |
 | `/review` | Review the git diff in a fresh sub-agent context |
-| `/new`, `/reset`, `/rename`, `/resume` | Thread management |
+| `/new`, `/reset`, `/rename`, `/sessions [words]` | Thread management; `/sessions` switches to a saved chat |
+| `/export [md\|html\|json] [file]` | Save the chat as a file (`dcode import` brings a JSON export back) |
+| `/undo`, `/redo` | Undo the last task's file changes; bring them back |
+| `/editor`, `/thinking`, `/details`, `/notify` | Write in `$EDITOR`; show reasoning; hide tool details; bell or desktop notification |
+| `/mcp` | External tools from MCP servers: `/mcp add <name> <command…>` |
+| `/stats [days]` | Usage numbers |
+| `!command` | Run a shell command yourself; Dcode sees the output |
 | `/setup`, `/help`, `/exit` | Setup again, show help, quit |
 
 Press `Ctrl-C` during a task to interrupt it. Interrupting leaves the saved history valid.
@@ -155,18 +171,22 @@ Dcode executes model output, so its defaults are defensive:
 
 ## Air-gapped install
 
-PyInstaller doesn't cross-compile, so build on a machine with the same OS and CPU as the target:
+PyInstaller doesn't cross-compile, so build on a machine with the same CPU as the target:
 
 ```bash
-make deb        # dist/dcode (single binary, includes web UI) + dist/dcode_<ver>_<arch>.deb
+make packages   # needs docker: one binary built on glibc 2.28 (RHEL 8+, Debian 10+, Ubuntu 20.04+),
+                # then dist/: .deb, .rpm, .tar.gz, a Docker image file and the VS Code .vsix
+make deb        # without docker: dist/dcode + .deb, for this machine's OS version and newer
 make mac PYTHON=.venv/bin/python   # local macOS build, installs to /opt/homebrew/bin (no sudo)
 ```
 
 Copy the `.deb` (or the raw binary) and `packaging/install-airgap.sh` to the server:
 
 ```bash
-sudo ./install-airgap.sh dcode_0.4.0_amd64.deb   # Debian/Ubuntu
-sudo ./install-airgap.sh ./dcode                 # any Linux/macOS
+sudo ./install-airgap.sh dcode_0.4.0_amd64.deb       # Debian/Ubuntu
+sudo ./install-airgap.sh dcode-0.4.0-1.x86_64.rpm    # RHEL/Rocky/Alma/Fedora/SUSE
+sudo ./install-airgap.sh ./dcode                     # any Linux/macOS
+tar -xzf dcode-0.4.0-linux-x86_64.tar.gz && ./dcode-0.4.0-linux-x86_64/install.sh   # no root needed
 ```
 
 For fully offline builds, prepare a wheelhouse and run `PIP_ARGS="--no-index --find-links ./wheels" make binary`.

@@ -164,3 +164,28 @@ Work moved to a Linux server (Ubuntu 22.04). The GitHub repo was renamed to `Ram
 - **Databases** (asked: connect from the CLI or UI, see the schema "like DBeaver", access decided by the database user, summaries and exports with guards for heavy databases, every change manual). Built `db.py`, the Databases screen, `/db`, and the model's `db_schema` / `db_query`. Checked against real PostgreSQL 16, MySQL 8.4 and MariaDB 11 in throwaway containers.
 - **Scheduled jobs** (asked: set cron jobs and see their logs). The owner chose shell commands *and* Dcode prompts, run by Dcode's own background scheduler. Built `schedules.py`, `dcode run`, the Scheduled screen and `/cron`.
 - **Found along the way:** PyMySQL printed "Exception ignored" noise when a half-read result was dropped; a job saved in the middle of a matching minute fired at once; the log-cut note was skipped when all output arrived in one chunk; a shell `pkill -f` matched its own command line.
+
+## 12. Phase 4 — the rest of the opencode comparison (unreleased, October 8, 2026)
+
+After 0.4.0 the owner said "going for phase 3". Phase 3 was already released, so Claude asked what was meant; the owner chose **Tier 3 and Tier 4** of the opencode comparison, everything that had been left in the backlog. One commit per feature on `dev`:
+
+| Feature | Notes |
+|---|---|
+| `!command`, `/editor`, `/thinking`, `/details`, `/notify` | reasoning is a display-only `thinking` event; a `!command` is recorded as a tool call so compaction can shrink it |
+| `/redo` | undo remembers what it replaced; a new file change clears it |
+| `/sessions`, `--continue`, `--resume` | this folder's chats first; a chat open in another terminal is not loaded twice |
+| Export and import | Markdown, one script-free HTML page, JSON; an imported file is untrusted |
+| `dcode stats` | counts only, in `stats.jsonl` |
+| Helper sessions | `HelperLog` keeps each helper's steps and saves them with the chat |
+| MCP | stdio client; tool names in the prompt, details on demand |
+| OpenAPI + `dcode attach` | attach reuses `TerminalApp` through a `RemoteSession` |
+| `dcode acp` + VS Code extension | ACP v1; the extension has no build step |
+| Packaging | portable binary from an AlmaLinux 8 container; `.rpm`, tarball, Docker image |
+
+**Found along the way:**
+- `/help` had always dropped text in square brackets (`/compact [focus]`): rich read it as a style tag.
+- The published 0.4.0 `.deb` is zstd-compressed and Debian 11 can't open it; and its binary needs glibc 2.35, so the "RHEL 9.2+" claim in the 0.4.0 notes was wrong (RHEL 9 has 2.34). Both are fixed for the next build, and the notes are corrected.
+- An `update(kind, **fields)` helper collided with a `kind` field and failed silently inside an event listener.
+- The MCP Python SDK had moved to 2.x (`FastMCP` → `MCPServer`) since Claude's training data; the client was checked against 2.3.0.
+
+**Checked with outside references:** the MCP client against the official SDK; every `dcode acp` message against the official ACP v1 JSON schema; packages in AlmaLinux 8/9, Debian 11/12 and Ubuntu 20.04 containers. **Not checked:** a real Zed, a real VS Code, a real local model.

@@ -16,26 +16,34 @@ PYTHONPATH=. .venv/bin/dcode          # PYTHONPATH: see the hidden-.pth note bel
 |---|---|---|
 | Local macOS binary (installs too) | `make mac PYTHON=.venv/bin/python` | `dist/dcode` → `/opt/homebrew/bin/dcode` (no sudo; `sudo` can't prompt inside Claude Code) |
 | Linux binary | `make binary` (on a Linux host with the same CPU) | `dist/dcode` |
-| Debian package | `make deb` | `dist/dcode_<ver>_<arch>.deb` |
+| Debian package | `make deb` | `dist/dcode_<ver>_<arch>.deb` (xz-compressed, so old `dpkg` opens it) |
+| **Portable Linux binary + `.rpm`** | `make linux` (needs docker) | `dist/dcode` built on AlmaLinux 8 (glibc 2.28) and `dist/dcode-<ver>-1.<arch>.rpm` |
+| Tarball / Docker image / VS Code package | `make tarball` · `make docker` · `make vsix` | `dist/dcode-<ver>-linux-<arch>.tar.gz` · `dist/dcode-<ver>-docker-<arch>.tar.gz` (for `docker load`) · `dist/dcode-<ver>.vsix` |
+| Everything for a Linux release | `make packages` | all of the above plus the `.deb`, from the one portable binary |
 | Offline build host | `PIP_ARGS="--no-index --find-links ./wheels" make binary` | — |
+
+**glibc:** a PyInstaller binary needs a glibc at least as new as its build machine's. `make binary` on Ubuntu 22.04 gives a binary for glibc 2.35+ (not RHEL 8/9, Debian 11, Ubuntu 20.04). `make linux` builds in a container on glibc 2.28, which covers all of them; use it for anything you hand to others.
 
 PyInstaller doesn't cross-compile. Both the web assets (`dcode/web`) and the skills (`dcode/skills`) are bundled with `--add-data`.
 
 ## Release checklist
 
 1. Bump `__version__` in `dcode/__init__.py`.
-2. Update the version in `dcode/web/guide.html`: badge and footer in **both** languages (4 places), plus the `.deb` filename in the install examples.
-3. Update the `.deb` filename in `README.md`.
+2. Update the version in `dcode/web/guide.html`: badge and footer in **both** languages (4 places), plus the package filenames (`.deb`, `.rpm`, `.tar.gz`, Docker) in the install examples.
+3. Update the package filenames in `README.md` and here, and `"version"` in `editors/vscode/package.json` (a test checks it matches).
 4. Add a `CHANGELOG.md` entry.
-5. Run `pytest`, `ruff`, then `make mac` and `python docs/dev/terminal_e2e.py --binary /opt/homebrew/bin/dcode`.
+5. Run `pytest`, `ruff`, then `make mac` and `python docs/dev/terminal_e2e.py --binary /opt/homebrew/bin/dcode`. For Linux: `make packages`, then `terminal_e2e.py --binary dist/dcode`.
 6. Commit `Release X.Y.Z` and tag `git tag -a vX.Y.Z -m "Dcode X.Y.Z"`.
 7. Push only when the user asks: `git push origin dev`, and push the tags separately when asked.
 
 ## Install on an air-gapped server
 
 ```bash
-sudo ./install-airgap.sh dcode_0.4.0_amd64.deb   # Debian/Ubuntu
-sudo ./install-airgap.sh ./dcode                 # any Linux
+sudo ./install-airgap.sh dcode_0.4.0_amd64.deb       # Debian/Ubuntu
+sudo ./install-airgap.sh dcode-0.4.0-1.x86_64.rpm    # RHEL/Rocky/Alma/Fedora/SUSE
+sudo ./install-airgap.sh ./dcode                     # any Linux
+./dcode-0.4.0-linux-x86_64/install.sh                # from the unpacked tarball, no root needed
+docker load -i dcode-0.4.0-docker-x86_64.tar.gz      # the container image (run it with --network host)
 export DCODE_BASE_URL=http://127.0.0.1:11434/v1  DCODE_API_KEY=local
 export DCODE_MODEL=qwen2.5-coder:7b              DCODE_CONTEXT_WINDOW=32768
 dcode
@@ -47,6 +55,9 @@ dcode
 - The hub exits about 6 seconds after the last session ends. If a hub from another version, or one with missing web files, is running, the next `dcode` replaces it automatically.
 - Logs: `~/.dcode/run/hub.log`; background job logs in `~/.dcode/run/jobs/`.
 - `dcode --no-ui` or `DCODE_NO_UI=1` runs the terminal only.
+- `dcode attach` joins a running session from another terminal. For a server: `ssh -L 7300:127.0.0.1:7300 server`, then `dcode attach "<the link dcode ui prints there>"`.
+- MCP servers are child processes of the session that started them and stop with it; their stderr tail shows in `/mcp` when one fails.
+- `dcode acp` is started by an editor; it prints nothing but protocol messages on stdout.
 
 ## Troubleshooting
 
@@ -57,4 +68,7 @@ dcode
 | Links not clickable | macOS Terminal has no OSC 8 support. Use `/ui` or `/guide`, which open the browser, or ⌘-double-click the link. |
 | `import dcode` fails outside the repo | The hidden `.pth` quirk above. Use `PYTHONPATH` or the built binary. |
 | Settings changed in the UI have no effect | An env var pins that field (the UI shows it as read-only). Change the env var. |
+| `version 'GLIBC_2.35' not found` on a server | The binary was built on a newer Linux than the server. Rebuild with `make linux`. |
+| `dpkg-deb: … unknown compression for member 'control.tar.zst'` | A `.deb` built before the xz fix, opened on Debian 11 or older. Rebuild it, or use the `.tar.gz`. |
+| An MCP server shows `failed` in `/mcp` | The line under it is the server's own error. Check the command and its `env`, then `/mcp restart`. |
 | `sudo: a terminal is required` from Claude Code | Use `make mac`, which needs no sudo, or run the command in a real terminal. |

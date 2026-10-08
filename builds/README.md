@@ -31,7 +31,9 @@ dpkg-deb -x builds/linux-amd64/dcode_0.4.0_amd64.deb /tmp/dcode-pkg && install -
 ```
 
 - Python and every dependency are inside, including the PostgreSQL and MySQL drivers. Nothing else is needed on the server.
-- It was built on Ubuntu 22.04, so it needs **glibc 2.35 or newer** (Ubuntu 22.04+, Debian 12+, RHEL 9.2+ and similar). For an older system, build on that system with `make deb`.
+- It was built on Ubuntu 22.04, so it needs **glibc 2.35 or newer**: Ubuntu 22.04+, Debian 12+, Fedora 36+. It does **not** run on RHEL / Rocky / Alma 8 or 9 (glibc 2.28 and 2.34), Debian 11 or Ubuntu 20.04. (An earlier version of this note wrongly listed RHEL 9.2+.)
+- The package is zstd-compressed, which `dpkg` on Debian 11 and older can't open.
+- Both limits are gone in builds made with `make packages` (see `docs/operations.md`): the binary is built on glibc 2.28 and the `.deb` uses xz. The next release should be built that way; this file is kept as the 0.4.0 that was published.
 - The binary from this package passed all 42 checks of `docs/dev/terminal_e2e.py --binary`.
 - The macOS binary above is still 0.3.1; rebuild it on a Mac for 0.4.0.
 

@@ -18,8 +18,8 @@ dcode (terminal) ──┐                         ┌── browser (per OS use
 
 | Module | Responsibility |
 |---|---|
-| `__main__.py` | the real entry point: `hub` and `run` skip the terminal app's imports, everything else goes to `main.cli` |
-| `main.py` | click entry point, setup wizard, signal handling, starting/joining the hub, `dcode ui`, hidden `dcode hub` |
+| `__main__.py` | the real entry point: `hub`, `run` and `acp` skip the terminal app's imports, everything else goes to `main.cli` |
+| `main.py` | click entry point, setup wizard, signal handling, starting/joining the hub, `--continue` / `--resume`, and the subcommands `ui`, `attach`, `stats`, `export`, `import`, hidden `hub` |
 | `cli.py` | `TerminalApp`: a state-driven loop (approval → busy → plan approval → input), event rendering, slash commands, live activity panel, `/jobs`, `/artifacts`, `/commit` |
 | `ui.py` | rich and prompt_toolkit widgets: header, bottom input box (labeled top rule, mode badge, slash suggestions, Shift+Tab, Ctrl+O, Ctrl+C×2), selectors, approval menu, diffs, links |
 | `theme.py` | **the single source of colors**: web `LIGHT`/`DARK` token dicts (served as `/theme.css`), terminal colors, logo |
@@ -32,7 +32,13 @@ dcode (terminal) ──┐                         ┌── browser (per OS use
 | `memory.py` | Markdown memories (project/global) with BM25 search, `recall`, `index_text`, session summaries |
 | `artifacts.py` | artifact store: versions, append, rename, duplicate, restore |
 | `skills.py` | built-in skill seeding, user and project skills, `save_skill` |
-| `checkpoints.py` | per-task file snapshots for `/undo` |
+| `checkpoints.py` | per-task file snapshots for `/undo`, and what each undo replaced for `/redo` |
+| `transcripts.py` | saved chats → UI events; export to Markdown / one HTML page / JSON; `import_chat` (untrusted input); `HelperLog` (each helper's own steps, saved with the chat) |
+| `stats.py` | one line per finished task in `stats.jsonl` (counts only) and the summary for `dcode stats` |
+| `mcp.py` | MCP stdio client: `Server` (one process, JSON-RPC, timeouts), `Manager` (per session), the names-only prompt index, `describe` for `mcp_tools` |
+| `attach.py` | `dcode attach`: `RemoteSession` answers what `TerminalApp` asks of a session over the hub's HTTP API; `AttachApp` is the terminal |
+| `acp.py` | `dcode acp`: Agent Client Protocol v1 over stdio; `Bridge` turns a session's events into `session/update` and approvals into `session/request_permission` |
+| `openapi.py` | the hub's API as an OpenAPI 3.1 document, from one `ROUTES` table |
 | `checks.py` | post-edit check (in-process Python/JSON/TOML; ruff, bash, node, gofmt, ruby, php when installed) and optional formatter; errors are appended to the edit result |
 | `mentions.py` | `@path` parsing (attached as synthetic `read_file` results) and the fuzzy file index for completion |
 | `custom_agents.py` | `AgentSpec`: built-in helpers plus Markdown helpers from `~/.dcode/agents` and `.dcode/agents` (tools, model, steps, prompt) |
@@ -90,6 +96,12 @@ dcode (terminal) ──┐                         ┌── browser (per OS use
 - A prompt job runs `dcode run --mode <mode> <prompt>` in the job's folder.
 - The hub's idle watcher keeps it alive while any job is enabled or running.
 
+## External tools, attach and editors
+
+- **MCP:** `Session` starts a `mcp.Manager` when servers are configured; each `Server` is a child process spoken to over stdin/stdout (newline-delimited JSON-RPC). The engine sees it as `host.mcp` and offers two fixed tools, `mcp_tools` and `mcp_call`. A call asks (`mcp_tool` approval) unless the mode is auto or the server is marked `allow`; plan mode needs the tool's `readOnlyHint`. A failed or hung server sets a state, never raises into the loop.
+- **Attach:** `dcode attach` has no session of its own. `RemoteSession` keeps `busy`, approvals, mode and the chat name current from the SSE stream (plus a 2-second `/state` poll), and posts actions with `source: "attach"`. `AttachApp` subclasses `TerminalApp`, so rendering is the same code.
+- **ACP:** `dcode acp` owns real `Session`s (one per `session/new`; the process changes into that folder). Requests are handled on threads because `session/prompt` blocks until the turn ends while `session/cancel` and permission answers must still get through. Stdout carries protocol messages only.
+
 ## Events (`EventBus`)
 
 All UI comes from events, which the web UI can replay from `seq=0`:
@@ -97,12 +109,12 @@ All UI comes from events, which the web UI can replay from `seq=0`:
 | Group | Events |
 |---|---|
 | Conversation | `user_message` · `assistant_delta` · `assistant_note` · `assistant_message` |
-| Steps | `tool_call` · `tool_result` |
+| Steps | `tool_call` · `tool_result` (both carry `by: "user"` for a `!command`) · `thinking` (the model's reasoning; display only) |
 | Helpers | `agent_start` (with `model`) · `agent_end` |
 | Phase 3 | `todos` · `mentions` · `check` |
 | Approvals | `approval_request` · `approval_resolved` · `approval_auto` |
 | Status | `status` · `usage` · `compaction` · `summary` · `notice` · `error` · `config` |
-| Chat | `thread` (new, resume, rename, title) · `mode` · `plan_ready` · `plan_resolved` · `undo` |
+| Chat | `thread` (new, resume, rename, title; a resume carries `items` and `helpers`) · `mode` · `plan_ready` · `plan_resolved` · `undo` · `redo` |
 | Stored items | `memory_saved` · `skill_saved` · `artifact_saved` (with `update`) |
 | Jobs | `job_started` · `job_exited` |
 
@@ -112,15 +124,18 @@ All UI comes from events, which the web UI can replay from `seq=0`:
 - **Starting the hub:** the first session spawns `dcode hub`, detached and with a clean environment. Later sessions reuse it if `hub_usable()` (same version, assets present); otherwise they replace it. The hub exits about 6 seconds after the last session ends.
 - **Security:** binds 127.0.0.1 only. A per-user token is stored in `~/.dcode/run/token` (mode 0600). The browser gets an HttpOnly, SameSite=Strict cookie lasting 30 days. Mutations require an `X-Dcode: 1` header, and a Host-header check blocks DNS rebinding. Artifacts render in `sandbox="allow-scripts"` iframes with a CSP of `default-src 'none'`. Downloads are served as `application/octet-stream`.
 - **API:**
-  - Hub, for the browser: `/api/{hub,sessions,threads,config,models,memory,skills,agents,artifacts,db,cron}`
-  - Proxied to a session: `/api/s/<id>/{state,events,files,message,approve,interrupt,new,rename,resume,model,reload,mode,plan,compact,undo,init,command}`
-  - Public (no token): `/api/health`, `/guide`, `/static/logo.svg`
+  - Hub, for the browser: `/api/{hub,sessions,threads,config,models,stats,memory,skills,agents,artifacts,db,cron}`; chats also have `/export`, `/helpers/<id>` and `POST /api/threads/import`
+  - Proxied to a session: `/api/s/<id>/{state,events,files,helpers,mcp,message,approve,interrupt,new,rename,resume,model,reload,mode,plan,compact,undo,redo,init,command,mcp/restart}`
+  - Public (no token): `/api/health`, `/api/openapi.json`, `/guide`, `/static/logo.svg`
+  - The whole list, with parameters, is `openapi.py`; `test_every_documented_route_exists` keeps it honest.
+- **Who did it:** a POST to a session may carry `"source": "attach"`. Events then say `by` / `source` = `cli`, `web`, `attach`, `acp` or `run`, and each terminal names the others ("from another terminal").
 
 ## Data on disk (`~/.dcode`, or `DCODE_HOME`)
 
 ```
-config.json           0600 settings (env vars override)
-threads/*.json        saved chats (messages + cwd/model/summary)
+config.json           0600 settings (env vars override); MCP servers are under "mcp"
+threads/*.json        saved chats (messages + cwd/model/summary/todos/helpers)
+stats.jsonl           0600 one line per finished task: counts only (capped at 4 MB)
 memory/global|projects/<name>-<hash>/*.md
 skills/*.md           (+ .builtin-seeded marker)
 agents/*.md           your helpers        (projects: .dcode/agents/*.md)
@@ -139,6 +154,7 @@ Every token of a 32K window counts. The strategy:
 - Output caps of about 12% of the window per tool result.
 - Helpers do the exploration in their own context.
 - Memory and skills are indexed, not inlined; full text is loaded on demand.
+- MCP tools are indexed by name only; `mcp_tools` loads one tool's schema when it is needed.
 - Artifact and skill payloads are stubbed out of history after saving.
 - Compaction starts at 75% of the input budget.
 - The reply budget is at most a quarter of the window.

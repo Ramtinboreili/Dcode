@@ -208,10 +208,13 @@ footer.foot { margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--b
 make mac PYTHON=.venv/bin/python      <span class="c"># installs /opt/homebrew/bin/dcode</span>
 dcode --version</pre></div>
   <h3>Linux servers (air-gapped)</h3>
-  <p>Build on a <strong>connected</strong> machine with the same OS and CPU as the target (PyInstaller doesn't cross-compile), then copy two files over:</p>
-  <div class="code"><div class="bar"><span>shell — build machine</span><button>Copy</button></div><pre>make deb      <span class="c"># → dist/dcode and dist/dcode_0.4.0_&lt;arch&gt;.deb</span></pre></div>
-  <div class="code"><div class="bar"><span>shell — air-gapped server</span><button>Copy</button></div><pre>sudo ./install-airgap.sh dcode_0.4.0_amd64.deb   <span class="c"># Debian / Ubuntu</span>
-sudo ./install-airgap.sh ./dcode                 <span class="c"># any Linux, copies to /usr/local/bin</span></pre></div>
+  <p>Build on a <strong>connected</strong> machine with the same CPU as the target (PyInstaller doesn't cross-compile), then copy the package and <code>install-airgap.sh</code> over. <code>make packages</code> builds inside an old-Linux container, so that one binary runs on RHEL 8+, Debian 10+ and Ubuntu 20.04+:</p>
+  <div class="code"><div class="bar"><span>shell — build machine</span><button>Copy</button></div><pre>make packages  <span class="c"># needs docker → dist/: dcode, .deb, .rpm, .tar.gz, a Docker image, the VS Code .vsix</span>
+make deb       <span class="c"># without docker: binary + .deb for this machine's own OS version</span></pre></div>
+  <div class="code"><div class="bar"><span>shell — air-gapped server</span><button>Copy</button></div><pre>sudo ./install-airgap.sh dcode_0.4.0_amd64.deb        <span class="c"># Debian / Ubuntu</span>
+sudo ./install-airgap.sh dcode-0.4.0-1.x86_64.rpm     <span class="c"># RHEL / Rocky / Alma / Fedora / SUSE</span>
+tar -xzf dcode-0.4.0-linux-x86_64.tar.gz &amp;&amp; ./dcode-0.4.0-linux-x86_64/install.sh   <span class="c"># any Linux, no root needed</span>
+docker load -i dcode-0.4.0-docker-x86_64.tar.gz       <span class="c"># as a container (see packaging/Dockerfile)</span></pre></div>
   <div class="callout tip"><span class="ic">💡</span><p>For a build machine without internet, pre-download wheels and run <code>PIP_ARGS="--no-index --find-links ./wheels" make binary</code>.</p></div>
   <h3>From source (any OS with Python 3.10+)</h3>
   <div class="code"><div class="bar"><span>shell</span><button>Copy</button></div><pre>pip install .
@@ -240,6 +243,8 @@ dcode</pre></div>
     <li>When Dcode wants to <strong>run a command, delete a file or commit</strong>, a menu appears. Choose with the arrow keys and <kbd>Enter</kbd>, or press <kbd>y</kbd> (allow), <kbd>a</kbd> (allow for this session) or <kbd>n</kbd> (deny).</li>
     <li>In long lists, such as the model list, just type to filter.</li>
     <li><strong>Mention files with <code>@</code>:</strong> type <code>@</code> and part of a name, then <kbd>Tab</kbd> or <kbd>Enter</kbd> to pick it, e.g. <code>fix the bug in @src/app.py</code>. Up to 3 mentioned files go straight into the conversation, so Dcode doesn't spend steps finding them. Works in the web UI too.</li>
+    <li><strong>Run a command yourself with <code>!</code>:</strong> <code>!git status</code> runs it right away, with no approval and no model call, and Dcode sees the command and its output. <kbd>Ctrl</kbd>+<kbd>C</kbd> stops it. Works in the web UI too.</li>
+    <li><code>/editor</code> opens your editor (<code>$EDITOR</code>) for a long message; save and close to send it.</li>
     <li>For longer tasks Dcode keeps a <strong>checklist</strong> (☰) and ticks steps off as it goes. The list survives "context compacted", so small models stay on track.</li>
     <li>When something is genuinely unclear, Dcode may <strong>ask you a question</strong> with a few choices. Pick one, type your own answer, or press <kbd>Esc</kbd> to let it decide.</li>
   </ul>
@@ -258,10 +263,17 @@ dcode</pre></div>
       <tr><td><code>/skills</code></td><td>Pin skills so they're always used</td></tr>
       <tr><td><code>/review</code></td><td>Review your current git changes (in a separate helper)</td></tr>
       <tr><td><code>/permissions</code> · <code>/experimental</code></td><td>Choose what Dcode may do; feature flags</td></tr>
-      <tr><td><code>/new</code> · <code>/rename</code> · <code>/resume</code></td><td>Start, rename or reopen chats</td></tr>
+      <tr><td><code>/new</code> · <code>/rename</code></td><td>Start a new chat; rename this one</td></tr>
+      <tr><td><code>/sessions [words]</code></td><td>Switch to a saved chat. This folder's chats come first; words narrow the list. It shows where the chat left off</td></tr>
+      <tr><td><code>/export [md|html|json] [file]</code></td><td>Save this chat as Markdown, as one HTML page (no scripts, opens offline) or as JSON. <code>dcode import file.json</code> brings a JSON export back on any machine</td></tr>
+      <tr><td><code>/editor</code></td><td>Write a long message in <code>$EDITOR</code></td></tr>
+      <tr><td><code>/thinking</code> · <code>/details</code></td><td>Show the model's reasoning; hide tool calls and results</td></tr>
+      <tr><td><code>/notify off|bell|desktop</code></td><td>Ring the bell or send a desktop notification when a task of 10 seconds or more ends, or when Dcode needs an answer</td></tr>
+      <tr><td><code>/stats [days]</code></td><td>Usage numbers: tasks, tokens, working time, tools, by model and project</td></tr>
+      <tr><td><code>/mcp</code></td><td>External tools from MCP servers (see <a href="#en-mcp">External tools</a>)</td></tr>
       <tr><td><code>/mode</code></td><td>Switch mode (or press <kbd>Shift</kbd>+<kbd>Tab</kbd>)</td></tr>
       <tr><td><code>/compact [focus]</code></td><td>Summarize this session to free up context; the summary is saved to memory</td></tr>
-      <tr><td><code>/undo</code></td><td>Undo Dcode's file changes from the last task</td></tr>
+      <tr><td><code>/undo</code> · <code>/redo</code></td><td>Undo Dcode's file changes from the last task; bring them back</td></tr>
       <tr><td><code>/diff</code> · <code>/commit [message]</code></td><td>Show uncommitted changes; commit with a generated message (asks first)</td></tr>
       <tr><td><code>/artifacts</code> · <code>/clear</code></td><td>Browse and open artifacts; clear the screen and start a fresh chat</td></tr>
       <tr><td><code>/jobs</code></td><td>Background jobs (servers, watchers): see their output, stop them</td></tr>
@@ -298,7 +310,8 @@ Our conventions are in @CONTRIBUTING.md</pre></div>
     <li>Each edit shows a red/green preview of what changed.</li>
     <li><strong>Checks after edits:</strong> right after changing a file, Dcode checks it (syntax errors, undefined names) with what's already on your machine: Python itself, ruff, node, bash, gofmt and others. Problems go straight back to the model, which fixes them in its next step. Turn on <em>Also format them</em> in Settings → Permissions to run your formatter too.</li>
     <li>While Dcode works, a live panel shows the current step, every running helper and background jobs, each with a timer. Long-running commands (servers, watchers) run as <strong>background jobs</strong>; the status line counts them and <code>/jobs</code> manages them. They stop when you exit.</li>
-    <li>Every task saves a checkpoint. <code>/undo</code> puts the files back as they were, even outside git.</li>
+    <li>Every task saves a checkpoint. <code>/undo</code> puts the files back as they were, even outside git. <code>/redo</code> brings the changes back, until Dcode changes a file again.</li>
+    <li><code>/thinking</code> prints the model's reasoning, dimmed, above its answer (it is never sent back to the model). <code>/details</code> hides tool calls and results when you only want the answers. Both are also in Settings → Web UI → Terminal.</li>
     <li><code>/diff</code> shows your uncommitted changes, and <code>/commit</code> writes a commit message from the diff and asks before committing.</li>
   </ul>
 
@@ -309,7 +322,9 @@ Our conventions are in @CONTRIBUTING.md</pre></div>
     <li><strong>Chat:</strong> send tasks to the same session as your terminal. Steps fold into "Worked through N steps", and helpers show as cards.</li>
     <li><strong>Approvals:</strong> Allow, Allow for this session or Deny, from the browser or the terminal. Whichever answers first wins.</li>
     <li><strong>Model menu</strong> (top left): search the server's models or type any name; set reasoning effort.</li>
-    <li><strong>Settings:</strong> connection, model, helpers, memory, permissions, skills, and light/dark/system theme.</li>
+    <li><strong>Helper sessions:</strong> the arrow on a helper's card opens that helper's own session: its task, every step it took, how long it ran and its report. It works in saved chats too.</li>
+    <li><strong>Export and import:</strong> the download button in the top bar saves the chat as Markdown, an HTML page or JSON; the upload button beside the chat search imports a JSON export.</li>
+    <li><strong>Settings:</strong> connection, model, helpers, memory, permissions, skills, external tools, light/dark/system theme, and <em>Usage</em>: tasks, tokens, working time and tools, counted on this machine and never sent anywhere.</li>
   </ul>
   <div class="callout tip"><span class="ic">💡</span><p>The page closes itself a few seconds after your last <code>dcode</code> exits. Chats, memory and artifacts stay on disk and appear again next time.</p></div>
 
@@ -469,7 +484,47 @@ description: Writing Ansible playbooks and roles our team's way.
     <li>The same unattended mode is available to you: <code>dcode run --mode auto "update the changelog"</code>.</li>
   </ul>
 
-  <h2 id="en-small"><span class="num">12</span>Tips for small models (32K or less)</h2>
+  <h2 id="en-mcp"><span class="num">12</span>External tools (MCP servers)</h2>
+  <p>An MCP server is a program on your machine that gives Dcode extra tools: your ticket system, your monitoring, an internal API. Dcode starts it with each session and talks to it over its standard input and output. No network is involved unless the server itself uses one.</p>
+  <div class="code"><div class="bar"><span>terminal</span><button>Copy</button></div><pre>/mcp add tickets python3 /opt/mcp/tickets_server.py
+/mcp                          servers, their state and tools
+/mcp tools tickets            what each tool does
+/mcp allow tickets   ·   /mcp ask tickets   ·   /mcp off tickets   ·   /mcp rm tickets</pre></div>
+  <ul>
+    <li><strong>Small on context:</strong> a server can offer dozens of tools with long descriptions. Dcode puts only the tool <em>names</em> in the model's prompt; the model reads one tool's details when it needs it. Forty tools cost a few hundred characters, not thousands of tokens on every turn.</li>
+    <li><strong>Asks first:</strong> every call is shown to you (<em>Dcode wants to use an external tool</em>) unless the mode is auto or you marked the server <em>allow</em>. In plan mode only tools the server marks read-only run.</li>
+    <li><strong>Web UI:</strong> Settings → External tools lists the servers, their state and tools, and lets you add or remove them.</li>
+    <li>Servers come only from your own settings (<code>~/.dcode/config.json</code>, under <code>mcp</code>), with optional <code>env</code> values for tokens. A project folder can't add one, because adding a server means running its command. Add only programs you trust.</li>
+    <li>A server that fails to start or stops answering is reported in <code>/mcp</code>; Dcode keeps working without it.</li>
+  </ul>
+
+  <h2 id="en-editors"><span class="num">13</span>Editors, second terminals and scripts</h2>
+  <h3>A second terminal: <code>dcode attach</code></h3>
+  <p>Join a session that is already running, from another terminal. You see the same task live, can send messages and <code>!commands</code>, answer approvals and switch mode. Leaving it (<code>/exit</code> or <kbd>Ctrl</kbd>+<kbd>C</kbd> twice) detaches; the session keeps running.</p>
+  <div class="code"><div class="bar"><span>shell</span><button>Copy</button></div><pre>dcode attach                 <span class="c"># the session on this machine (asks if there are several)</span>
+dcode attach 3f9a            <span class="c"># by session id (the start of it is enough)</span>
+
+<span class="c"># A session on a server: tunnel its port, then use the link `dcode ui` prints there</span>
+ssh -L 7300:127.0.0.1:7300 gpu-server
+dcode attach "http://127.0.0.1:7300/?token=…#s=3f9a"</pre></div>
+  <h3>Zed and other ACP editors</h3>
+  <p><code>dcode acp</code> speaks the Agent Client Protocol, so an editor can show Dcode in its own agent panel: messages, tool calls with diffs, the checklist, approvals and modes. In Zed, add this to <code>settings.json</code>, then pick <em>Dcode</em> in the agent panel:</p>
+  <div class="code"><div class="bar"><span>Zed settings.json</span><button>Copy</button></div><pre>"agent_servers": {
+  "Dcode": { "type": "custom", "command": "dcode", "args": ["acp"], "env": {} }
+}</pre></div>
+  <p>Dcode must already be set up (run <code>dcode</code> once, or give the editor <code>DCODE_BASE_URL</code>, <code>DCODE_API_KEY</code> and <code>DCODE_MODEL</code> under <code>"env"</code>).</p>
+  <h3>VS Code</h3>
+  <p>A small extension is in <code>editors/vscode</code>: start Dcode in the integrated terminal, open the web UI in a tab, and send the selection or the current file to the session of this folder (<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd>). It isn't on the Marketplace; build the file and install it:</p>
+  <div class="code"><div class="bar"><span>shell</span><button>Copy</button></div><pre>python3 editors/vscode/build_vsix.py
+code --install-extension editors/vscode/dcode-*.vsix</pre></div>
+  <h3>Scripts</h3>
+  <ul>
+    <li><code>dcode run "task"</code> runs one task unattended and prints plain text (see <a href="#en-cron">Scheduled jobs</a>).</li>
+    <li><code>dcode export</code> / <code>dcode import</code> / <code>dcode stats --json</code> work without starting a session.</li>
+    <li>Everything the web UI does goes through a local HTTP API. It is described at <code>/api/openapi.json</code> on the web UI's address (OpenAPI 3.1): sessions, messages, approvals, chats, artifacts, databases, scheduled jobs.</li>
+  </ul>
+
+  <h2 id="en-small"><span class="num">14</span>Tips for small models (32K or less)</h2>
   <ul>
     <li>Give clear, specific tasks: "add input validation to <code>api/users.py</code>" works better than "improve the code".</li>
     <li>Keep helpers on. Exploration happens outside the main context, so long sessions stay accurate.</li>
@@ -479,7 +534,7 @@ description: Writing Ansible playbooks and roles our team's way.
     <li>Start a <code>/new</code> chat when you switch to an unrelated task.</li>
   </ul>
 
-  <h2 id="en-config"><span class="num">13</span>Configuration</h2>
+  <h2 id="en-config"><span class="num">15</span>Configuration</h2>
   <p>Settings are saved in <code>~/.dcode/config.json</code>, and you can change them in the web UI or with slash commands. Environment variables override the file; the web UI shows those fields as read-only.</p>
   <table>
     <thead><tr><th>Variable</th><th>Meaning</th></tr></thead>
@@ -498,7 +553,7 @@ description: Writing Ansible playbooks and roles our team's way.
   </table>
   <p>Old <code>CODE_ONE_*</code> variables still work, and an existing <code>~/.code-one</code> folder is copied over on first run.</p>
 
-  <h2 id="en-security"><span class="num">14</span>Security</h2>
+  <h2 id="en-security"><span class="num">16</span>Security</h2>
   <ul>
     <li><strong>Folder sandbox:</strong> file tools stay in the project folder. If Dcode needs a file outside it, it asks first.</li>
     <li><strong>Approvals:</strong> commands, deletions and commits always ask first, unless you turn on auto-approve (only for trusted, sandboxed machines).</li>
@@ -508,10 +563,12 @@ description: Writing Ansible playbooks and roles our team's way.
     <li><strong>Secrets:</strong> <code>~/.dcode</code> is readable only by you, and the web UI never shows your API key.</li>
     <li><strong>Databases:</strong> Dcode has the rights of the database user you connect with, nothing more. Reads are read-only, and every change is shown to you and needs your confirmation, in every mode. Saved passwords are never shown.</li>
     <li><strong>Scheduled jobs</strong> can only be created by you. A Dcode prompt that runs on a schedule can't get approvals, so anything that would ask is refused.</li>
+    <li><strong>External tools (MCP):</strong> servers come only from your own settings, never from a project. Each call asks first unless you chose otherwise, and tokens in a server's <code>env</code> are never shown again.</li>
+    <li><strong>Usage numbers</strong> stay in <code>~/.dcode/stats.jsonl</code>: counts only, never prompts or file contents.</li>
     <li><strong>Artifacts</strong> run in a sandbox with no network access.</li>
   </ul>
 
-  <h2 id="en-trouble"><span class="num">15</span>Troubleshooting</h2>
+  <h2 id="en-trouble"><span class="num">17</span>Troubleshooting</h2>
   <table>
     <thead><tr><th>Problem</th><th>Fix</th></tr></thead>
     <tbody>
@@ -524,14 +581,21 @@ description: Writing Ansible playbooks and roles our team's way.
     </tbody>
   </table>
 
-  <h2 id="en-ref"><span class="num">16</span>Quick reference</h2>
+  <h2 id="en-ref"><span class="num">18</span>Quick reference</h2>
   <div class="code"><div class="bar"><span>cheatsheet</span><button>Copy</button></div><pre>dcode                       <span class="c"># start in the current folder</span>
 dcode --setup               <span class="c"># run setup again</span>
 dcode --model NAME --context-window 32768
 dcode --no-ui               <span class="c"># terminal only</span>
 dcode ui                    <span class="c"># print the web UI link</span>
+dcode -c                    <span class="c"># continue this folder's last chat (--resume NAME: one by name)</span>
+dcode attach [ID | LINK]    <span class="c"># a second terminal on a running session</span>
+dcode run "task"            <span class="c"># one unattended task, plain text out</span>
+dcode export [CHAT] -f md|html|json   ·   dcode import FILE.json
+dcode stats [--days N] [--json]
+dcode acp                   <span class="c"># for editors (Agent Client Protocol)</span>
 
 make mac PYTHON=.venv/bin/python   <span class="c"># build + install on macOS</span>
+make packages               <span class="c"># Linux: portable binary, .deb, .rpm, .tar.gz, Docker image (needs docker)</span>
 make deb                    <span class="c"># build binary + .deb (Linux build host)</span>
 make test   ·   make lint</pre></div>
   <footer class="foot">Dcode v0.4.0 · This page works offline. Data lives in <code>~/.dcode</code>.</footer>
@@ -564,10 +628,13 @@ make test   ·   make lint</pre></div>
 make mac PYTHON=.venv/bin/python      <span class="c"># installs /opt/homebrew/bin/dcode</span>
 dcode --version</pre></div>
   <h3>سرورهای لینوکس (ایزوله، بدون اینترنت)</h3>
-  <p>روی یک سیستم <strong>متصل به اینترنت</strong> با همان سیستم‌عامل و پردازندهٔ سرور مقصد بسازید (PyInstaller برای معماری دیگر خروجی نمی‌سازد)، بعد دو فایل را منتقل کنید:</p>
-  <div class="code"><div class="bar"><span>shell — build machine</span><button>Copy</button></div><pre>make deb      <span class="c"># → dist/dcode and dist/dcode_0.4.0_&lt;arch&gt;.deb</span></pre></div>
-  <div class="code"><div class="bar"><span>shell — air-gapped server</span><button>Copy</button></div><pre>sudo ./install-airgap.sh dcode_0.4.0_amd64.deb   <span class="c"># Debian / Ubuntu</span>
-sudo ./install-airgap.sh ./dcode                 <span class="c"># any Linux, copies to /usr/local/bin</span></pre></div>
+  <p>روی یک سیستم <strong>متصل به اینترنت</strong> با همان پردازندهٔ سرور مقصد بسازید (PyInstaller برای معماری دیگر خروجی نمی‌سازد)، بعد بسته و <code>install-airgap.sh</code> را منتقل کنید. <code>make packages</code> داخل یک کانتینر لینوکس قدیمی می‌سازد؛ برای همین همان یک فایل اجرایی روی RHEL 8 به بالا، Debian 10 به بالا و Ubuntu 20.04 به بالا کار می‌کند:</p>
+  <div class="code"><div class="bar"><span>shell — build machine</span><button>Copy</button></div><pre>make packages  <span class="c"># needs docker → dist/: dcode, .deb, .rpm, .tar.gz, a Docker image, the VS Code .vsix</span>
+make deb       <span class="c"># without docker: binary + .deb for this machine's own OS version</span></pre></div>
+  <div class="code"><div class="bar"><span>shell — air-gapped server</span><button>Copy</button></div><pre>sudo ./install-airgap.sh dcode_0.4.0_amd64.deb        <span class="c"># Debian / Ubuntu</span>
+sudo ./install-airgap.sh dcode-0.4.0-1.x86_64.rpm     <span class="c"># RHEL / Rocky / Alma / Fedora / SUSE</span>
+tar -xzf dcode-0.4.0-linux-x86_64.tar.gz &amp;&amp; ./dcode-0.4.0-linux-x86_64/install.sh   <span class="c"># any Linux, no root needed</span>
+docker load -i dcode-0.4.0-docker-x86_64.tar.gz       <span class="c"># as a container (see packaging/Dockerfile)</span></pre></div>
   <div class="callout tip"><span class="ic">💡</span><p>اگر سیستم سازنده هم اینترنت ندارد، بسته‌های wheel را از قبل دانلود کنید و این را اجرا کنید: <code>PIP_ARGS="--no-index --find-links ./wheels" make binary</code></p></div>
   <h3>از سورس (هر سیستم‌عامل با پایتون ۳٫۱۰ به بالا)</h3>
   <div class="code"><div class="bar"><span>shell</span><button>Copy</button></div><pre>pip install .
@@ -596,6 +663,8 @@ dcode</pre></div>
     <li>وقتی Dcode بخواهد <strong>دستوری اجرا کند، فایلی را حذف کند یا commit بزند</strong>، یک منو باز می‌شود. با کلیدهای جهت و <kbd>Enter</kbd> انتخاب کنید، یا <kbd>y</kbd> (اجازه)، <kbd>a</kbd> (اجازه برای کل این نشست) یا <kbd>n</kbd> (رد) را بزنید.</li>
     <li>در فهرست‌های بلند، مثل فهرست مدل‌ها، کافی است تایپ کنید تا فیلتر شود.</li>
     <li><strong>اشاره به فایل با <code>@</code>:</strong> <code>@</code> و بخشی از نام فایل را تایپ کنید و با <kbd>Tab</kbd> یا <kbd>Enter</kbd> انتخاب کنید، مثلاً <code>fix the bug in @src/app.py</code>. تا ۳ فایلِ اشاره‌شده مستقیم وارد گفتگو می‌شوند و Dcode برای پیدا کردنشان مرحله‌ای خرج نمی‌کند. در رابط وب هم کار می‌کند.</li>
+    <li><strong>اجرای دستور توسط خودتان با <code>!</code>:</strong> <code dir="ltr">!git status</code> همان لحظه اجرا می‌شود، بدون تأیید و بدون فراخوانی مدل، و Dcode دستور و خروجی‌اش را می‌بیند. با <kbd>Ctrl</kbd>+<kbd>C</kbd> متوقف می‌شود. در رابط وب هم کار می‌کند.</li>
+    <li><code>/editor</code> ویرایشگر شما (<code>$EDITOR</code>) را برای نوشتن یک پیام بلند باز می‌کند؛ ذخیره کنید و ببندید تا فرستاده شود.</li>
     <li>برای کارهای طولانی‌تر، Dcode یک <strong>چک‌لیست</strong> (☰) نگه می‌دارد و مرحله‌ها را تیک می‌زند. این فهرست بعد از فشرده‌سازی زمینه هم می‌ماند تا مدل‌های کوچک مسیر را گم نکنند.</li>
     <li>وقتی چیزی واقعاً مبهم باشد، Dcode ممکن است <strong>از شما سؤالی بپرسد</strong> و چند گزینه بدهد. یکی را انتخاب کنید، پاسخ خودتان را بنویسید، یا <kbd>Esc</kbd> را بزنید تا خودش تصمیم بگیرد.</li>
   </ul>
@@ -620,6 +689,14 @@ dcode</pre></div>
       <tr><td><code>/undo</code></td><td>بازگرداندن تغییرات فایلِ آخرین کارِ Dcode</td></tr>
       <tr><td><code>/diff</code> · <code>/commit [message]</code></td><td>نمایش تغییرات commit‌نشده؛ commit با پیامی که خودکار نوشته می‌شود (اول اجازه می‌گیرد)</td></tr>
       <tr><td><code>/artifacts</code> · <code>/clear</code></td><td>مرور و باز کردن آرتیفکت‌ها؛ پاک کردن صفحه و شروع گفتگوی تازه</td></tr>
+      <tr><td><code dir="ltr">/sessions [words]</code></td><td>رفتن به یک گفتگوی ذخیره‌شده. گفتگوهای همین پوشه اول می‌آیند و با نوشتن چند کلمه فهرست کوتاه‌تر می‌شود. آخرین درخواست و پاسخ آن گفتگو هم نشان داده می‌شود</td></tr>
+      <tr><td><code dir="ltr">/export [md|html|json] [file]</code></td><td>ذخیرهٔ همین گفتگو به‌صورت Markdown، یک صفحهٔ HTML (بدون اسکریپت، بدون اینترنت باز می‌شود) یا JSON. با <code dir="ltr">dcode import file.json</code> خروجی JSON را روی هر سیستمی برگردانید</td></tr>
+      <tr><td><code>/editor</code></td><td>نوشتن پیام بلند در <code>$EDITOR</code></td></tr>
+      <tr><td><code>/redo</code></td><td>برگرداندن تغییراتی که آخرین <code>/undo</code> برداشته بود</td></tr>
+      <tr><td><code>/thinking</code> · <code>/details</code></td><td>نمایش استدلال مدل؛ پنهان کردن فراخوانی ابزارها و نتیجه‌هایشان</td></tr>
+      <tr><td><code dir="ltr">/notify off|bell|desktop</code></td><td>وقتی کاری ۱۰ ثانیه یا بیشتر طول کشید و تمام شد، یا Dcode منتظر پاسخ شماست: زنگ ترمینال یا اعلان دسکتاپ</td></tr>
+      <tr><td><code dir="ltr">/stats [days]</code></td><td>آمار استفاده: تعداد کارها، توکن‌ها، زمان کار و ابزارها، به تفکیک مدل و پروژه</td></tr>
+      <tr><td><code>/mcp</code></td><td>ابزارهای بیرونی از سرورهای MCP (بخش <a href="#fa-mcp">ابزارهای بیرونی</a>)</td></tr>
       <tr><td><code>/jobs</code></td><td>کارهای پس‌زمینه (سرورها، watcherها): دیدن خروجی و متوقف کردن</td></tr>
       <tr><td><code>/db</code></td><td>پایگاه‌های داده: اتصال‌ها، جدول‌ها، کوئری، خلاصه، خروجی (بخش <a href="#fa-db">پایگاه‌های داده</a>)</td></tr>
       <tr><td><code>/cron</code></td><td>کارهای زمان‌بندی‌شده و لاگ‌هایشان (بخش <a href="#fa-cron">کارهای زمان‌بندی‌شده</a>)</td></tr>
@@ -654,7 +731,8 @@ Our conventions are in @CONTRIBUTING.md</pre></div>
     <li>هر ویرایش یک پیش‌نمایش قرمز/سبز از تغییرات نشان می‌دهد.</li>
     <li><strong>بررسی بعد از ویرایش:</strong> Dcode بلافاصله بعد از تغییر هر فایل، آن را با ابزارهایی که روی سیستم دارید بررسی می‌کند (خطای نحوی، نام‌های تعریف‌نشده): خود پایتون، ruff، node، bash، gofmt و غیره. مشکل‌ها مستقیم به مدل برمی‌گردند و در مرحلهٔ بعد رفع می‌شوند. برای اجرای فرمتر هم، گزینهٔ <em>Also format them</em> را در تنظیمات ← مجوزها روشن کنید.</li>
     <li>وقتی Dcode کار می‌کند، یک پنل زنده مرحلهٔ فعلی، دستیارهای در حال کار و کارهای پس‌زمینه را با زمان‌سنج نشان می‌دهد. دستورهای طولانی (سرورها، watcherها) به‌صورت <strong>کار پس‌زمینه</strong> اجرا می‌شوند؛ خط وضعیت تعدادشان را نشان می‌دهد و با <code>/jobs</code> مدیریت می‌شوند. با خروج از Dcode متوقف می‌شوند.</li>
-    <li>هر کار یک نقطهٔ بازگشت ذخیره می‌کند. <code>/undo</code> فایل‌ها را به حالت قبل برمی‌گرداند، حتی بیرون از git.</li>
+    <li>هر کار یک نقطهٔ بازگشت ذخیره می‌کند. <code>/undo</code> فایل‌ها را به حالت قبل برمی‌گرداند، حتی بیرون از git. <code>/redo</code> همان تغییرات را برمی‌گرداند، تا وقتی Dcode دوباره فایلی را تغییر نداده باشد.</li>
+    <li><code>/thinking</code> استدلال مدل را کم‌رنگ، بالای پاسخ نشان می‌دهد (هیچ‌وقت به مدل برگردانده نمی‌شود). <code>/details</code> فراخوانی ابزارها و نتیجه‌ها را پنهان می‌کند، برای وقتی که فقط پاسخ‌ها را می‌خواهید. هر دو در تنظیمات ← رابط وب ← Terminal هم هستند.</li>
     <li><code>/diff</code> تغییرات commit‌نشده را نشان می‌دهد و <code>/commit</code> از روی diff یک پیام commit می‌نویسد و قبل از commit اجازه می‌گیرد.</li>
   </ul>
 
@@ -665,7 +743,9 @@ Our conventions are in @CONTRIBUTING.md</pre></div>
     <li><strong>گفتگو:</strong> کار را به همان نشستی بفرستید که در ترمینال باز است. مراحل در «N مرحله انجام شد» جمع می‌شوند و دستیارها به شکل کارت دیده می‌شوند.</li>
     <li><strong>تأییدها:</strong> اجازه، اجازه برای این نشست یا رد، از مرورگر یا ترمینال. هر کدام زودتر پاسخ دهد اعمال می‌شود.</li>
     <li><strong>منوی مدل</strong> (بالا سمت چپ): مدل‌های سرور را جستجو کنید یا هر نامی را تایپ کنید؛ سطح استدلال را تنظیم کنید.</li>
-    <li><strong>تنظیمات:</strong> اتصال، مدل، دستیارها، حافظه، مجوزها، مهارت‌ها و پوستهٔ روشن/تیره/سیستم.</li>
+    <li><strong>نشست دستیارها:</strong> فلشِ روی کارت هر دستیار، نشست خودِ آن دستیار را باز می‌کند: کارش، همهٔ مرحله‌هایی که رفت، مدت اجرا و گزارشش. در گفتگوهای ذخیره‌شده هم کار می‌کند.</li>
+    <li><strong>خروجی و ورودی گفتگو:</strong> دکمهٔ دانلود در نوار بالا، گفتگو را به‌صورت Markdown، صفحهٔ HTML یا JSON ذخیره می‌کند؛ دکمهٔ آپلود کنار جستجوی گفتگوها، یک خروجی JSON را وارد می‌کند.</li>
+    <li><strong>تنظیمات:</strong> اتصال، مدل، دستیارها، حافظه، مجوزها، مهارت‌ها، ابزارهای بیرونی، پوستهٔ روشن/تیره/سیستم و <em>Usage</em>: تعداد کارها، توکن‌ها، زمان کار و ابزارها که روی همین سیستم شمرده می‌شوند و جایی فرستاده نمی‌شوند.</li>
   </ul>
   <div class="callout tip"><span class="ic">💡</span><p>چند ثانیه پس از بسته شدن آخرین <code>dcode</code>، صفحه خودش بسته می‌شود. گفتگوها، حافظه و آرتیفکت‌ها روی دیسک می‌مانند و دفعهٔ بعد دوباره دیده می‌شوند.</p></div>
 
@@ -826,7 +906,47 @@ description: Writing Ansible playbooks and roles our team's way.
     <li>همین حالتِ بدون‌حضور برای خودتان هم در دسترس است: <code dir="ltr">dcode run --mode auto "update the changelog"</code>.</li>
   </ul>
 
-  <h2 id="fa-small"><span class="num">۱۲</span>نکته‌هایی برای مدل‌های کوچک (۳۲K یا کمتر)</h2>
+  <h2 id="fa-mcp"><span class="num">۱۲</span>ابزارهای بیرونی (سرورهای MCP)</h2>
+  <p>سرور MCP برنامه‌ای روی سیستم خودتان است که به Dcode ابزارهای تازه می‌دهد: سامانهٔ تیکت، مانیتورینگ، یک API داخلی. Dcode آن را با هر نشست اجرا می‌کند و از راه ورودی و خروجی استاندارد با آن حرف می‌زند. شبکه‌ای در کار نیست، مگر خودِ سرور از شبکه استفاده کند.</p>
+  <div class="code"><div class="bar"><span>terminal</span><button>Copy</button></div><pre>/mcp add tickets python3 /opt/mcp/tickets_server.py
+/mcp                          servers, their state and tools
+/mcp tools tickets            what each tool does
+/mcp allow tickets   ·   /mcp ask tickets   ·   /mcp off tickets   ·   /mcp rm tickets</pre></div>
+  <ul>
+    <li><strong>کم‌مصرف برای زمینه:</strong> یک سرور می‌تواند ده‌ها ابزار با توضیح‌های بلند داشته باشد. Dcode فقط <em>نام</em> ابزارها را در پرامپت مدل می‌گذارد و مدل جزئیات هر ابزار را همان وقتی که لازم دارد می‌خواند. چهل ابزار چند صد نویسه جا می‌گیرد، نه هزاران توکن در هر نوبت.</li>
+    <li><strong>اول می‌پرسد:</strong> هر فراخوانی به شما نشان داده می‌شود، مگر در حالت خودکار باشید یا سرور را با <em>allow</em> علامت زده باشید. در حالت Plan فقط ابزارهایی اجرا می‌شوند که سرور آن‌ها را فقط‌خواندنی معرفی کرده است.</li>
+    <li><strong>رابط وب:</strong> تنظیمات ← External tools فهرست سرورها، وضعیت و ابزارهایشان را نشان می‌دهد و می‌توانید سرور اضافه یا حذف کنید.</li>
+    <li>سرورها فقط از تنظیمات خودتان می‌آیند (<code>~/.dcode/config.json</code>، زیر <code>mcp</code>) و می‌توانند مقدارهای <code>env</code> برای توکن داشته باشند. پوشهٔ پروژه نمی‌تواند سرور اضافه کند، چون اضافه کردن سرور یعنی اجرای یک دستور. فقط برنامه‌هایی را اضافه کنید که به آن‌ها اعتماد دارید.</li>
+    <li>اگر سروری اجرا نشود یا پاسخ ندهد، در <code>/mcp</code> گزارش می‌شود و Dcode بدون آن به کارش ادامه می‌دهد.</li>
+  </ul>
+
+  <h2 id="fa-editors"><span class="num">۱۳</span>ویرایشگرها، ترمینال دوم و اسکریپت‌ها</h2>
+  <h3>ترمینال دوم: <code dir="ltr">dcode attach</code></h3>
+  <p>از یک ترمینال دیگر به نشستی که همین حالا در حال اجراست وصل شوید. همان کار را زنده می‌بینید و می‌توانید پیام و <code dir="ltr">!command</code> بفرستید، به تأییدها پاسخ بدهید و حالت را عوض کنید. با خروج (<code>/exit</code> یا دو بار <kbd>Ctrl</kbd>+<kbd>C</kbd>) فقط جدا می‌شوید و نشست به کارش ادامه می‌دهد.</p>
+  <div class="code"><div class="bar"><span>shell</span><button>Copy</button></div><pre>dcode attach                 <span class="c"># the session on this machine (asks if there are several)</span>
+dcode attach 3f9a            <span class="c"># by session id (the start of it is enough)</span>
+
+<span class="c"># A session on a server: tunnel its port, then use the link `dcode ui` prints there</span>
+ssh -L 7300:127.0.0.1:7300 gpu-server
+dcode attach "http://127.0.0.1:7300/?token=…#s=3f9a"</pre></div>
+  <h3>Zed و ویرایشگرهای دیگرِ ACP</h3>
+  <p><code dir="ltr">dcode acp</code> با پروتکل Agent Client Protocol کار می‌کند؛ پس ویرایشگر می‌تواند Dcode را در پنل ایجنت خودش نشان بدهد: پیام‌ها، فراخوانی ابزارها همراه با diff، چک‌لیست، تأییدها و حالت‌ها. در Zed این را به <code>settings.json</code> اضافه کنید و بعد در پنل ایجنت <em>Dcode</em> را انتخاب کنید:</p>
+  <div class="code"><div class="bar"><span>Zed settings.json</span><button>Copy</button></div><pre>"agent_servers": {
+  "Dcode": { "type": "custom", "command": "dcode", "args": ["acp"], "env": {} }
+}</pre></div>
+  <p>Dcode باید از قبل راه‌اندازی شده باشد (یک بار <code>dcode</code> را اجرا کنید، یا <code>DCODE_BASE_URL</code>، <code>DCODE_API_KEY</code> و <code>DCODE_MODEL</code> را زیر <code>"env"</code> به ویرایشگر بدهید).</p>
+  <h3>VS Code</h3>
+  <p>یک افزونهٔ کوچک در <code>editors/vscode</code> هست: اجرای Dcode در ترمینال داخلی، باز کردن رابط وب در یک تب و فرستادن متن انتخاب‌شده یا فایل جاری به نشستِ همین پوشه (<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd>). در Marketplace نیست؛ فایلش را بسازید و نصب کنید:</p>
+  <div class="code"><div class="bar"><span>shell</span><button>Copy</button></div><pre>python3 editors/vscode/build_vsix.py
+code --install-extension editors/vscode/dcode-*.vsix</pre></div>
+  <h3>اسکریپت‌ها</h3>
+  <ul>
+    <li><code dir="ltr">dcode run "task"</code> یک کار را بدون حضور شما اجرا می‌کند و متن ساده چاپ می‌کند (بخش <a href="#fa-cron">کارهای زمان‌بندی‌شده</a>).</li>
+    <li><code dir="ltr">dcode export</code>، <code dir="ltr">dcode import</code> و <code dir="ltr">dcode stats --json</code> بدون شروع نشست کار می‌کنند.</li>
+    <li>هر کاری که رابط وب می‌کند از یک API محلیِ HTTP می‌گذرد. شرح آن در <code>/api/openapi.json</code> روی نشانی رابط وب هست (OpenAPI 3.1): نشست‌ها، پیام‌ها، تأییدها، گفتگوها، آرتیفکت‌ها، پایگاه‌های داده و کارهای زمان‌بندی‌شده.</li>
+  </ul>
+
+  <h2 id="fa-small"><span class="num">۱۴</span>نکته‌هایی برای مدل‌های کوچک (۳۲K یا کمتر)</h2>
   <ul>
     <li>کارهای واضح و مشخص بدهید: «به <code>api/users.py</code> اعتبارسنجی ورودی اضافه کن» بهتر از «کد را بهتر کن» جواب می‌دهد.</li>
     <li>دستیارهای کمکی را روشن نگه دارید؛ کاوش بیرون از زمینهٔ اصلی انجام می‌شود و نشست‌های طولانی دقیق می‌مانند.</li>
@@ -836,7 +956,7 @@ description: Writing Ansible playbooks and roles our team's way.
     <li>وقتی سراغ کاری بی‌ارتباط می‌روید، با <code>/new</code> گفتگوی تازه شروع کنید.</li>
   </ul>
 
-  <h2 id="fa-config"><span class="num">۱۳</span>تنظیمات</h2>
+  <h2 id="fa-config"><span class="num">۱۵</span>تنظیمات</h2>
   <p>تنظیمات در <code>~/.dcode/config.json</code> ذخیره می‌شوند و می‌توانید آن‌ها را در رابط وب یا با دستورهای اسلش تغییر دهید. متغیرهای محیطی بر فایل اولویت دارند و رابط وب آن فیلدها را فقط‌خواندنی نشان می‌دهد.</p>
   <table>
     <thead><tr><th>متغیر</th><th>معنی</th></tr></thead>
@@ -855,7 +975,7 @@ description: Writing Ansible playbooks and roles our team's way.
   </table>
   <p>متغیرهای قدیمی <code>CODE_ONE_*</code> هنوز کار می‌کنند و پوشهٔ قدیمی <code>~/.code-one</code> در اولین اجرا منتقل می‌شود.</p>
 
-  <h2 id="fa-security"><span class="num">۱۴</span>امنیت</h2>
+  <h2 id="fa-security"><span class="num">۱۶</span>امنیت</h2>
   <ul>
     <li><strong>محدودیت پوشه:</strong> ابزارهای فایل داخل پوشهٔ پروژه می‌مانند. اگر Dcode به فایلی بیرون از آن نیاز داشته باشد، اول اجازه می‌گیرد.</li>
     <li><strong>تأییدها:</strong> اجرای دستور، حذف فایل و commit همیشه اول اجازه می‌گیرند، مگر تأیید خودکار را روشن کنید (فقط برای سیستم‌های مطمئن و ایزوله).</li>
@@ -865,10 +985,12 @@ description: Writing Ansible playbooks and roles our team's way.
     <li><strong>اسرار:</strong> پوشهٔ <code>~/.dcode</code> فقط برای شما خواندنی است و رابط وب هیچ‌وقت کلید API را نشان نمی‌دهد.</li>
     <li><strong>پایگاه‌های داده:</strong> Dcode دقیقاً دسترسی‌های همان کاربر پایگاه داده‌ای را دارد که با آن وصل می‌شوید، نه بیشتر. خواندن‌ها فقط‌خواندنی‌اند و هر تغییری، در هر حالتی، اول به شما نشان داده می‌شود و تأیید شما را می‌خواهد. رمزهای ذخیره‌شده هیچ‌وقت نمایش داده نمی‌شوند.</li>
     <li><strong>کارهای زمان‌بندی‌شده</strong> را فقط خودتان می‌توانید بسازید. درخواستی که طبق زمان‌بندی به Dcode داده می‌شود نمی‌تواند تأیید بگیرد؛ پس هر چیزی که نیاز به تأیید داشته باشد رد می‌شود.</li>
+    <li><strong>ابزارهای بیرونی (MCP):</strong> سرورها فقط از تنظیمات خودتان می‌آیند، نه از پروژه. هر فراخوانی اول اجازه می‌گیرد، مگر خودتان چیز دیگری انتخاب کرده باشید، و توکن‌هایی که در <code>env</code> سرور هستند دوباره نمایش داده نمی‌شوند.</li>
+    <li><strong>آمار استفاده</strong> در <code>~/.dcode/stats.jsonl</code> می‌ماند: فقط شمارش، نه متن درخواست‌ها و نه محتوای فایل‌ها.</li>
     <li><strong>آرتیفکت‌ها</strong> در محیط ایزوله و بدون دسترسی به شبکه اجرا می‌شوند.</li>
   </ul>
 
-  <h2 id="fa-trouble"><span class="num">۱۵</span>رفع مشکل</h2>
+  <h2 id="fa-trouble"><span class="num">۱۷</span>رفع مشکل</h2>
   <table>
     <thead><tr><th>مشکل</th><th>راه‌حل</th></tr></thead>
     <tbody>
@@ -881,14 +1003,21 @@ description: Writing Ansible playbooks and roles our team's way.
     </tbody>
   </table>
 
-  <h2 id="fa-ref"><span class="num">۱۶</span>مرجع سریع</h2>
+  <h2 id="fa-ref"><span class="num">۱۸</span>مرجع سریع</h2>
   <div class="code"><div class="bar"><span>cheatsheet</span><button>Copy</button></div><pre>dcode                       <span class="c"># start in the current folder</span>
 dcode --setup               <span class="c"># run setup again</span>
 dcode --model NAME --context-window 32768
 dcode --no-ui               <span class="c"># terminal only</span>
 dcode ui                    <span class="c"># print the web UI link</span>
+dcode -c                    <span class="c"># continue this folder's last chat (--resume NAME: one by name)</span>
+dcode attach [ID | LINK]    <span class="c"># a second terminal on a running session</span>
+dcode run "task"            <span class="c"># one unattended task, plain text out</span>
+dcode export [CHAT] -f md|html|json   ·   dcode import FILE.json
+dcode stats [--days N] [--json]
+dcode acp                   <span class="c"># for editors (Agent Client Protocol)</span>
 
 make mac PYTHON=.venv/bin/python   <span class="c"># build + install on macOS</span>
+make packages               <span class="c"># Linux: portable binary, .deb, .rpm, .tar.gz, Docker image (needs docker)</span>
 make deb                    <span class="c"># build binary + .deb (Linux build host)</span>
 make test   ·   make lint</pre></div>
   <footer class="foot">Dcode نسخهٔ ۰٫۴٫۰ · این صفحه بدون اینترنت هم کار می‌کند. داده‌ها در <code>~/.dcode</code> نگه‌داری می‌شوند.</footer>

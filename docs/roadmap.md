@@ -5,14 +5,15 @@
 - **Released:** v0.4.0 on 2026-10-08 (Phase 3, the lean hub, databases, scheduled jobs), with the first Linux build: `builds/linux-amd64/dcode_0.4.0_amd64.deb`. Before it: v0.3.1. On 2026-10-07 everything was pushed: `main` and `dev` (same commit), the tags `v0.3.0` and `v0.3.1`, the macOS binary in `builds/`, and Claude's memory files in `docs/claude-memory/`.
 - **In 0.4.0, after 0.3.1:** the hub fix (clean environment, version and asset health check), these docs, and **Phase 3** (Tier 1 + 2 from the opencode comparison: post-edit checks, `@file` mentions, checklist, `/init`, helper model, custom helpers and commands, permission rules, hooks, questions). See CHANGELOG "Unreleased".
 - **Also in 0.4.0** (2026-10-08): a lean hub process, **databases** (connections, schema, guarded queries, summary, export; web UI, `/db`, model tools) and **scheduled jobs** (`/cron`, the Scheduled screen, `dcode run`).
-- **Quality bar:** 199 unit tests. `docs/dev/terminal_e2e.py` runs 42 real-terminal checks. All pass on Linux x86_64 (Ubuntu 22.04, Python 3.10) from source and against a one-file binary built there; the earlier 31 also passed on macOS arm64.
+- **Unreleased, on `dev` (2026-10-08): Phase 4**, the rest of the opencode comparison (Tier 3 and Tier 4): `!command`, `/editor`, `/thinking`, `/details`, `/notify`, `/redo`, `/sessions` with `--continue` / `--resume`, export and import, `dcode stats`, helper sessions in the web UI, MCP servers with a lazy tool index, `dcode attach`, the OpenAPI document, `dcode acp` for Zed, a VS Code extension, and `.rpm` / tarball / Docker packages from one portable binary. The version is still 0.4.0: the owner picks the next one.
+- **Quality bar:** 256 unit tests. `docs/dev/terminal_e2e.py` runs 59 real-terminal checks. All pass on Linux x86_64 (Ubuntu 22.04, Python 3.10) from source and against the one-file binary built in the AlmaLinux 8 container; the earlier 31 also passed on macOS arm64.
 - **Pending decision:** the user wanted **v1.0.0**; Claude recommended **1.0.0-rc.1** (see below). The user said "don't build it yet".
 
 ## Is it production-ready? Claude's honest assessment
 
 **Not yet.** It's a solid, well-tested beta. What blocks a real 1.0:
 
-1. **The real target is unverified.** Dcode is meant for **air-gapped Linux with local ~32K models**. A Linux binary or `.deb` has never been built or installed, and Dcode has never run against Ollama, vLLM or llama.cpp with a real 7B–32B model. All testing so far: macOS, a mock model, and one hosted endpoint.
+1. **The real target is only half verified.** Dcode is meant for **air-gapped Linux with local ~32K models**. Linux packages now exist and install on RHEL 8/9-family, Debian 11/12 and Ubuntu 20.04 (in containers), but Dcode has still never run against Ollama, vLLM or llama.cpp with a real 7B–32B model. All testing so far: a mock model and one hosted endpoint.
 2. **Real use keeps finding bugs:** the artifact never built, then the re-save loop, then duplicates, then the hub breaking after a session exit. Expect more.
 3. **Untuned heuristics:** compaction thresholds, follow-through regexes, recall budgets, tool-call recovery.
 4. **No CI**, and only macOS tested. Terminals checked: macOS Terminal and VS Code.
@@ -25,7 +26,9 @@
 - [ ] Open a PR from `dev` to `main`.
 
 ### Validation round (what makes it 1.0)
-- [ ] **Linux build:** `make deb` on Ubuntu x86_64 (and arm64 if relevant); install with `packaging/install-airgap.sh` on a machine with no network.
+- [x] **Linux build (x86_64):** `make packages` builds a portable binary and every package; installed in distribution containers. Still open: arm64, and an install on a real machine with no network.
+- [ ] **Editors:** run `dcode acp` inside a real Zed and the extension inside a real VS Code (so far: the official ACP schema and a node stand-in).
+- [ ] **MCP with real servers** the owner uses, and with a small model: does a 7B model reliably call `mcp_tools` before `mcp_call`?
 - [ ] **Local models:** run real tasks with Ollama, llama.cpp (`llama-server --parallel N`) and vLLM, using at least Qwen2.5-Coder 7B and 32B and a DeepSeek-style model, at 16K and 32K context. Record the failures.
 - [ ] Tune from that data: compaction thresholds, `MAX_FOLLOW_UPS`, the `PROMISE` / `ARTIFACT_REQUEST` patterns, output caps, helper step limits.
 - [ ] Test terminals: iTerm2, GNOME Terminal, tmux and screen, an SSH session, a narrow 80-column terminal, and a light background.
@@ -45,7 +48,7 @@
 - **Web UI:** background jobs panel (start/stop/view logs); diff viewer for file edits; plan-mode editing before approval; true phone-width testing (headless Chrome won't render below 500 px).
 - **Artifacts:** export bundle (zip); share an artifact between users on a shared server (opt-in); Mermaid diagrams, which would need a bundled renderer because there are no CDNs.
 - **Agent:** per-project `DCODE.md` editor in the UI; better recovery when the server drops connections mid-stream.
-- **From the opencode comparison, Tier 3–4 (not started):** `dcode run "prompt"` (non-interactive, for CI); `/sessions` switcher, `/redo`, `/export` (Markdown / JSON / self-contained HTML) and `dcode import`; `!command` passthrough in the input; `/editor` ($EDITOR); `/thinking` and `/details` toggles; a desktop notification or bell when a task finishes (hooks can already do this); `dcode stats`; sub-agent sessions you can open in the web UI; local (stdio) MCP servers with lazily indexed tool descriptions; an OpenAPI spec for the hub plus `dcode attach <url>`; ACP for editors (Zed), then a VS Code extension; Linux packages (`.rpm`, offline tarball, Docker image).
+- **From the opencode comparison:** Tier 3 and Tier 4 are built (Phase 4). Follow-ups: stream answers to ACP editors; `session/load` so an editor can reopen a saved chat; MCP resources and prompts (only tools are used); MCP over HTTP if a site needs it; `dcode attach` to switch sessions without leaving; an arm64 build; publishing the extension to Open VSX.
 - **Memory:** a forget/expire policy; UI to review what was recalled for a task.
 - **Packaging:** a Homebrew formula or tap for macOS; `--onedir` builds for faster startup; signed and notarized macOS binary.
 - **Security:** permission rules and hooks now cover allow/deny lists and audit logs; still open: a built-in audit log view in the web UI.
