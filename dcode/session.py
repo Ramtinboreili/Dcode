@@ -505,7 +505,7 @@ class Session:
         self.save()
         self.emit("thread", name=self.thread_name, action="rename")
 
-    def resume(self, thread_id: str) -> bool:
+    def resume(self, thread_id: str, source: str = "cli") -> bool:
         if self.busy:
             raise RuntimeError("Session is busy")
         path = threads_dir() / f"{thread_id}.json"
@@ -521,7 +521,8 @@ class Session:
         self.agent.refresh_system_message()
         self.thread_name = str(payload.get("name") or thread_id)
         self.thread_created_at = str(payload.get("created_at") or datetime.now(timezone.utc).isoformat())
-        self.emit("thread", name=self.thread_name, action="resume", items=transcript_from_messages(messages))
+        self.emit("thread", name=self.thread_name, action="resume", by=source,
+                  items=transcript_from_messages(messages))
         return True
 
     def set_model(self, model: str | None = None, reasoning_effort: str | None = None) -> None:

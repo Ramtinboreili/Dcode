@@ -110,7 +110,7 @@ COMMANDS: dict[str, str] = {
     "/review": "Review the git diff (sub-agent)",
     "/rename": "Rename this thread",
     "/new": "Save and start a new thread",
-    "/resume": "Resume a saved thread",
+    "/sessions": "Switch to a saved chat: /sessions [search words]",
     "/reset": "Clear conversation",
     "/setup": "Re-run setup",
     "/exit": "Quit",
@@ -821,12 +821,37 @@ def checklist_prompt(title: str, items: Sequence[tuple], hint_text: str = "↑�
     return _run_app(Application(layout=Layout(HSplit([header, body, hint])), key_bindings=kb, full_screen=False))
 
 
-def pick_thread(threads: Sequence[dict]) -> dict | None:
-    if not threads:
-        return None
-    labels = [f"{item['name']}  ·  {str(item.get('updated_at', ''))[:16]}  ·  {len(item.get('messages') or [])} msgs" for item in threads]
-    result = _selector("Resume thread", labels, cancel_result=None)
-    return threads[result] if isinstance(result, int) else None
+def pretty_thread(name: str) -> str:
+    """Untitled chats are named by their start time; show that as a date."""
+    import re
+
+    match = re.fullmatch(r"(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})\d{2}", name or "")
+    return f"Chat of {match[1]}-{match[2]}-{match[3]} {match[4]}:{match[5]}" if match else (name or "")
+
+
+def short_path(path: str) -> str:
+    home = os.path.expanduser("~")
+    return "~" + path[len(home):] if path and path.startswith(home) else (path or "")
+
+
+def ago(iso: str) -> str:
+    """'3m ago', '2h ago', '5d ago' for an ISO timestamp ('' if unreadable)."""
+    from datetime import datetime, timezone
+
+    try:
+        then = datetime.fromisoformat(str(iso))
+    except ValueError:
+        return ""
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=timezone.utc)
+    seconds = max(0.0, (datetime.now(timezone.utc) - then).total_seconds())
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m ago"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)}h ago"
+    return f"{int(seconds // 86400)}d ago"
 
 
 # --- event rendering ----------------------------------------------------------------------

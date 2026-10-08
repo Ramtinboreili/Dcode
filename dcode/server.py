@@ -275,7 +275,7 @@ class SessionServer:
             session.rename(str(body.get("name") or ""))
             return None
         if path == "/resume":
-            return {"ok": session.resume(str(body.get("thread_id") or ""))}
+            return {"ok": session.resume(str(body.get("thread_id") or ""), source="web")}
         if path == "/model":
             effort = body.get("reasoning_effort")
             session.set_model(body.get("model") or None, effort if effort in REASONING_EFFORTS else None)

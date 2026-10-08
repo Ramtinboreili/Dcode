@@ -89,8 +89,11 @@ class TerminalApp:
             return left[:max(0, width)]
         return left + " " * max(2, width - len(left) - len(right)) + right
 
-    def run(self) -> None:
+    def run(self, recap: bool = False) -> None:
         self._draw_home()
+        if recap:  # started with --continue / --resume
+            ui.notice(f"Continuing “{self.session.thread_name}”", "success")
+            self.show_recap()
         self.session.bus.subscribe(self._render)
         self.session.on_attention(ui.interrupt_prompt)
         self._loop()
@@ -386,6 +389,9 @@ class TerminalApp:
             ui.notice(event.get("text", ""), "error")
         elif kind == "config":
             ui.notice(f"Model: {event.get('model')} · reasoning: {event.get('reasoning_effort')}", "info")
+        elif kind == "thread" and event.get("action") == "resume":
+            if event.get("by") == "web":  # the terminal's own /sessions prints its line and a recap
+                ui.notice(f"Continuing “{event.get('name')}” (picked in the web UI)", "info")
         elif kind == "thread" and event.get("action") != "title":  # titles show in the status line
             ui.notice(f"Chat {event.get('action')}: {event.get('name')}", "info")
 
@@ -500,12 +506,8 @@ class TerminalApp:
             elif command == "/rename":
                 name = arg.strip() or ui.prompt_input("Thread name", default=session.thread_name)
                 session.rename(name)
-            elif command == "/resume":
-                choice = ui.pick_thread(list_threads())
-                if not choice:
-                    ui.notice("No thread selected")
-                elif session.resume(choice["id"]):
-                    ui.notice(f"Resumed {session.thread_name} ({len(session.agent.messages)} messages)", "success")
+            elif command in ("/sessions", "/resume"):
+                self._sessions(arg.strip())
             elif command == "/review":
                 session.review(source="cli")
                 self._await_start()
@@ -893,6 +895,80 @@ class TerminalApp:
         ui.notice(f"Exported {done['rows']:,} {unit} ({done['size']}) to {done['path']}"
                   + (f" — incomplete: {done['stopped']}" if done["truncated"] else ""),
                   "warning" if done["truncated"] else "success")
+
+    # --- chats ----------------------------------------------------------------------------------
+    def _open_elsewhere(self) -> dict[str, str]:
+        """Chats open in another running dcode: thread id -> that session's id."""
+        if not self.ui_url:
+            return {}
+        import json
+
+        from . import server
+        from .config import slugify_thread_name
+
+        found: dict[str, str] = {}
+        for entry in server.live_sessions():
+            if entry.get("id") == self.session.id:
+                continue
+            name = str(entry.get("thread_name") or "")
+            try:  # the registry holds the name at start; the session itself knows the current one
+                status, body = server._session_request(entry, "GET", "/state", server.get_token(), timeout=1.0)
+                if status == 200:
+                    name = str(json.loads(body).get("thread_name") or name)
+            except (OSError, ValueError):
+                pass
+            found[slugify_thread_name(name)] = str(entry.get("id"))
+        return found
+
+    def _sessions(self, arg: str) -> None:
+        """/sessions [words]: pick a saved chat and continue it. This folder's chats come first."""
+        from .config import slugify_thread_name
+
+        session = self.session
+        current = slugify_thread_name(session.thread_name)
+        elsewhere = self._open_elsewhere()
+        threads = [t for t in list_threads() if t["id"] != current]
+        if arg:
+            words = arg.lower().split()
+            threads = [t for t in threads if all(w in f"{t['name']} {t['cwd']}".lower() for w in words)]
+        if not threads:
+            ui.notice("No other saved chats" + (f" match “{arg}”." if arg else " yet."))
+            return
+        threads.sort(key=lambda t: t["cwd"] != session.cwd)  # stable: newest first inside each group
+        labels = []
+        for item in threads:
+            folder = "this folder" if item["cwd"] == session.cwd else (ui.short_path(item["cwd"]) or "—")
+            count = sum(1 for m in item["messages"] if m.get("role") == "user")
+            mark = "  · open in another terminal" if item["id"] in elsewhere else ""
+            labels.append(f"{ui.pretty_thread(item['name'])[:44]:<44}  {folder[:28]:<28}  "
+                          f"{ui.ago(item['updated_at']):>8}  {count:>3} msg{mark}")
+        picked = ui._selector("Chats — enter continues one", labels, cancel_result=None)
+        if not isinstance(picked, int):
+            return
+        choice = threads[picked]
+        if choice["id"] in elsewhere:
+            ui.notice(f"“{choice['name']}” is open in another terminal (session {elsewhere[choice['id']]}). "
+                      f"Join it with: dcode attach {elsewhere[choice['id']]}", "warning")
+            return
+        if session.resume(choice["id"]):
+            ui.notice(f"Continuing “{session.thread_name}”" + (
+                "" if choice["cwd"] in ("", session.cwd) else f" — it was started in {ui.short_path(choice['cwd'])}"), "success")
+            self.show_recap()
+
+    def show_recap(self) -> None:
+        """Where a continued chat left off: the last request and the last answer, dimmed."""
+        messages = self.session.agent.messages
+        asked = next((m for m in reversed(messages) if m.get("role") == "user" and isinstance(m.get("content"), str)
+                      and not m["content"].startswith("[")), None)
+        answered = next((m for m in reversed(messages) if m.get("role") == "assistant" and m.get("content")), None)
+        if asked:
+            ui.console.print(f"{ui.PAD}[{MUTED}]❯ {ui._escape(ui._short_args(asked['content'], 200))}[/]")
+        if answered:
+            lines = str(answered["content"]).strip().splitlines()
+            for line in lines[:8]:
+                ui.console.print(f"{ui.PAD}[{MUTED}]▎ {ui._escape(line[:200])}[/]", highlight=False)
+            if len(lines) > 8:
+                ui.console.print(f"{ui.PAD}[{MUTED}]▎ … +{len(lines) - 8} lines[/]")
 
     def _list_helpers(self) -> None:
         specs = self.session.agent.specs

@@ -118,6 +118,26 @@ def _install_signal_handlers() -> None:
                 pass
 
 
+def _resume_chat(session, continue_last: bool, wanted: str | None) -> bool:
+    """--continue / --resume: load a saved chat before the terminal starts. True if one was loaded."""
+    if not continue_last and not wanted:
+        return False
+    from .config import list_threads, slugify_thread_name
+
+    threads = list_threads()  # newest first
+    if wanted:
+        slug, low = slugify_thread_name(wanted), wanted.lower()
+        match = next((t for t in threads if t["id"] == slug), None) or next(
+            (t for t in threads if low in str(t["name"]).lower()), None)
+    else:
+        match = next((t for t in threads if t["cwd"] == session.cwd), None)
+    if match is None:
+        what = f"No saved chat matches “{wanted}”" if wanted else "No saved chat for this folder yet"
+        ui.console.print(f"[{WARNING}]{what} — starting a new one.[/]")
+        return False
+    return session.resume(match["id"])
+
+
 def _start_ui(session, config: AppConfig):
     """Start this session's API, register it, and make sure the hub is up."""
     from . import server
@@ -145,10 +165,12 @@ def _start_ui(session, config: AppConfig):
 @click.option("--model", "model", default=None, help="Override model")
 @click.option("--context-window", type=int, default=None, help="Model context window (tokens)")
 @click.option("--no-ui", is_flag=True, help="Don't start the localhost web UI")
+@click.option("-c", "--continue", "continue_last", is_flag=True, help="Continue the last chat of this folder")
+@click.option("-r", "--resume", "resume", default=None, metavar="CHAT", help="Continue a saved chat by name")
 @click.version_option(__version__, prog_name="dcode")
 @click.pass_context
 def cli(ctx: click.Context, setup: bool, base_url: str | None, api_key: str | None, model: str | None,
-        context_window: int | None, no_ui: bool) -> None:
+        context_window: int | None, no_ui: bool, continue_last: bool, resume: str | None) -> None:
     """Dcode — a coding agent for local and air-gapped LLMs."""
     if ctx.invoked_subcommand is not None:
         return
@@ -173,6 +195,7 @@ def cli(ctx: click.Context, setup: bool, base_url: str | None, api_key: str | No
 
     _install_signal_handlers()
     session = Session(config)
+    resumed = _resume_chat(session, continue_last, resume)
     api = None
     url = None
     if config.ui.get("enabled", True) and not no_ui:
@@ -184,7 +207,7 @@ def cli(ctx: click.Context, setup: bool, base_url: str | None, api_key: str | No
             ui.console.print(f"[{WARNING}]Web UI unavailable: {exc}[/]")
     session.ui_url = url
     try:
-        TerminalApp(session, url).run()
+        TerminalApp(session, url).run(recap=resumed)
     finally:
         session.close()
         if api is not None:

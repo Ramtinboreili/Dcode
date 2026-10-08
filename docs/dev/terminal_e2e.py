@@ -40,12 +40,12 @@ def free_port() -> int:
 
 
 class Terminal:
-    def __init__(self, binary: str, env: dict, cwd: Path) -> None:
+    def __init__(self, binary: str, env: dict, cwd: Path, args: tuple[str, ...] = ()) -> None:
         self.buf = ""
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
             os.chdir(cwd)
-            os.execve(binary, [binary], env)
+            os.execve(binary, [binary, *args], env)
 
     def read(self, seconds: float = 0.3) -> None:
         end = time.time() + seconds
@@ -269,6 +269,21 @@ def main() -> int:
             time.sleep(0.25)
         check("hub shuts down after the last session", not hub_file.exists())
         check("thread saved", any((tmp / "home" / "threads").glob("*.json")))
+        term = Terminal(args.binary, env, work, ("--continue",))
+        check("dcode --continue picks up this folder's last chat",
+              term.expect(r"Continuing “[^”]+”", timeout=20) and term.expect(r"▎ "))
+        term.read(0.8)
+        term.send("/new\r")
+        term.expect(r"Chat new")
+        term.send("/sessions\r")
+        check("/sessions lists saved chats", term.expect(r"Chats — enter continues one[\s\S]*this folder"))
+        term.read(0.4)
+        term.send("\r")
+        check("/sessions continues the picked chat", term.expect(r"Chats — enter[\s\S]*Continuing “[^”]+”[\s\S]*▎ "))
+        term.send(b"\x03")
+        term.expect(r"Press Ctrl\+C again to exit", timeout=3)
+        term.send(b"\x03")
+        term.expect(r"Bye\.", timeout=8)
     finally:
         try:
             os.kill(term.pid, 9)

@@ -160,3 +160,43 @@ def test_ring_writes_only_to_a_real_terminal(monkeypatch):
 def test_terminal_preferences_have_safe_defaults():
     assert DEFAULT_UI["show_thinking"] is False and DEFAULT_UI["show_details"] is True and DEFAULT_UI["notify"] == "off"
     assert make_config().ui["notify"] == "off"
+
+
+# --- chats: /sessions, --continue, --resume -------------------------------------------------
+
+def test_continue_and_resume_pick_the_right_saved_chat(isolated, tmp_path):
+    from dcode.config import save_thread
+    from dcode.main import _resume_chat
+
+    def chat(name, cwd, text):
+        save_thread(name, [{"role": "system", "content": "s"}, {"role": "user", "content": text},
+                           {"role": "assistant", "content": f"answer to {text}"}], extra={"cwd": cwd})
+
+    chat("Elsewhere chat", str(tmp_path / "other"), "other question")
+    chat("Fix the login bug", str(isolated), "why does login fail?")
+    time.sleep(0.01)
+    chat("Elsewhere newer", str(tmp_path / "other"), "newest question")
+
+    session = _session()
+    try:
+        assert _resume_chat(session, False, None) is False  # neither flag: a new chat
+        assert _resume_chat(session, True, None) is True     # --continue: this folder's last chat, not the newest
+        assert session.thread_name == "Fix the login bug"
+        assert _resume_chat(session, False, "elsewhere chat") is True  # --resume by name, any folder
+        assert session.thread_name == "Elsewhere chat"
+        assert _resume_chat(session, False, "no such chat") is False
+        assert session.thread_name == "Elsewhere chat"
+    finally:
+        session.close()
+
+
+def test_chat_labels():
+    from datetime import datetime, timedelta, timezone
+
+    assert ui.pretty_thread("20261008-141500") == "Chat of 2026-10-08 14:15"
+    assert ui.pretty_thread("Fix the login bug") == "Fix the login bug"
+    now = datetime.now(timezone.utc)
+    assert ui.ago(now.isoformat()) == "just now"
+    assert ui.ago((now - timedelta(minutes=5)).isoformat()) == "5m ago"
+    assert ui.ago((now - timedelta(days=3)).isoformat()) == "3d ago"
+    assert ui.ago("not a date") == ""
