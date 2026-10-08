@@ -83,6 +83,10 @@ COMMANDS: dict[str, str] = {
     "/jobs": "Background jobs: see output, stop them",
     "/cron": "Scheduled jobs: /cron · /cron add · /cron run|on|off|rm|logs <id>",
     "/db": "Databases: /db · /db add · /db <name> [table | SQL | summary | export …]",
+    "/editor": "Write a long message in your editor ($EDITOR)",
+    "/thinking": "Show or hide the model's reasoning",
+    "/details": "Show or hide tool calls and their results",
+    "/notify": "Ring or notify when a long task ends: /notify off|bell|desktop",
     "/version": "Show the Dcode version",
     "/mode": "Switch mode: manual · accept edits · auto · plan",
     "/init": "Write AGENTS.md: project commands, layout and conventions for Dcode",
@@ -235,6 +239,8 @@ def show_help() -> None:
     for command, meta in command_items().items():
         table.add_row(command, meta)
     console.print(Panel(table, title="[bold]Commands[/]", title_align="left", border_style=MUTED))
+    console.print(f"{PAD}[{MUTED}]!command runs a shell command yourself (Dcode sees the output) · "
+                  f"@file attaches a file · @helper task runs a helper[/]")
 
 
 def notice(text: str, level: str = "info") -> None:
@@ -358,7 +364,7 @@ def chat_input(
     def border() -> str:
         if armed():
             return f"fg:{WARNING}"
-        if area.text.startswith("/"):
+        if area.text.startswith(("/", "!")):
             return f"fg:{PRIMARY}"  # a hint that this is a command
         return f"fg:{MUTED}"
 
@@ -994,6 +1000,74 @@ def _segments_text(segments: list) -> Text:
         if not segment.control:
             text.append(segment.text, style=segment.style)
     return text
+
+
+def show_thinking(text: str, agent: str = "main", limit: int = 24) -> None:
+    """The model's reasoning (/thinking): dim, so it never reads like the answer."""
+    lines = [line for line in (text or "").strip().splitlines() if line.strip()]
+    if not lines:
+        return
+    pad = _indent(agent)
+    console.print(f"{pad}[{MUTED}]✻ {_agent_tag_plain(agent)}thinking[/]")
+    for line in lines[:limit]:
+        console.print(f"{pad}  [{MUTED} italic]{_escape(line)}[/]", highlight=False, soft_wrap=True)
+    if len(lines) > limit:
+        console.print(f"{pad}  [{MUTED}]… +{len(lines) - limit} lines[/]")
+
+
+def _agent_tag_plain(agent: str) -> str:
+    return "" if agent in ("main", "", None) else f"{agent} "
+
+
+NOTIFY_CHOICES = ["off", "bell", "desktop"]
+
+
+def ring(kind: str, message: str = "") -> None:
+    """Get the user's attention: a terminal bell, or a desktop notification where the terminal has one.
+
+    "desktop" sends OSC 9 (iTerm2, kitty, WezTerm, ghostty, Windows Terminal) and OSC 777 (others);
+    terminals that know neither ignore them, so the bell is sent too.
+    """
+    import sys
+
+    stream = sys.__stdout__
+    if kind not in ("bell", "desktop") or stream is None or not stream.isatty():
+        return
+    text = "".join(ch for ch in message if ch.isprintable() and ch != ";")[:120]
+    codes = "\a"
+    if kind == "desktop" and text:
+        codes = f"\x1b]9;{text}\x07\x1b]777;notify;Dcode;{text}\x07" + codes
+    try:
+        stream.write(codes)
+        stream.flush()
+    except OSError:
+        pass
+
+
+def edit_in_editor(initial: str = "") -> str:
+    """Open $VISUAL / $EDITOR on a scratch file and return what was written ("" if nothing)."""
+    import shlex
+    import subprocess
+    import tempfile
+
+    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or next(
+        (name for name in ("nano", "vim", "vi") if shutil.which(name)), "")
+    if not editor:
+        raise RuntimeError("No editor found. Set EDITOR, e.g. export EDITOR=nano")
+    with tempfile.NamedTemporaryFile("w", suffix=".md", prefix="dcode-message-", delete=False) as handle:
+        handle.write(initial)
+        path = handle.name
+    try:
+        subprocess.run([*shlex.split(editor), path], check=False)
+        with open(path, errors="replace") as handle:
+            return handle.read().strip()
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(f"Couldn't run the editor ({editor}): {exc}") from exc
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 def show_note(message: str) -> None:

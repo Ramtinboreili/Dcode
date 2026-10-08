@@ -8,9 +8,12 @@ surface answers first resolves.
 from __future__ import annotations
 
 import collections
+import json
 import os
 import queue
 import re
+import signal
+import subprocess
 import threading
 import time
 import uuid
@@ -19,6 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import tools
 from .agents import DEFAULT_MODE, INIT_PROMPT, MODES
 from .checkpoints import CheckpointStore
 from .commands import expand, load_commands
@@ -33,6 +37,9 @@ from .tools import _truncate, configure_limits, workspace_root
 EVENT_BUFFER = 4000
 # Approvals that can't be granted "for this session": each one must be seen (database changes).
 ALWAYS_ASK_KINDS = {"db_write"}
+# How a command the user ran themselves ("!ls") is written into the chat for the model.
+SHELL_NOTE = "[I ran this shell command myself: "
+SHELL_PREVIEW_CHARS = 8000  # of that command's output sent to the terminal and the web UI
 TITLE_PROMPT = (
     "Write a short title (2-6 words) for a coding chat that starts with the user's message below. "
     "Reply with the title only: no quotes, no punctuation at the end. Use the same language as the message."
@@ -127,6 +134,8 @@ def transcript_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, A
         role = message.get("role")
         content = message.get("content") if isinstance(message.get("content"), str) else ""
         if role == "user":
+            if content.startswith(SHELL_NOTE) and content.endswith("]"):
+                content = "!" + content[len(SHELL_NOTE):-1]
             items.append({"type": "user_message", "text": content, "source": "history"})
         elif role == "assistant":
             for call in message.get("tool_calls") or []:
@@ -236,6 +245,68 @@ class Session:
         if text:
             self._queue.put(("task", text, source))
             self._notify_attention()
+
+    def run_shell(self, command: str, source: str = "cli") -> None:
+        """"!command": the user runs a shell command themselves; the model sees it and its output."""
+        command = command.strip()
+        if command:
+            self._queue.put(("shell", command, source))
+            self._notify_attention()
+
+    def _run_shell_item(self, command: str, source: str) -> None:
+        self.emit("user_message", text=f"!{command}", source=source)
+        call_id = f"shell_{uuid.uuid4().hex[:8]}"
+        self.emit("tool_call", agent="main", id=call_id, name="run_command", args={"command": command}, by="user")
+        output = self._shell(command)
+        # Recorded as a tool call, so compaction can shrink the output like any other.
+        self.agent.messages += [
+            {"role": "user", "content": f"{SHELL_NOTE}{command}]"},
+            {"role": "assistant", "content": "", "tool_calls": [{
+                "id": call_id, "type": "function",
+                "function": {"name": "run_command", "arguments": json.dumps({"command": command})}}]},
+            {"role": "tool", "tool_call_id": call_id, "name": "run_command", "content": output},
+            {"role": "assistant", "content": "Noted."},
+        ]
+        self.emit("tool_result", agent="main", id=call_id, name="run_command", output=output[:SHELL_PREVIEW_CHARS],
+                  by="user")
+
+    def _shell(self, command: str) -> str:
+        """Run the user's own command: no approval, no time limit, but Ctrl+C / Stop ends it."""
+        try:
+            process = subprocess.Popen(
+                command, shell=True, cwd=str(workspace_root()), text=True, errors="replace",
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                start_new_session=True)
+        except OSError as exc:
+            return f"Could not start: {exc}"
+        chunks: list[str] = []
+        reader = threading.Thread(target=lambda: chunks.extend(iter(process.stdout.readline, "")), daemon=True)
+        reader.start()
+        stopped = False
+        while process.poll() is None:
+            if self._stop.is_set() or self._closed.is_set():
+                stopped = True
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except OSError:
+                    process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                break
+            time.sleep(0.05)
+        reader.join(timeout=2)
+        output = "".join(chunks).strip()
+        if stopped:
+            output += "\n(stopped by the user)"
+        elif process.returncode:
+            output += f"\n(return code: {process.returncode})"
+        output = output.strip()
+        if len(output) > tools.MAX_OUTPUT_CHARS:
+            half = tools.MAX_OUTPUT_CHARS // 2
+            output = output[:half] + f"\n... (truncated {len(output) - 2 * half} chars) ...\n" + output[-half:]
+        return output or "(no output)"
 
     # --- modes, plans, compaction, undo, git ----------------------------------------
     def set_mode(self, mode: str, source: str = "cli") -> None:
@@ -580,6 +651,8 @@ class Session:
                     if self.mode == "plan":
                         self.plan_pending = True
                         self.emit("plan_ready")
+                elif kind == "shell":
+                    self._run_shell_item(payload, source)
                 elif kind == "command":
                     self.plan_pending = False
                     self._run_command_item(payload[0], payload[1], source)

@@ -255,6 +255,8 @@ class SessionServer:
             text = str(body.get("text") or "").strip()
             if text == "/review":
                 session.review(source="web")
+            elif text.startswith("!"):
+                session.run_shell(text[1:], source="web")
             elif text:
                 session.submit(text, source="web")
             return None

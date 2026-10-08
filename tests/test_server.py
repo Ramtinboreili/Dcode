@@ -370,3 +370,15 @@ def test_database_api(stack, isolated):
     assert req(stack, "GET", "/api/db/exports/..%2F..%2Fconfig.json")[0] == 404  # only files in the exports folder
     assert req(stack, "DELETE", "/api/db/stock")[1]["ok"]
     assert req(stack, "GET", "/api/db/stock/schema")[0] == 400
+
+
+def test_bang_message_runs_the_users_own_command(stack):
+    session = stack["session"]
+    status, _, _ = req(stack, "POST", f"/api/s/{session.id}/message", {"text": "!echo web-shell"})
+    assert status == 200
+    deadline = time.time() + 8
+    while time.time() < deadline and not any(e["type"] == "tool_result" for e in session.bus.since(0)):
+        time.sleep(0.02)
+    result = next(e for e in session.bus.since(0) if e["type"] == "tool_result")
+    assert result["by"] == "user" and "web-shell" in result["output"]
+    assert not any(e["type"] == "assistant_message" for e in session.bus.since(0))  # the model was not called

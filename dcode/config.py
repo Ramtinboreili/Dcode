@@ -101,6 +101,9 @@ DEFAULT_UI = {
     "enabled": True,        # start / join the localhost hub UI
     "port": 0,              # 0 = deterministic per-user port
     "open_browser": False,
+    "show_thinking": False,  # terminal: print the model's reasoning (/thinking)
+    "show_details": True,    # terminal: print each tool call and its result (/details)
+    "notify": "off",         # when a long task ends or Dcode needs you: off | bell | desktop (/notify)
 }
 DEFAULT_CONTEXT_WINDOW = 32768
 DEFAULT_MAX_OUTPUT_TOKENS = 4096

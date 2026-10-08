@@ -47,6 +47,7 @@ APPROVAL_KINDS = {"run_command": "commands", "delete_file": "deletions", "git_co
                   "rule": "rule-matched actions", "outside_workspace": "files outside the project",
                   "edit_file": "file changes"}
 CONTEXT_CHOICES = ["4096", "8192", "16384", "32768", "65536", "131072"]
+NOTIFY_MIN_SECONDS = 10.0  # a task shorter than this ends quietly: you were still watching
 
 
 class TerminalApp:
@@ -145,6 +146,13 @@ class TerminalApp:
             if text.startswith("/"):
                 if self._command(text) == "exit":
                     break
+                continue
+            if text.startswith("!"):  # your own shell command; Dcode sees it and the output
+                if text[1:].strip():
+                    self.session.run_shell(text[1:], source="cli")
+                    self._await_start()
+                else:
+                    ui.notice("Type a command after the !, e.g. !git status")
                 continue
             ui.console.print()
             self.session.submit(text, source="cli")
@@ -250,6 +258,9 @@ class TerminalApp:
         kind = event["type"]
         agent = event.get("agent", "main")
         experimental = self.session.config.experimental
+        prefs = self.session.config.ui
+        mine = event.get("by") == "user"  # a command the user ran with "!": always shown, and in full
+        details = bool(prefs.get("show_details", True)) or mine
         if kind == "user_message":
             self.last_outputs = []
             self.turn_started = time.time()
@@ -258,6 +269,11 @@ class TerminalApp:
                 ui.show_user_echo(event.get("text", ""), event.get("source", "web"))
         elif kind == "assistant_note" and agent == "main":
             ui.show_note(event.get("text", ""))
+        elif kind == "thinking":
+            if prefs.get("show_thinking"):
+                ui.show_thinking(event.get("text", ""), agent)
+        elif kind == "approval_request":
+            ui.ring(str(prefs.get("notify") or "off"), "Dcode needs your answer")
         elif kind == "assistant_message" and agent == "main":
             ui.show_assistant(event.get("text", ""))
         elif kind == "tool_call":
@@ -270,7 +286,8 @@ class TerminalApp:
                 self.main_step = (step, time.time())
             elif agent in self.running:
                 self.running[agent]["step"] = step
-            if event.get("name") not in ("artifact_save", "todo_write", "ask_user"):  # these print their own line/list
+            # artifact_save, todo_write and ask_user print their own line/list
+            if details and not mine and event.get("name") not in ("artifact_save", "todo_write", "ask_user"):
                 ui.show_tool_call(event.get("name", ""), event.get("args"), agent)
         elif kind == "tool_result":
             name, args = self._calls.pop(f"{agent}/{event.get('id', '')}", (event.get("name", ""), {}))
@@ -280,7 +297,11 @@ class TerminalApp:
                 self.running[agent]["step"] = ""
             output = event.get("output", "")
             self.last_outputs.append((name, args, output))
-            if experimental.get("streaming_tools"):
+            if mine:
+                ui.show_tool_result_lines(output, agent, lines=40)
+            elif not details:
+                pass  # /details is off: the live panel and Ctrl+O still show what happened
+            elif experimental.get("streaming_tools"):
                 ui.show_tool_output(name, output)
             elif name == "edit_file" and output.startswith("Edited") and isinstance(args, dict):
                 ui.show_tool_result_brief(output, agent)
@@ -322,6 +343,8 @@ class TerminalApp:
                 ui.notice(f"{'Approved' if event.get('approved') else 'Denied'} from the web UI", "info")
         elif kind == "usage" and agent == "main":
             ui.show_done(float(event.get("elapsed", 0.0)), report=event)
+            if float(event.get("elapsed", 0.0)) >= NOTIFY_MIN_SECONDS:
+                ui.ring(str(prefs.get("notify") or "off"), f"Dcode finished: {self.session.thread_name}")
         elif kind == "approval_auto":
             ui.console.print(f"{ui.PAD}  [{MUTED}]✓ allowed (session rule)[/]")
         elif kind == "mode" and event.get("by") != "cli":
@@ -386,6 +409,35 @@ class TerminalApp:
                 session.new_thread()
                 self.last_outputs = []
                 self._draw_home()
+            elif command == "/editor":
+                text = ui.edit_in_editor(arg.strip())
+                if not text:
+                    ui.notice("Nothing written, nothing sent.")
+                else:
+                    ui.echo_user(text)
+                    ui.console.print()
+                    session.submit(text, source="cli")
+                    self._await_start()
+            elif command in ("/thinking", "/details"):
+                key = "show_thinking" if command == "/thinking" else "show_details"
+                wanted = arg.strip().lower()
+                cfg.ui[key] = wanted == "on" if wanted in ("on", "off") else not cfg.ui.get(key, key == "show_details")
+                save_config(cfg)
+                what = "The model's reasoning is" if key == "show_thinking" else "Tool calls and results are"
+                ui.notice(f"{what} {'shown' if cfg.ui[key] else 'hidden'}."
+                          + ("" if cfg.ui[key] or key == "show_thinking" else " Ctrl+O still expands the last task."), "success")
+            elif command == "/notify":
+                wanted = arg.strip().lower() or ui.select_one(
+                    "When a long task ends, or Dcode needs an answer", ui.NOTIFY_CHOICES, str(cfg.ui.get("notify") or "off"))
+                if wanted not in ui.NOTIFY_CHOICES:
+                    ui.notice("Usage: /notify off | bell | desktop", "warning")
+                else:
+                    cfg.ui["notify"] = wanted
+                    save_config(cfg)
+                    ui.notice({"off": "Notifications are off.", "bell": "Dcode rings the terminal bell.",
+                               "desktop": "Dcode sends a desktop notification (where the terminal supports it) and rings the bell."}[wanted],
+                              "success")
+                    ui.ring(wanted, "Dcode notifications are on")
             elif command == "/version":
                 ui.console.print(f"{ui.PAD}[bold]Dcode[/] {__version__}  [{MUTED}]· {cfg.model} · {cfg.base_url} · "
                                  f"Python {platform.python_version()} · {platform.system()} {platform.machine()}[/]")

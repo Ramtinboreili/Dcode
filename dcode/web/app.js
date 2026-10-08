@@ -621,6 +621,16 @@
       : n === 1 ? a.steps[0].past : `Worked through ${n} steps`;
     a.summary.replaceChildren(running ? h("span", { class: "spin" }) : icon("right", "i chev"), h("span", { html: label }));
   }
+  function activityFor(turn) {
+    if (!S.activity) {
+      const summary = h("summary", {});
+      const steps = h("div", { class: "steps" });
+      const el = h("details", { class: "activity" }, summary, steps);
+      turn.body.append(el);
+      S.activity = { el, summary, list: steps, steps: [], done: false };
+    }
+    return S.activity;
+  }
   function stepRow(name, args, history) {
     const [ic, present, past] = describe(name, args);
     const pre = h("pre", {}, "Waiting for output…");
@@ -689,17 +699,16 @@
         if (["delegate", "todo_write", "ask_user"].includes(ev.name)) break; // shown as a helper / checklist / question card instead
         if (S.live && agent === "main") { S.live.remove(); S.live = null; }
         const step = stepRow(ev.name, ev.args, history);
+        if (ev.by === "user") {  // "!command": the user ran it, not Dcode
+          step.present = step.present.replace(/^Running/, "Running your command");
+          step.past = step.past.replace(/^Ran/, "You ran");
+          step.el.querySelector(".label").innerHTML = step.present;
+        }
         if (ev.id) S.tools[agent + "/" + ev.id] = step;
         if (sub) { sub.steps.append(step.el); sub.count++; break; }
         const turn = ensureTurn();
         removeThinking();
-        if (!S.activity) {
-          const summary = h("summary", {});
-          const steps = h("div", { class: "steps" });
-          const el = h("details", { class: "activity" }, summary, steps);
-          turn.body.append(el);
-          S.activity = { el, summary, list: steps, steps: [], done: false };
-        }
+        activityFor(turn);
         S.activity.steps.push(step);
         step.activity = S.activity;
         S.activity.list.append(step.el);
@@ -723,6 +732,22 @@
             }
           }
         }
+        break;
+      }
+      case "thinking": {
+        // The model's reasoning: one more (closed) step, so it never reads like the answer.
+        const text = String(ev.text || "").trim();
+        if (!text || (agent !== "main" && !sub)) break;
+        const count = text.split("\n").length;
+        const el = h("details", { class: "step thought" },
+          h("summary", {}, icon("brain", "si"), h("span", { class: "label" }, "Thought it through"),
+            h("span", { class: "res" }, count > 1 ? `${count} lines` : "")), h("pre", {}, text));
+        if (sub) { sub.steps.append(el); break; }
+        const a = activityFor(ensureTurn());
+        a.steps.push({ el, running: false, present: "Thinking", past: "Thought it through" });
+        a.list.append(el);
+        updateActivity(a);
+        scrollDown();
         break;
       }
       case "agent_start": {
@@ -1005,7 +1030,7 @@
     }
     if (live && S.info?.cwd) left.append(h("span", { class: "chip-btn", title: S.info.cwd }, icon("folder"), base(S.info.cwd)));
     if (live && S.info?.git?.is_repo) left.append(h("button", { type: "button", class: "chip-btn", onclick: () => sendText("/review") }, icon("review"), "Review changes"));
-    input.placeholder = S.busy ? "Dcode is working… you can queue another message" : "Message Dcode…";
+    input.placeholder = S.busy ? "Dcode is working… you can queue another message" : "Message Dcode…  (@file · /command · !shell)";
     renderSend();
   }
   input.addEventListener("input", autosize);
@@ -1356,7 +1381,12 @@
       body.append(section("Web UI", "Opens with your first dcode session and closes after the last one exits. Your chats and memory stay on disk.",
         setRow("Enable the web UI", "Or start dcode with --no-ui.", toggle(c.ui.enabled !== false, (v) => (c.ui.enabled = v))),
         setRow("Open the browser automatically", null, toggle(!!c.ui.open_browser, (v) => (c.ui.open_browser = v))),
-        setRow("Port", "Takes effect next time the UI starts. Empty means automatic.", textInput(c.ui.port || "", (v) => (c.ui.port = v), { type: "number", placeholder: "auto", style: "width:110px" }))));
+        setRow("Port", "Takes effect next time the UI starts. Empty means automatic.", textInput(c.ui.port || "", (v) => (c.ui.port = v), { type: "number", placeholder: "auto", style: "width:110px" }))),
+        section("Terminal", "How the dcode terminal shows a task. The same switches as /thinking, /details and /notify.",
+          setRow("Show the model's reasoning", "Printed dimmed above the answer. It is never sent back to the model.", toggle(!!c.ui.show_thinking, (v) => (c.ui.show_thinking = v))),
+          setRow("Show tool calls and results", "Off: only answers, questions and the end-of-task line. Ctrl+O still expands the last task.", toggle(c.ui.show_details !== false, (v) => (c.ui.show_details = v))),
+          setRow("When a long task ends or Dcode needs you", "Bell rings the terminal. Desktop also sends a notification where the terminal supports it.",
+            seg(["off", "bell", "desktop"], c.ui.notify || "off", (v) => (c.ui.notify = v)))));
     }
   }
   function hooksSection(c) {

@@ -241,6 +241,7 @@ svg.ic { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: ro
 .step .label code { font-size: 12.5px; background: var(--surface-2); padding: 1px 6px; border-radius: 6px; color: var(--text); }
 .step .res { margin-left: auto; padding-left: 12px; color: var(--muted); font-size: 12px; flex: none; }
 .step.running .si { color: var(--primary); }
+.step.thought .label, .step.thought pre { font-style: italic; color: var(--muted); }
 .step pre {
   margin: 4px 0 8px 33px; padding: 10px 12px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
   max-height: 320px; overflow: auto; font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; color: var(--text-2);

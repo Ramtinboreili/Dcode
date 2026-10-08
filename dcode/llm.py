@@ -34,6 +34,7 @@ class AssistantTurn:
     usage: dict[str, int] = field(default_factory=lambda: {"prompt": 0, "completion": 0, "total": 0})
     recovered_tool_calls: bool = False
     finish_reason: str = ""  # "stop", "tool_calls", "length" (hit the output limit), …
+    reasoning: str = ""      # the model's thinking: shown on request, never sent back
 
     def as_message(self) -> dict[str, Any]:
         message: dict[str, Any] = {"role": "assistant", "content": self.content or ""}
@@ -43,6 +44,7 @@ class AssistantTurn:
 
 
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
+_THINK_BODY_RE = re.compile(r"<think>(.*?)(?:</think>|\Z)", re.DOTALL | re.IGNORECASE)
 _TOOL_TAG_RE = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL | re.IGNORECASE)
 _FENCE_RE = re.compile(r"```(?:json|tool_call|tool)?\s*(\{.*?\})\s*```", re.DOTALL)
 
@@ -83,6 +85,12 @@ def clean_arguments(arguments: str) -> str:
         except json.JSONDecodeError:
             pass
     return text
+
+
+def thinking_text(text: str) -> str:
+    """What the model wrote inside ``<think>`` blocks (an unclosed block counts to the end)."""
+    parts = [m.strip() for m in _THINK_BODY_RE.findall(text or "")]
+    return "\n\n".join(p for p in parts if p)
 
 
 def strip_thinking(text: str) -> str:
@@ -223,7 +231,8 @@ class LLMClient:
         response = self._create(**kwargs)
         message = response.choices[0].message
         turn = AssistantTurn(content=getattr(message, "content", None) or "",
-                             finish_reason=str(getattr(response.choices[0], "finish_reason", "") or ""))
+                             finish_reason=str(getattr(response.choices[0], "finish_reason", "") or ""),
+                             reasoning=_reasoning_of(message))
         for call in getattr(message, "tool_calls", None) or []:
             data = call.model_dump(exclude_none=True) if hasattr(call, "model_dump") else dict(call)
             function = data.get("function") or {}
@@ -272,6 +281,7 @@ class LLMClient:
 
         turn = AssistantTurn()
         content_parts: list[str] = []
+        reasoning_parts: list[str] = []
         calls: dict[int, dict[str, Any]] = {}
         try:
             for chunk in stream:
@@ -289,6 +299,9 @@ class LLMClient:
                 delta = getattr(choices[0], "delta", None)
                 if delta is None:
                     continue
+                thought = _reasoning_of(delta)
+                if thought:
+                    reasoning_parts.append(thought)
                 text = getattr(delta, "content", None)
                 if text:
                     content_parts.append(text)
@@ -320,6 +333,7 @@ class LLMClient:
                     pass
 
         turn.content = "".join(content_parts)
+        turn.reasoning = "".join(reasoning_parts)
         for index in sorted(calls):
             entry = calls[index]
             if not entry["function"]["name"]:
@@ -331,6 +345,8 @@ class LLMClient:
 
     @staticmethod
     def _finish(turn: AssistantTurn, tools: list[dict[str, Any]] | None) -> AssistantTurn:
+        inline = thinking_text(turn.content)
+        turn.reasoning = "\n\n".join(p for p in (turn.reasoning.strip(), inline) if p)
         turn.content = strip_thinking(turn.content)
         if tools:
             names = [t["function"]["name"] for t in tools]
@@ -346,6 +362,17 @@ class LLMClient:
                 turn.tool_calls = recovered
                 turn.recovered_tool_calls = True
         return turn
+
+
+def _reasoning_of(message: Any) -> str:
+    """Reasoning a server sends beside the answer (vLLM and DeepSeek: reasoning_content; Ollama: reasoning)."""
+    for key in ("reasoning_content", "reasoning"):
+        value = getattr(message, key, None)
+        if value is None:
+            value = (getattr(message, "model_extra", None) or {}).get(key)
+        if isinstance(value, str) and value:
+            return value
+    return ""
 
 
 def _usage_dict(usage: Any) -> dict[str, int]:

@@ -46,6 +46,7 @@ PROJECT_INSTRUCTION_FILES = ("DCODE.md", "AGENTS.md", "CLAUDE.md")
 MAIN_MAX_STEPS = 60
 REPEAT_LIMIT = 3
 PREVIEW_CHARS = 4000
+THINKING_CHARS = 6000   # of the model's reasoning kept for display (it never enters the context)
 MAX_FOLLOW_UPS = 2
 MAX_ARTIFACT_SAVES = 3  # per artifact per task (appends don't count)
 DB_SCHEMA_TTL = 300     # seconds a schema read is reused within a session
@@ -359,6 +360,9 @@ class Agent:
             self._dedupe_call_ids(turn.tool_calls)
             if turn.recovered_tool_calls:
                 self.host.emit("notice", agent=self.agent_id, level="info", text="Recovered tool call from model text")
+            thought = str(getattr(turn, "reasoning", "") or "").strip()
+            if thought:
+                self.host.emit("thinking", agent=self.agent_id, text=thought[:THINKING_CHARS])
             self.messages.append(turn.as_message())
 
             if not turn.tool_calls or not tools:

@@ -91,12 +91,16 @@ def main() -> int:
     stock.close()
     (work / ".dcode" / "commands").mkdir(parents=True)
     (work / ".dcode" / "commands" / "hello.md").write_text("---\ndescription: Greet someone\n---\nSay hello to $ARGUMENTS")
+    editor = tmp / "fake-editor"  # stands in for $EDITOR in the /editor check
+    editor.write_text('#!/bin/sh\nprintf "written in the editor" > "$1"\n')
+    editor.chmod(0o755)
     port = free_port()
     mock = subprocess.Popen([sys.executable, str(MOCK), str(port)], stdout=subprocess.DEVNULL)
     time.sleep(0.5)
     env = dict(os.environ, DCODE_HOME=str(tmp / "home"), DCODE_BASE_URL=f"http://127.0.0.1:{port}/v1",
                DCODE_API_KEY="local", DCODE_MODEL="mock-coder-7b", DCODE_CONTEXT_WINDOW="16384",
-               TERM="xterm-256color", PROMPT_TOOLKIT_NO_CPR="1", BROWSER="true", PYTHONPATH=str(REPO))
+               TERM="xterm-256color", PROMPT_TOOLKIT_NO_CPR="1", BROWSER="true", PYTHONPATH=str(REPO),
+               EDITOR=str(editor), VISUAL="")
     failures = 0
 
     def check(name: str, ok: object) -> None:
@@ -186,6 +190,26 @@ def main() -> int:
         term.send("@explore find the entry point\r")
         check("@helper runs directly", term.expect(r"◆ explore-\d+ +find the entry point")
               and term.expect(r"explore-\d+ finished") and term.expect(r"✓ Done in [\d.]+s · 1 helper"))
+        term.send("!echo own-$((20+3))\r")
+        check("!command runs your own shell command, no approval", term.expect(r"╰─ own-23"))
+        term.send("/thinking on\r")
+        term.expect(r"reasoning is shown")
+        term.send("say goodbye\r")
+        check("/thinking shows the model's reasoning", term.expect(r"✻ thinking[\s\S]{0,160}hidden reasoning")
+              and term.expect(r"Echo: say goodbye"))
+        term.expect(r"Done in")
+        term.send("/thinking off\r")
+        term.send("/details off\r")
+        term.expect(r"Tool calls and results are hidden")
+        mark = len(term.text())
+        term.send("list files\r")
+        check("/details off hides tool calls", term.expect(r"Done\. Tool .?list_files[\s\S]*Done in")
+              and "◇" not in term.text()[mark:])
+        term.send("/details on\r")
+        term.expect(r"Tool calls and results are shown")
+        term.send("/editor\r")
+        check("/editor sends what you wrote in $EDITOR", term.expect(r"Echo: written in the editor"))
+        term.expect(r"Done in")
         term.send(f"/db add stock sqlite:///{work.parent / 'stock.db'}\r")
         check("/db add saves and tests a connection", term.expect(r"Saved stock and connected"))
         term.send("/db stock\r")
