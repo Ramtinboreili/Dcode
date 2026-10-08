@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('dcode/web', 'dcode/web'), ('dcode/skills', 'dcode/skills')]
 binaries = []
-hiddenimports = ['pg8000', 'pymysql']  # database drivers, imported on first use
+hiddenimports = ['pg8000', 'pymysql']
 tmp_ret = collect_all('prompt_toolkit')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('rich')

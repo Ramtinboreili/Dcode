@@ -5,6 +5,7 @@ Ready-made binaries, so a new machine can run Dcode without building it first.
 | File | Platform | Built from | Reports version |
 |---|---|---|---|
 | `macos-arm64/dcode` | macOS, Apple Silicon | commit `0456097` on 2026-10-07 (0.3.1 plus the unreleased Phase 3 work) | 0.3.1 |
+| `linux-amd64/dcode_0.4.0_amd64.deb` | Linux x86_64 (built on Ubuntu 22.04, glibc 2.35) | the `Release 0.4.0` commit, 2026-10-08 | 0.4.0 |
 
 SHA-256 of `macos-arm64/dcode`: `fb577199db5ab6e731de7f2fc893fb6f2dc10930c6726ac6d06ba239b835c4d8`
 
@@ -17,6 +18,23 @@ dcode --version
 
 It passed all 31 checks of `docs/dev/terminal_e2e.py --binary`.
 
-There is **no Linux build yet**. A `.deb` has to be built on a matching Linux machine with `make deb` (see `docs/operations.md`).
+## Linux (x86_64)
+
+SHA-256 of `linux-amd64/dcode_0.4.0_amd64.deb`: `7ba982e304b64b81f4bce655e049b0b9d9760699560bfd783698cfc0b6fffcf2`
+
+```bash
+sudo packaging/install-airgap.sh builds/linux-amd64/dcode_0.4.0_amd64.deb   # Debian / Ubuntu (or: sudo dpkg -i …)
+dcode --version
+
+# Any other Linux, or without root: take the binary out of the package
+dpkg-deb -x builds/linux-amd64/dcode_0.4.0_amd64.deb /tmp/dcode-pkg && install -m 0755 /tmp/dcode-pkg/usr/bin/dcode ~/.local/bin/dcode
+```
+
+- Python and every dependency are inside, including the PostgreSQL and MySQL drivers. Nothing else is needed on the server.
+- It was built on Ubuntu 22.04, so it needs **glibc 2.35 or newer** (Ubuntu 22.04+, Debian 12+, RHEL 9.2+ and similar). For an older system, build on that system with `make deb`.
+- The binary from this package passed all 42 checks of `docs/dev/terminal_e2e.py --binary`.
+- The macOS binary above is still 0.3.1; rebuild it on a Mac for 0.4.0.
+
+For another CPU (arm64) build on a machine of that kind: `make deb PYTHON=.venv/bin/python` (see `docs/operations.md`).
 
 To rebuild: `make mac PYTHON=.venv/bin/python`, then copy `dist/dcode` here.

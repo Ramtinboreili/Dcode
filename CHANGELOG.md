@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased — Phase 3 (ideas from opencode), databases and scheduled jobs
+## 0.4.0 — Phase 3 (ideas from opencode), databases and scheduled jobs
 
-The version number is the owner's decision.
+The first version built and checked on Linux (x86_64).
 
 ### Databases
 - **Connect to your databases** (PostgreSQL, MySQL / MariaDB, SQLite) from the web UI, the terminal or by asking Dcode. Connections are saved once; the password stays in a file only you can read and is never shown. Dcode has exactly the rights of the database user you connect with.

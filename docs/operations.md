@@ -34,7 +34,7 @@ PyInstaller doesn't cross-compile. Both the web assets (`dcode/web`) and the ski
 ## Install on an air-gapped server
 
 ```bash
-sudo ./install-airgap.sh dcode_0.3.1_amd64.deb   # Debian/Ubuntu
+sudo ./install-airgap.sh dcode_0.4.0_amd64.deb   # Debian/Ubuntu
 sudo ./install-airgap.sh ./dcode                 # any Linux
 export DCODE_BASE_URL=http://127.0.0.1:11434/v1  DCODE_API_KEY=local
 export DCODE_MODEL=qwen2.5-coder:7b              DCODE_CONTEXT_WINDOW=32768
