@@ -10,6 +10,11 @@ def main() -> None:
 
         hub_main(sys.argv[2:])
         return
+    if sys.argv[1:2] == ["run"]:
+        # One unattended task (scheduled jobs): no terminal app either.
+        from .headless import main as run_task
+
+        sys.exit(run_task(sys.argv[2:]))
     from .main import cli
 
     cli()

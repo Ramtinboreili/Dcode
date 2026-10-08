@@ -16,7 +16,9 @@ dependencies = [
   "rich>=13.0.0",
   "click>=8.0.0",
   "prompt_toolkit>=3.0.0",
-  "httpx>=0.24.0"
+  "httpx>=0.24.0",
+  "pg8000>=1.30",
+  "PyMySQL>=1.1"
 ]
 
 [project.optional-dependencies]
@@ -27,7 +29,7 @@ dev = [
 ]
 
 [project.scripts]
-dcode = "dcode.main:cli"
+dcode = "dcode.__main__:main"
 
 [tool.setuptools]
 packages = ["dcode"]

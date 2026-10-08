@@ -363,6 +363,7 @@ class Hub:
         self._had_session = False
         self._idle_since: float | None = None
         self._schemas: dict[str, tuple[float, dict[str, Any], str]] = {}  # database schemas, briefly cached
+        self.scheduler: Any = None  # scheduled jobs; started in serve()
         outer = self
 
         class Handler(_Handler):
@@ -486,10 +487,14 @@ class Hub:
     def serve(self) -> None:
         write_private_json(hub_file(), {"pid": os.getpid(), "port": self.port, "url": self.url,
                                         "version": __version__, "started": self.started})
+        from .schedules import Scheduler
+
+        self.scheduler = Scheduler(env=_clean_child_env()).start()
         threading.Thread(target=self._watch, name="dcode-hub-watch", daemon=True).start()
         try:
             self.httpd.serve_forever(poll_interval=0.5)
         finally:
+            self.scheduler.stop()
             self.httpd.server_close()
             info = _read_json(hub_file())
             if info and info.get("pid") == os.getpid():
@@ -504,6 +509,9 @@ class Hub:
                 self._had_session = True
                 self._idle_since = None
                 continue
+            if self._has_scheduled_work():
+                self._idle_since = None  # scheduled jobs keep the hub alive with no terminal open
+                continue
             if not self._had_session:
                 if now - self.started > HUB_START_GRACE:
                     break
@@ -512,6 +520,14 @@ class Hub:
             if now - self._idle_since >= HUB_IDLE_GRACE:
                 break
         self.httpd.shutdown()
+
+    def _has_scheduled_work(self) -> bool:
+        from .schedules import has_enabled_jobs
+
+        try:
+            return bool(self.scheduler and (self.scheduler.busy() or has_enabled_jobs()))
+        except Exception:
+            return False
 
     # --- API --------------------------------------------------------------------------------
     def _sessions_with_state(self) -> list[dict[str, Any]]:
@@ -588,6 +604,8 @@ class Hub:
             return handler._json([spec.as_dict() for spec in load_specs(workspace).values()])
         if path == "/api/db" or path.startswith("/api/db/"):
             return self._db_get(handler, path, query)
+        if path == "/api/cron" or path.startswith("/api/cron/"):
+            return self._cron(handler, "GET", path, query, {})
         if path == "/api/artifacts":
             return handler._json(ArtifactStore().list())
         if path.startswith("/api/artifacts/"):
@@ -684,6 +702,8 @@ class Hub:
             return handler._json({"ok": True})
         if path == "/api/db" or path.startswith("/api/db/"):
             return self._db_mutate(handler, method, path, body)
+        if path == "/api/cron" or path.startswith("/api/cron/"):
+            return self._cron(handler, method, path, {}, body)
         if path == "/api/artifacts" and method == "POST":
             meta = ArtifactStore().save(
                 str(body.get("title") or "Untitled"), str(body.get("content") or ""),
@@ -708,6 +728,52 @@ class Hub:
                 return handler._json(store.restore(artifact_id, int(body.get("version") or 0)))
             if method == "POST" and action == "duplicate":
                 return handler._json(store.duplicate(artifact_id))
+        return handler._json({"error": "not found"}, 404)
+
+    # --- scheduled jobs -----------------------------------------------------------------------
+    def _cron(self, handler: _Handler, method: str, path: str, query: dict[str, list[str]], body: dict[str, Any]) -> None:
+        from . import schedules
+
+        parts = [urllib.parse.unquote(p) for p in path[len("/api/cron"):].strip("/").split("/") if p]
+        try:
+            if not parts and method == "GET":
+                return handler._json({"jobs": [schedules.describe_job(j) for j in schedules.load_jobs().values()],
+                                      "modes": schedules.PROMPT_MODES, "now": time.strftime("%Y-%m-%dT%H:%M")})
+            if parts == ["preview"]:  # check a schedule while it is being typed
+                expression = (query.get("schedule") or [str(body.get("schedule") or "")])[0]
+                schedules.parse(expression)
+                upcoming, moment = [], None
+                for _ in range(3):
+                    moment = schedules.next_run(expression, moment)
+                    if moment is None:
+                        break
+                    upcoming.append(moment.isoformat(timespec="minutes"))
+                return handler._json({"text": schedules.explain(expression), "next": upcoming})
+            if not parts and method == "POST":
+                return handler._json(schedules.describe_job(schedules.save_job(body)))
+            job = schedules.load_jobs().get(schedules.clean_id(parts[0])) if parts else None
+            if job is None:
+                return handler._json({"error": "no such job"}, 404)
+            action = parts[1] if len(parts) > 1 else ""
+            if method == "DELETE" and not action:
+                if self.scheduler:
+                    self.scheduler.stop_job(job["id"])
+                return handler._json({"ok": schedules.delete_job(job["id"])})
+            if method == "GET" and action == "runs":
+                return handler._json(list(reversed(schedules.load_runs(job["id"]))))
+            if method == "GET" and action == "log":
+                return handler._json({"text": schedules.read_log(job["id"], (query.get("run") or [""])[0])})
+            if method == "POST" and action == "toggle":
+                return handler._json(schedules.describe_job(schedules.update_job(job["id"], enabled=bool(body.get("enabled")))))
+            if method == "POST" and action == "run":
+                if self.scheduler is None or self.scheduler.is_running(job["id"]):
+                    return handler._json({"error": "This job is already running."}, 409)
+                self.scheduler.launch(job, "manual")
+                return handler._json({"ok": True})
+            if method == "POST" and action == "stop":
+                return handler._json({"ok": bool(self.scheduler and self.scheduler.stop_job(job["id"]))})
+        except schedules.ScheduleError as exc:
+            return handler._json({"error": str(exc)}, 400)
         return handler._json({"error": "not found"}, 404)
 
     # --- databases --------------------------------------------------------------------------
