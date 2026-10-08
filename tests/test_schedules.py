@@ -6,8 +6,7 @@ import time
 from datetime import datetime
 
 import pytest
-from conftest import FakeLLM, call, make_config, scripted
-from test_server import req, stack  # noqa: F401  (stack is a fixture)
+from conftest import FakeLLM, call, make_config, req, scripted
 
 from dcode import headless, schedules, server
 from dcode.config import save_config

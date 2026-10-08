@@ -241,6 +241,15 @@ def ui_command() -> None:
         click.echo(f"  session {entry['id']}  {entry.get('cwd', '')}")
 
 
+@cli.command("attach")
+@click.argument("target", required=False)
+def attach_command(target: str | None) -> None:
+    """Join a running session from another terminal (TARGET: a session id or a web UI link)."""
+    from . import attach
+
+    sys.exit(attach.main(target or ""))
+
+
 @cli.command("stats")
 @click.option("--days", type=int, default=30, show_default=True, help="How far back (0 = everything)")
 @click.option("--json", "as_json", is_flag=True, help="Print the numbers as JSON")

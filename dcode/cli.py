@@ -51,7 +51,12 @@ CONTEXT_CHOICES = ["4096", "8192", "16384", "32768", "65536", "131072"]
 NOTIFY_MIN_SECONDS = 10.0  # a task shorter than this ends quietly: you were still watching
 
 
+SURFACES = {"web": "the web UI", "attach": "another terminal", "cli": "the main terminal", "run": "an unattended run"}
+
+
 class TerminalApp:
+    surface = "cli"  # how this terminal's own actions are tagged in events ("attach" for dcode attach)
+
     def __init__(self, session: Session, ui_url: str | None = None) -> None:
         self.session = session
         self.ui_url = ui_url
@@ -81,8 +86,12 @@ class TerminalApp:
         running_jobs = len(session.jobs.running())
         if running_jobs:
             left += f"  ·  ⚙ {running_jobs} job{'s' if running_jobs > 1 else ''}"
+        return self._status_line(left, ["shift+tab mode", "ctrl+c ×2 exit", "ctrl+o expand", "⌥/alt+enter newline"])
+
+    @staticmethod
+    def _status_line(left: str, hints: list[str]) -> str:
+        """``left`` then as many key hints as fit, pushed to the right edge."""
         width = shutil.get_terminal_size((100, 24)).columns - 4
-        hints = ["shift+tab mode", "ctrl+c ×2 exit", "ctrl+o expand", "⌥/alt+enter newline"]
         while hints and len(left) + 4 + len(" · ".join(hints)) > width:
             hints.pop()  # drop the least important hint first
         right = " · ".join(hints)
@@ -118,6 +127,8 @@ class TerminalApp:
 
     def _loop(self) -> None:
         while True:
+            if getattr(self.session, "ended", False):  # an attached session went away
+                break
             approvals = self.session.pending_approvals()
             if approvals:
                 self._ask_approval(approvals[0])
@@ -258,6 +269,10 @@ class TerminalApp:
             self._await_start()
 
     # --- event rendering --------------------------------------------------------------------
+    def _mine(self, event: dict[str, Any], key: str) -> bool:
+        """Did this terminal cause the event? (Then it already showed what happened.)"""
+        return event.get(key) == self.surface
+
     def _render(self, event: dict[str, Any]) -> None:
         kind = event["type"]
         agent = event.get("agent", "main")
@@ -269,8 +284,8 @@ class TerminalApp:
             self.last_outputs = []
             self.turn_started = time.time()
             self.main_step = None
-            if event.get("source") not in ("cli", "history"):
-                ui.show_user_echo(event.get("text", ""), event.get("source", "web"))
+            if not self._mine(event, "source") and event.get("source") != "history":
+                ui.show_user_echo(event.get("text", ""), SURFACES.get(event.get("source"), "the web UI"))
         elif kind == "assistant_note" and agent == "main":
             ui.show_note(event.get("text", ""))
         elif kind == "thinking":
@@ -340,19 +355,21 @@ class TerminalApp:
             state = event.get("state", "")
             level = "success" if state.startswith("exited (0)") or state == "stopped" else "warning"
             ui.notice(f"Background job #{event.get('id')} {state}: {str(event.get('command', ''))[:80]}", level)
-        elif kind == "approval_resolved" and event.get("by") == "web":
+        elif kind == "approval_resolved" and event.get("by") in SURFACES and not self._mine(event, "by"):
+            where = SURFACES[event["by"]]
             if "answer" in event:
-                ui.notice(f"Answered from the web UI: {event.get('answer') or 'skipped'}", "info")
+                ui.notice(f"Answered from {where}: {event.get('answer') or 'skipped'}", "info")
             else:
-                ui.notice(f"{'Approved' if event.get('approved') else 'Denied'} from the web UI", "info")
+                ui.notice(f"{'Approved' if event.get('approved') else 'Denied'} from {where}", "info")
         elif kind == "usage" and agent == "main":
             ui.show_done(float(event.get("elapsed", 0.0)), report=event)
             if float(event.get("elapsed", 0.0)) >= NOTIFY_MIN_SECONDS:
                 ui.ring(str(prefs.get("notify") or "off"), f"Dcode finished: {self.session.thread_name}")
         elif kind == "approval_auto":
             ui.console.print(f"{ui.PAD}  [{MUTED}]✓ allowed (session rule)[/]")
-        elif kind == "mode" and event.get("by") != "cli":
-            ui.notice(f"Mode changed from the web UI: {MODE_SHORT.get(event.get('mode'), event.get('mode'))}")
+        elif kind == "mode" and not self._mine(event, "by"):
+            ui.notice(f"Mode changed from {SURFACES.get(event.get('by'), 'the web UI')}: "
+                      f"{MODE_SHORT.get(event.get('mode'), event.get('mode'))}")
         elif kind == "undo":
             ui.notice(f"Undid “{event.get('label')}”: restored {', '.join(event.get('files') or []) or 'nothing'}", "success")
         elif kind == "redo":
@@ -391,8 +408,8 @@ class TerminalApp:
         elif kind == "config":
             ui.notice(f"Model: {event.get('model')} · reasoning: {event.get('reasoning_effort')}", "info")
         elif kind == "thread" and event.get("action") == "resume":
-            if event.get("by") == "web":  # the terminal's own /sessions prints its line and a recap
-                ui.notice(f"Continuing “{event.get('name')}” (picked in the web UI)", "info")
+            if not self._mine(event, "by"):  # the terminal's own /sessions prints its line and a recap
+                ui.notice(f"Continuing “{event.get('name')}” (picked in {SURFACES.get(event.get('by'), 'the web UI')})", "info")
         elif kind == "thread" and event.get("action") != "title":  # titles show in the status line
             ui.notice(f"Chat {event.get('action')}: {event.get('name')}", "info")
 

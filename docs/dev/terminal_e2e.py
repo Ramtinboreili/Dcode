@@ -243,6 +243,35 @@ def main() -> int:
         term.expect(r"Done in")
         term.send("/mcp rm notes\r")
         check("/mcp rm", term.expect(r"Removed the MCP server notes"))
+        second = Terminal(args.binary, env, work, ("attach",))  # another terminal joins this session
+        try:
+            joined = second.expect(rf"attached to session {session_id}", timeout=20)
+            second.read(0.8)
+            second.send("say hi from the second terminal\r")
+            check("dcode attach joins the running session", joined and second.expect(r"Echo: say hi from the second"))
+            check("the main terminal shows what the attached one sent",
+                  term.expect(r"say hi from the second terminal\s+\(from another terminal\)"))
+            second.expect(r"Done in")
+            second.read(0.5)
+            second.send("run it\r")
+            asked = second.expect(r"Dcode wants to run a command")
+            second.read(0.5)
+            second.send("y")
+            check("an approval answered in the attached terminal", asked and second.expect(r"✓ Allowed · echo hi-from-tool")
+                  and term.expect(r"Approved from another terminal"))
+            second.expect(r"Done in")
+            second.read(0.5)
+            second.send("/exit\r")
+            check("detaching leaves the session running", second.expect(r"Detached\.\s+The session keeps running", timeout=8))
+        finally:
+            try:
+                os.kill(second.pid, 9)
+            except OSError:
+                pass
+        term.read(1.0)
+        term.send("say still here\r")
+        check("the session goes on after a detach", term.expect(r"Echo: say still here"))
+        term.expect(r"Echo: say still here[\s\S]*Done in")
         term.send('/cron add "0 0 1 1 *" echo hello-from-cron\r')
         check("/cron add schedules a job", term.expect(r"Scheduled echo-hello-from-cron: every year on January 1[\s\S]{0,40}next\s+run\s+\d{4}-01-01"))
         term.send("/cron run echo-hello-from-cron\r")

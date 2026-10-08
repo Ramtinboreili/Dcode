@@ -241,7 +241,7 @@ def show_help() -> None:
     table.add_column(style=f"bold {PRIMARY}", no_wrap=True)
     table.add_column(style=TEXT)
     for command, meta in command_items().items():
-        table.add_row(command, meta)
+        table.add_row(command, _escape(meta))  # "[focus]" is text here, not a style
     console.print(Panel(table, title="[bold]Commands[/]", title_align="left", border_style=MUTED))
     console.print(f"{PAD}[{MUTED}]!command runs a shell command yourself (Dcode sees the output) · "
                   f"@file attaches a file · @helper task runs a helper[/]")
@@ -1107,9 +1107,10 @@ def show_note(message: str) -> None:
         console.print(Padding(Text(message, style=MUTED), (1, 2, 0, 2)))
 
 
-def show_user_echo(text: str, source: str) -> None:
+def show_user_echo(text: str, where: str) -> None:
+    """A message that came from somewhere else (``where`` reads like "the web UI")."""
     console.print()
-    console.print(f"[{PRIMARY}]❯[/] [{TEXT}]{_escape(text)}[/]  [{MUTED}](from the {source} UI)[/]")
+    console.print(f"[{PRIMARY}]❯[/] [{TEXT}]{_escape(text)}[/]  [{MUTED}](from {where})[/]")
 
 
 def show_stream_chunk(text: str) -> None:

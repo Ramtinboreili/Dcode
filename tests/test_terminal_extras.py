@@ -200,3 +200,11 @@ def test_chat_labels():
     assert ui.ago((now - timedelta(minutes=5)).isoformat()) == "5m ago"
     assert ui.ago((now - timedelta(days=3)).isoformat()) == "3d ago"
     assert ui.ago("not a date") == ""
+
+
+def test_help_keeps_the_square_brackets():
+    """Regression: "/compact [focus]" lost its "[focus]" (rich read it as a style tag)."""
+    with ui.console.capture() as capture:
+        ui.show_help()
+    shown = capture.get()
+    assert "/compact [focus]" in shown and "[md|html|json]" in shown and "/stats [days]" in shown

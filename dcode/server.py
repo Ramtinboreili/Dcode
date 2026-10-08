@@ -258,22 +258,24 @@ class SessionServer:
 
     def _command(self, path: str, body: dict[str, Any]) -> dict[str, Any] | None:
         session = self.session
+        # Who is asking: the web UI, or another terminal joined with `dcode attach`.
+        source = "attach" if body.get("source") == "attach" else "web"
         if path == "/message":
             text = str(body.get("text") or "").strip()
             if text == "/review":
-                session.review(source="web")
+                session.review(source=source)
             elif text.startswith("!"):
-                session.run_shell(text[1:], source="web")
+                session.run_shell(text[1:], source=source)
             elif text:
-                session.submit(text, source="web")
+                session.submit(text, source=source)
             return None
         if path == "/approve":
-            ok = session.resolve_approval(str(body.get("id", "")), bool(body.get("approved")), by="web",
+            ok = session.resolve_approval(str(body.get("id", "")), bool(body.get("approved")), by=source,
                                           scope="session" if body.get("scope") == "session" else "once",
                                           answer=str(body.get("answer") or ""))
             return {"ok": ok}
         if path == "/interrupt":
-            session.interrupt(source="web")
+            session.interrupt(source=source)
             return None
         if path == "/new":
             session.new_thread()
@@ -282,7 +284,7 @@ class SessionServer:
             session.rename(str(body.get("name") or ""))
             return None
         if path == "/resume":
-            return {"ok": session.resume(str(body.get("thread_id") or ""), source="web")}
+            return {"ok": session.resume(str(body.get("thread_id") or ""), source=source)}
         if path == "/model":
             effort = body.get("reasoning_effort")
             session.set_model(body.get("model") or None, effort if effort in REASONING_EFFORTS else None)
@@ -291,20 +293,20 @@ class SessionServer:
             return {"ok": session.reload_config()}
         if path == "/mode":
             try:
-                session.set_mode(str(body.get("mode") or ""), source="web")
+                session.set_mode(str(body.get("mode") or ""), source=source)
             except ValueError as exc:
                 raise RuntimeError(str(exc)) from exc
             return {"ok": True, "mode": session.mode}
         if path == "/plan":
-            session.resolve_plan(str(body.get("decision") or "keep"), source="web")
+            session.resolve_plan(str(body.get("decision") or "keep"), source=source)
             return None
         if path == "/command":
-            session.run_custom_command(str(body.get("name") or ""), str(body.get("args") or ""), source="web")
+            session.run_custom_command(str(body.get("name") or ""), str(body.get("args") or ""), source=source)
             return None
         if path == "/init":
-            return {"ok": True, "file": session.init_project(source="web")}
+            return {"ok": True, "file": session.init_project(source=source)}
         if path == "/compact":
-            session.compact(str(body.get("focus") or ""), source="web")
+            session.compact(str(body.get("focus") or ""), source=source)
             return None
         if path == "/undo":
             result = session.undo()
@@ -433,6 +435,10 @@ class Hub:
                     # "assets" catches a hub whose bundled files vanished (e.g. a deleted unpack dir).
                     return self._json({"ok": True, "app": "dcode", "version": __version__,
                                        "assets": (WEB_DIR / "index.html").is_file()})
+                if parsed.path == "/api/openapi.json" and self._host_ok():
+                    from .openapi import spec  # the API written down: routes only, nothing private
+
+                    return self._json(spec())
                 if not self._authorized():
                     return self._deny() if not parsed.path.startswith("/api/") else self._json({"error": "unauthorized"}, 401)
                 if parsed.path in ("/", "/index.html"):

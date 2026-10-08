@@ -5,53 +5,10 @@ import json
 import threading
 import time
 
-import pytest
-from conftest import FakeLLM, make_config, scripted
+from conftest import make_config, req
 
 from dcode import server
 from dcode.config import load_config, save_config, save_thread
-from dcode.llm import AssistantTurn
-from dcode.session import Session
-
-
-@pytest.fixture
-def stack(monkeypatch):
-    """A live session + its API server + a hub, all in-process on ephemeral ports."""
-    monkeypatch.setattr(server, "default_port", lambda configured=0: 0)
-    config = make_config()
-    save_config(config)
-    session = Session(config, llm=FakeLLM(scripted(AssistantTurn(content="hello from dcode")), config))
-    token = server.get_token()
-    api = server.SessionServer(session, token).start()
-    server.register_session({"id": session.id, "pid": session.pid, "port": api.port, "cwd": session.cwd,
-                             "model": config.model, "started_at": session.started_at, "thread_name": session.thread_name})
-    hub = server.Hub()
-    thread = threading.Thread(target=hub.serve, daemon=True)
-    thread.start()
-    yield {"session": session, "api": api, "hub": hub, "token": token}
-    hub.httpd.shutdown()
-    api.stop()
-    session.close()
-    server.unregister_session(session.id)
-
-
-def req(stack, method, path, body=None, cookie=True, csrf=True, host=None):
-    conn = http.client.HTTPConnection("127.0.0.1", stack["hub"].port, timeout=10)
-    headers = {"Content-Type": "application/json"}
-    if cookie:
-        headers["Cookie"] = f"{server.COOKIE}={stack['token']}"
-    if csrf:
-        headers["X-Dcode"] = "1"
-    if host:
-        headers["Host"] = host
-    conn.request(method, path, body=json.dumps(body) if body is not None else None, headers=headers)
-    resp = conn.getresponse()
-    data = resp.read()
-    conn.close()
-    try:
-        return resp.status, json.loads(data), resp
-    except ValueError:
-        return resp.status, data, resp
 
 
 def test_auth_flow(stack):
