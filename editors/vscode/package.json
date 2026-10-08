@@ -1,0 +1,46 @@
+{
+  "name": "dcode",
+  "displayName": "Dcode",
+  "description": "Dcode, the coding agent for local and air-gapped models, inside VS Code: start a session, open its web UI, send code to it.",
+  "version": "0.4.0",
+  "publisher": "dcode",
+  "repository": { "type": "git", "url": "https://github.com/Ramtinboreili/Dcode" },
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["AI", "Other"],
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      { "command": "dcode.start", "title": "Dcode: Start in Terminal" },
+      { "command": "dcode.continue", "title": "Dcode: Continue the Last Chat of This Folder" },
+      { "command": "dcode.attach", "title": "Dcode: Attach a Terminal to a Running Session" },
+      { "command": "dcode.openUi", "title": "Dcode: Open the Web UI" },
+      { "command": "dcode.sendSelection", "title": "Dcode: Send Selection" },
+      { "command": "dcode.sendFile", "title": "Dcode: Ask About This File" }
+    ],
+    "menus": {
+      "editor/context": [
+        { "command": "dcode.sendSelection", "when": "editorHasSelection", "group": "dcode@1" },
+        { "command": "dcode.sendFile", "group": "dcode@2" }
+      ]
+    },
+    "keybindings": [
+      { "command": "dcode.sendSelection", "key": "ctrl+alt+d", "mac": "cmd+alt+d", "when": "editorTextFocus" }
+    ],
+    "configuration": {
+      "title": "Dcode",
+      "properties": {
+        "dcode.path": {
+          "type": "string",
+          "default": "dcode",
+          "description": "The dcode program (a full path if it is not on your PATH)."
+        },
+        "dcode.openUiInside": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open the web UI in a VS Code tab (Simple Browser). Off: use your system browser."
+        }
+      }
+    }
+  }
+}

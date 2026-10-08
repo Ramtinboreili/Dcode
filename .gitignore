@@ -28,3 +28,4 @@ env/
 config.json
 .venv/
 *.local
+*.vsix

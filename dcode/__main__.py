@@ -15,6 +15,11 @@ def main() -> None:
         from .headless import main as run_task
 
         sys.exit(run_task(sys.argv[2:]))
+    if sys.argv[1:2] == ["acp"]:
+        # An editor drives Dcode over stdin/stdout (Agent Client Protocol): no terminal app.
+        from .acp import main as serve_editor
+
+        sys.exit(serve_editor(sys.argv[2:]))
     from .main import cli
 
     cli()
