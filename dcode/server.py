@@ -560,11 +560,20 @@ class Hub:
                 for t in list_threads()
             ])
         if path.startswith("/api/threads/"):
-            from .session import transcript_from_messages
+            from . import transcripts
+            from .transcripts import transcript_from_messages
 
-            path_obj = threads_dir() / f"{slugify_id(path.rsplit('/', 1)[1])}.json"
+            thread_id, _, action = path[len("/api/threads/"):].partition("/")
+            path_obj = threads_dir() / f"{slugify_id(thread_id)}.json"
             if not path_obj.exists():
                 return handler._json({"error": "not found"}, 404)
+            if action == "export":
+                fmt = query.get("format", ["md"])[0]
+                try:
+                    name, text = transcripts.export_thread(path_obj, fmt)
+                except transcripts.TranscriptError as exc:
+                    return handler._json({"error": str(exc)}, 400)
+                return _download(handler, text.encode("utf-8"), name)
             payload = load_thread(path_obj)
             return handler._json({
                 "name": payload.get("name"), "cwd": payload.get("cwd"), "model": payload.get("model"),
@@ -680,6 +689,10 @@ class Hub:
                 raise ValueError("unknown memory scope")
             (folder / f"{slugify(urllib.parse.unquote(name))}.md").unlink(missing_ok=True)
             return handler._json({"ok": True})
+        if path == "/api/threads/import" and method == "POST":
+            from . import transcripts
+
+            return handler._json({"ok": True} | transcripts.import_chat(body))  # TranscriptError is a ValueError
         if path.startswith("/api/threads/") and method == "DELETE":
             (threads_dir() / f"{slugify_id(path.rsplit('/', 1)[1])}.json").unlink(missing_ok=True)
             return handler._json({"ok": True})
@@ -941,6 +954,17 @@ def outer_download(handler: _Handler, record: dict[str, Any]) -> None:
     handler.send_response(200)
     handler.send_header("Content-Type", "application/octet-stream")
     handler.send_header("Content-Disposition", f'attachment; filename="{filename_for(record)}"')
+    handler.send_header("X-Content-Type-Options", "nosniff")
+    handler.send_header("Content-Length", str(len(data)))
+    handler.end_headers()
+    handler.wfile.write(data)
+
+
+def _download(handler: _Handler, data: bytes, filename: str) -> None:
+    """Send text as a file download (never rendered on the hub origin)."""
+    handler.send_response(200)
+    handler.send_header("Content-Type", "application/octet-stream")
+    handler.send_header("Content-Disposition", f'attachment; filename="{filename}"')
     handler.send_header("X-Content-Type-Options", "nosniff")
     handler.send_header("Content-Length", str(len(data)))
     handler.end_headers()

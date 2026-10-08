@@ -255,6 +255,11 @@ def main() -> int:
         check("re-save loop capped, one artifact", term.expect(r"already saved — skipped", timeout=20))
         _, artifacts = hub("GET", "/api/artifacts")
         check("no 'Untitled' artifacts", not any(a["title"] == "Untitled" for a in artifacts))
+        term.send("/export html\r")
+        exported = term.expect(r"Exported this chat \([\d,]+ characters\) to dcode-[\w-]+\.html")
+        page = next(iter(work.glob("dcode-*.html")), None)
+        check("/export writes a self-contained page", exported and page is not None
+              and "<script" not in page.read_text() and "Echo: say hello" in page.read_text())
         term.send("/compact\r")
         check("/compact", term.expect(r"Compacted the conversation"))
         term.send(b"\x03")

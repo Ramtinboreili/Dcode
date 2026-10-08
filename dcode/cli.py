@@ -506,6 +506,8 @@ class TerminalApp:
             elif command == "/rename":
                 name = arg.strip() or ui.prompt_input("Thread name", default=session.thread_name)
                 session.rename(name)
+            elif command == "/export":
+                self._export(arg.strip())
             elif command in ("/sessions", "/resume"):
                 self._sessions(arg.strip())
             elif command == "/review":
@@ -954,6 +956,40 @@ class TerminalApp:
             ui.notice(f"Continuing “{session.thread_name}”" + (
                 "" if choice["cwd"] in ("", session.cwd) else f" — it was started in {ui.short_path(choice['cwd'])}"), "success")
             self.show_recap()
+
+    def _export(self, arg: str) -> None:
+        """/export [md|html|json] [file]: write this chat to a file."""
+        from pathlib import Path
+
+        from . import transcripts
+        from .config import thread_path
+
+        session = self.session
+        fmt, _, target = arg.partition(" ")
+        if fmt and fmt.lower().lstrip(".") not in transcripts.FORMATS:
+            fmt, target = "", arg  # only a file name was given: its ending decides
+        fmt = fmt.lower().lstrip(".") or Path(target).suffix.lower().lstrip(".")
+        if fmt not in transcripts.FORMATS:
+            labels = [f"{key:<5} {label}" for key, label in transcripts.FORMATS.items()]
+            picked = ui.select_one("Export this chat as", labels, labels[0])
+            fmt = picked.split()[0] if picked in labels else ""
+        if not fmt:
+            return
+        if len(session.agent.messages) <= 1:
+            ui.notice("Nothing to export yet: this chat is empty.")
+            return
+        session.save()
+        try:
+            name, text = transcripts.export_thread(thread_path(session.thread_name), fmt)
+            path = Path(target.strip()).expanduser() if target.strip() else Path(session.cwd) / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        except (transcripts.TranscriptError, OSError) as exc:
+            ui.notice(f"Couldn't export: {exc}", "error")
+            return
+        note = " — bring it back on any machine with: dcode import <file>" if fmt == "json" else ""
+        shown = path.name if path.parent == Path(session.cwd) else str(path)  # short when it's right here
+        ui.notice(f"Exported this chat ({len(text):,} characters) to {shown}{note or '.'}", "success")
 
     def show_recap(self) -> None:
         """Where a continued chat left off: the last request and the last answer, dimmed."""

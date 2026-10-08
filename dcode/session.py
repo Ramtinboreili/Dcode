@@ -33,12 +33,11 @@ from .jobs import JobManager
 from .llm import Interrupted, LLMClient
 from .memory import MemoryStore
 from .tools import _truncate, configure_limits, workspace_root
+from .transcripts import SHELL_NOTE, transcript_from_messages
 
 EVENT_BUFFER = 4000
 # Approvals that can't be granted "for this session": each one must be seen (database changes).
 ALWAYS_ASK_KINDS = {"db_write"}
-# How a command the user ran themselves ("!ls") is written into the chat for the model.
-SHELL_NOTE = "[I ran this shell command myself: "
 SHELL_PREVIEW_CHARS = 8000  # of that command's output sent to the terminal and the web UI
 TITLE_PROMPT = (
     "Write a short title (2-6 words) for a coding chat that starts with the user's message below. "
@@ -125,29 +124,6 @@ class _Approval:
         if self.kind == "question":
             data["options"] = self.options
         return data
-
-
-def transcript_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Flatten stored chat messages into UI events (for resumed / closed threads)."""
-    items: list[dict[str, Any]] = []
-    for message in messages:
-        role = message.get("role")
-        content = message.get("content") if isinstance(message.get("content"), str) else ""
-        if role == "user":
-            if content.startswith(SHELL_NOTE) and content.endswith("]"):
-                content = "!" + content[len(SHELL_NOTE):-1]
-            items.append({"type": "user_message", "text": content, "source": "history"})
-        elif role == "assistant":
-            for call in message.get("tool_calls") or []:
-                function = call.get("function") or {}
-                items.append({"type": "tool_call", "agent": "main", "name": function.get("name", ""),
-                              "args": function.get("arguments", ""), "id": call.get("id", "")})
-            if content:
-                items.append({"type": "assistant_message", "agent": "main", "text": content})
-        elif role == "tool":
-            items.append({"type": "tool_result", "agent": "main", "name": message.get("name", ""),
-                          "output": content[:1500], "id": message.get("tool_call_id", "")})
-    return items
 
 
 class Session:

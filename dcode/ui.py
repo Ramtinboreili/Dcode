@@ -111,6 +111,7 @@ COMMANDS: dict[str, str] = {
     "/rename": "Rename this thread",
     "/new": "Save and start a new thread",
     "/sessions": "Switch to a saved chat: /sessions [search words]",
+    "/export": "Save this chat as a file: /export [md|html|json] [file]",
     "/reset": "Clear conversation",
     "/setup": "Re-run setup",
     "/exit": "Quit",

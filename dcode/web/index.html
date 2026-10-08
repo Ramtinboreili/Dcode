@@ -32,6 +32,8 @@
       <div class="sb-search">
         <span class="i" data-icon="search"></span>
         <input id="thread-filter" placeholder="Search chats" autocomplete="off">
+        <button class="icon-btn" id="import-chat" title="Import a chat (a JSON export)" aria-label="Import a chat"></button>
+        <input type="file" id="import-file" accept=".json,application/json" hidden>
       </div>
 
       <div class="sb-scroll">
@@ -74,6 +76,7 @@
           <span class="status" id="status" hidden></span>
           <span class="ctx" id="ctx" hidden></span>
           <button class="icon-btn" id="btn-review" title="Review git changes" aria-label="Review git changes" hidden></button>
+          <span class="chat-menu-wrap"><button class="icon-btn" id="btn-export" title="Export this chat" aria-label="Export this chat" hidden></button></span>
         </div>
       </header>
 

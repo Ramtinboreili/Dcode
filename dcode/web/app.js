@@ -117,6 +117,7 @@
     book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>',
     sparkles: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/>',
     download: '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
+    upload: '<path d="M12 15V3M7 8l5-5 5 5M5 21h14"/>',
     page: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/>',
     diagram: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M6.5 10v4a3 3 0 0 0 3 3H14"/>',
     doc: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
@@ -131,7 +132,7 @@
   const icon = (name, cls = "i") => h("span", { class: cls, html: svg(name) });
   // Fill static placeholders: <span class="i" data-icon="...">
   $$("[data-icon]").forEach((el) => (el.innerHTML = svg(el.dataset.icon)));
-  [["#sb-close", "sidebar"], ["#sb-open", "sidebar"], ["#btn-review", "review"], ["#send", "up"], ["#stop", "stop"],
+  [["#sb-close", "sidebar"], ["#sb-open", "sidebar"], ["#btn-review", "review"], ["#btn-export", "download"], ["#import-chat", "upload"], ["#send", "up"], ["#stop", "stop"],
     ["#pane-copy", "copy"], ["#pane-download", "download"], ["#pane-close", "x"], ["#pane-link", "link"], ["#pane-page", "external"]]
     .forEach(([sel, name]) => ($(sel).innerHTML = svg(name)));
   $$("[data-close]").forEach((el) => { if (el.classList.contains("icon-btn")) el.innerHTML = svg("x"); });
@@ -483,6 +484,7 @@
       ctx.title = `Context used: ~${(s.context_used || 0).toLocaleString()} of ${s.context_window.toLocaleString()} tokens`;
     } else ctx.hidden = true;
     $("#btn-review").hidden = !(live && s?.git?.is_repo);
+    $("#btn-export").hidden = !(S.mode === "thread" ? S.thread : live && S.hasContent);
     $$(".logo.dyn").forEach((l) => l.classList.toggle("busy", !!(live && S.busy)));
   }
   $("#topbar-title").addEventListener("dblclick", async () => {
@@ -493,6 +495,33 @@
     }
   });
   $("#btn-review").addEventListener("click", () => sendText("/review"));
+
+  // ---------- export / import a chat ----------
+  $("#btn-export").addEventListener("click", (e) => {
+    e.stopPropagation();
+    $$(".chat-menu").forEach((m) => m.remove());
+    const id = S.mode === "thread" ? S.id : threadId(S.info?.thread_name);
+    const item = (fmt, label, meta) => h("a", { class: "menu-item", href: `/api/threads/${encodeURIComponent(id)}/export?format=${fmt}`, download: "" },
+      icon("download"), h("span", { class: "row-main" }, h("div", {}, label), h("div", { class: "meta" }, meta)));
+    const menu = h("div", { class: "menu chat-menu" }, h("div", { class: "menu-label" }, "Export this chat"),
+      item("md", "Markdown", "Readable anywhere, good for notes and tickets"),
+      item("html", "HTML page", "One file, no scripts, opens offline"),
+      item("json", "JSON", "Everything; import it on another machine"));
+    e.currentTarget.parentElement.append(menu);
+    setTimeout(() => document.addEventListener("click", () => menu.remove(), { once: true }), 0);
+  });
+  $("#import-chat").addEventListener("click", () => $("#import-file").click());
+  $("#import-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const done = await api("POST", "/api/threads/import", JSON.parse(await file.text()));
+      toast(`Imported “${done.name}”`);
+      await refreshThreads();
+      location.hash = "t=" + done.id;
+    } catch (err) { toast(err instanceof SyntaxError ? "That file isn't a Dcode chat export (JSON)." : err.message, true); }
+  });
 
   // ---------- model menu ----------
   async function openModelMenu() {

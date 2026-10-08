@@ -241,5 +241,46 @@ def ui_command() -> None:
         click.echo(f"  session {entry['id']}  {entry.get('cwd', '')}")
 
 
+@cli.command("export")
+@click.argument("chat", required=False)
+@click.option("-f", "--format", "fmt", default="md", type=click.Choice(["md", "html", "json"]), show_default=True)
+@click.option("-o", "--output", default=None, metavar="FILE", help="Where to write it ('-' prints it)")
+def export_command(chat: str | None, fmt: str, output: str | None) -> None:
+    """Save a chat as Markdown, an HTML page or JSON (default: this folder's last chat)."""
+    import os
+    from pathlib import Path
+
+    from . import transcripts
+
+    try:
+        name, text = transcripts.export_thread(transcripts.find_thread(chat or "", os.getcwd()), fmt)
+        if output == "-":
+            click.echo(text, nl=False)
+            return
+        path = Path(output).expanduser() if output else Path(name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    except (transcripts.TranscriptError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Exported to {path}")
+
+
+@cli.command("import")
+@click.argument("file", type=click.Path(exists=True, dir_okay=False))
+def import_command(file: str) -> None:
+    """Bring in a chat exported as JSON (dcode export -f json, or /export json)."""
+    from pathlib import Path
+
+    from . import transcripts
+
+    ensure_app_dirs()
+    try:
+        done = transcripts.import_chat(Path(file).read_bytes())
+    except (transcripts.TranscriptError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Imported “{done['name']}” ({done['messages']} messages). "
+               f"Continue it with: dcode --resume \"{done['name']}\"   (or /sessions)")
+
+
 if __name__ == "__main__":
     cli()

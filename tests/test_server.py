@@ -400,3 +400,23 @@ def test_redo_endpoint_and_state(stack):
     assert body == {"ok": True, "files": ["note.txt"]} and path.read_text() == "hello"
     assert any(e["type"] == "redo" for e in session.bus.since(0))
     assert "brought back your changes" in session.agent.messages[-2]["content"]
+
+
+def test_thread_export_and_import_endpoints(stack):
+    save_thread("Deploy notes", [{"role": "system", "content": "s"}, {"role": "user", "content": "how do I deploy?"},
+                                 {"role": "assistant", "content": "Run ./ship.sh"}], extra={"cwd": "/srv"})
+    status, body, resp = req(stack, "GET", "/api/threads/Deploy-notes/export?format=md")
+    assert status == 200 and body.decode().startswith("# Deploy notes")
+    assert resp.getheader("Content-Disposition") == 'attachment; filename="dcode-Deploy-notes.md"'
+    assert resp.getheader("Content-Type") == "application/octet-stream"  # never rendered on the hub origin
+    assert req(stack, "GET", "/api/threads/Deploy-notes/export?format=exe")[0] == 400
+    assert req(stack, "GET", "/api/threads/nope/export")[0] == 404
+    status, exported, _ = req(stack, "GET", "/api/threads/Deploy-notes/export?format=json")
+    assert status == 200 and exported["name"] == "Deploy notes"
+
+    status, done, _ = req(stack, "POST", "/api/threads/import", exported)
+    assert status == 200 and done["name"] == "Deploy notes (2)" and done["id"] == "Deploy-notes-2"
+    assert req(stack, "GET", f"/api/threads/{done['id']}")[1]["items"][0]["text"] == "how do I deploy?"
+    status, error, _ = req(stack, "POST", "/api/threads/import", {"messages": []})
+    assert status == 400 and "no messages" in error["error"]
+    assert req(stack, "POST", "/api/threads/import", exported, csrf=False)[0] == 401
