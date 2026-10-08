@@ -90,6 +90,13 @@ DEFAULT_RULES = {
               ".env.example": "allow", ".env.sample": "allow", "*.env.example": "allow"},
     "outside_workspace": "ask",   # files outside the project folder
 }
+DEFAULT_DB = {
+    "enabled": True,              # give the model db_schema / db_query when a connection is saved
+    "row_limit": 200,             # rows one query may return
+    "timeout": 30,                # seconds per statement
+    "export_max_rows": 1_000_000,  # an export stops here…
+    "export_max_mb": 200,         # …or here, whichever comes first
+}
 DEFAULT_UI = {
     "enabled": True,        # start / join the localhost hub UI
     "port": 0,              # 0 = deterministic per-user port
@@ -117,6 +124,7 @@ class AppConfig:
     checks: dict[str, Any] = field(default_factory=lambda: json.loads(json.dumps(DEFAULT_CHECKS)))
     rules: dict[str, Any] = field(default_factory=lambda: json.loads(json.dumps(DEFAULT_RULES)))
     hooks: list[dict[str, Any]] = field(default_factory=list)  # see dcode/hooks.py
+    db: dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_DB))  # guards; connections live in db/
     enabled_skills: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -137,6 +145,7 @@ class AppConfig:
             "checks": json.loads(json.dumps(self.checks)),
             "rules": json.loads(json.dumps(self.rules)),
             "hooks": json.loads(json.dumps(self.hooks)),
+            "db": dict(self.db),
             "enabled_skills": list(self.enabled_skills),
         }
 
@@ -288,6 +297,7 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig | None:
         checks=json.loads(json.dumps(_merge_defaults(data.get("checks"), DEFAULT_CHECKS))),
         rules=json.loads(json.dumps(_merge_defaults(data.get("rules"), DEFAULT_RULES))),
         hooks=clean_hooks(data.get("hooks")),
+        db=_merge_defaults(data.get("db"), DEFAULT_DB),
         enabled_skills=[str(name) for name in enabled_skills],
     )
 

@@ -706,11 +706,13 @@ def list_models_prompt(models: list[str], selected: str | None = None) -> str:
     return select_model(models=models, selected=selected)
 
 
-def approval_prompt(label: str, detail: str, kind_label: str) -> str:
+def approval_prompt(label: str, detail: str, kind_label: str, session_option: bool = True) -> str:
     """Ask to allow an action. Returns 'allow', 'session' or 'deny'.
 
     Raises PromptInterrupted if the web UI answered first.
     """
+    if not session_option:  # some things are asked every single time (database changes)
+        return _approve_once(label, detail)
     options = ["Allow", f"Allow all {kind_label} for this session", "Deny"]
     detail_lines = detail.strip().splitlines() or [""]
     shown = "\n".join(f"    {line}" for line in detail_lines[:12])
@@ -727,6 +729,17 @@ def approval_prompt(label: str, detail: str, kind_label: str) -> str:
         erase=True,  # once answered, only the one-line result stays in the transcript
     )
     return ("allow", "session", "deny")[result if isinstance(result, int) else 2]
+
+
+def _approve_once(label: str, detail: str) -> str:
+    detail_lines = detail.strip().splitlines() or [""]
+    shown = "\n".join(f"    {line}" for line in detail_lines[:20])
+    if len(detail_lines) > 20:
+        shown += f"\n    … {len(detail_lines) - 20} more lines"
+    result = _selector(f"⚠  {label}", ["Allow this once", "Deny"], cancel_result=1, filterable=False,
+                       body_text=shown + "\n", shortcuts={"y": 0, "n": 1},
+                       hint_text="↑↓ move · enter select · y allow · n deny · asked every time", erase=True)
+    return "allow" if result == 0 else "deny"
 
 
 def question_prompt(question: str, options: Sequence[str]) -> str:
@@ -821,6 +834,8 @@ def _short_args(args: Any, limit: int = 100) -> str:
             text = str(args["path"]) + (
                 f":{args.get('start_line')}-{args.get('end_line', '')}" if args.get("start_line") else ""
             )
+        elif "sql" in args:
+            text = f"{args.get('connection', '')}: {args['sql']}"
         elif "task" in args:
             text = f"{args.get('role', '')}: {args['task']}"
         elif "title" in args:

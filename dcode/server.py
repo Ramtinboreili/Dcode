@@ -613,7 +613,7 @@ class Hub:
                     raw[key] = body[key]
             if body.get("api_key") and "•" not in str(body["api_key"]):
                 raw["api_key"] = body["api_key"]
-            for section in ("permissions", "experimental", "agents", "memory", "ui", "artifacts", "checks"):
+            for section in ("permissions", "experimental", "agents", "memory", "ui", "artifacts", "checks", "db"):
                 if isinstance(body.get(section), dict):
                     merged = dict(raw.get(section) or {})
                     merged.update(body[section])

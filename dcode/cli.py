@@ -21,7 +21,7 @@ from . import __version__, ui
 from .agents import MODE_LABELS, MODE_SHORT, MODES
 from .config import REASONING_EFFORTS, list_skill_files, list_threads, save_config
 from .engine import git_summary
-from .session import Session
+from .session import ALWAYS_ASK_KINDS, Session
 from .theme import ACCENT, DANGER, MUTED, PRIMARY, SUCCESS, WARNING
 
 PERMISSION_LABELS = {
@@ -41,7 +41,8 @@ EXPERIMENTAL_LABELS = {
 APPROVAL_LABELS = {"run_command": "Dcode wants to run a command", "delete_file": "Dcode wants to delete a file",
                    "git_commit": "Dcode wants to make a git commit",
                    "rule": "A rule says to confirm this", "outside_workspace": "Dcode wants a file outside the project",
-                   "edit_file": "Dcode wants to change a file"}
+                   "edit_file": "Dcode wants to change a file",
+                   "db_write": "Dcode wants to change a database"}
 APPROVAL_KINDS = {"run_command": "commands", "delete_file": "deletions", "git_commit": "commits",
                   "rule": "rule-matched actions", "outside_workspace": "files outside the project",
                   "edit_file": "file changes"}
@@ -213,7 +214,8 @@ class TerminalApp:
         if agent != "main":
             label += f" ({agent})"
         try:
-            choice = ui.approval_prompt(label, approval["detail"], APPROVAL_KINDS.get(approval["kind"], "of these"))
+            choice = ui.approval_prompt(label, approval["detail"], APPROVAL_KINDS.get(approval["kind"], "of these"),
+                                        session_option=approval["kind"] not in ALWAYS_ASK_KINDS)
         except ui.PromptInterrupted:
             return  # answered from the web UI (or the task was stopped)
         except KeyboardInterrupt:

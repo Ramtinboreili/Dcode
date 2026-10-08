@@ -22,6 +22,7 @@ from typing import Any, Protocol
 
 from . import agents as roles
 from . import checks, hooks, mentions, tools
+from . import db as databases
 from . import rules as permission_rules
 from .artifacts import ArtifactStore
 from .config import AppConfig
@@ -47,6 +48,8 @@ REPEAT_LIMIT = 3
 PREVIEW_CHARS = 4000
 MAX_FOLLOW_UPS = 2
 MAX_ARTIFACT_SAVES = 3  # per artifact per task (appends don't count)
+DB_SCHEMA_TTL = 300     # seconds a schema read is reused within a session
+DB_MODEL_ROWS = 100     # rows a db_query hands back to the model (the text cap usually cuts earlier)
 
 
 def _norm_title(title: str) -> str:
@@ -136,11 +139,14 @@ class Agent:
         self._artifact_saves: dict[str, int] = {}
         self._repeat: list[str] = []
         self.todos: list[dict[str, str]] = []
+        self._db_names: dict[str, str] = {}  # saved connections (name -> engine), refreshed at turn start
+        self._db_schemas: dict[str, tuple[float, dict[str, Any]]] = {}
         configure_limits(config.context_window)
         self.artifacts = ArtifactStore()
         self.checkpoints = getattr(host, "checkpoints", None)
         self.specs: dict[str, AgentSpec] = self._load_specs()
         self.rules = self._load_rules()
+        self._load_db_names()
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": self.system_prompt()}]
 
     # --- prompt & tools -------------------------------------------------------------
@@ -166,6 +172,8 @@ class Agent:
                 names += roles.ARTIFACT_TOOL_NAMES
             names += roles.SKILL_TOOL_NAMES
             names.append("todo_write")
+            if self._db_names:
+                names += roles.DB_TOOL_NAMES
             if hasattr(self.host, "ask_user"):
                 names.append("ask_user")
         else:
@@ -232,6 +240,8 @@ class Agent:
             parts.append(roles.PLAN_PROMPT)
         elif getattr(self.host, "jobs", None) is not None and self.config.permissions.get("run_command", True):
             parts.append(roles.JOBS_PROMPT)
+        if self._db_names:
+            parts.append(roles.DB_PROMPT.format(names=", ".join(f"{n} [{e}]" for n, e in self._db_names.items())))
         parts.append(roles.TODO_PROMPT)
         if self.todos:
             # Refreshed only at turn start and after compaction, so local servers keep their prompt cache.
@@ -246,10 +256,20 @@ class Agent:
         tools.set_file_guard(ruleset.denies_file)  # denied files are blocked for every tool, @mentions too
         return ruleset
 
+    def _load_db_names(self) -> None:
+        """Saved database connections. The db tools and their prompt line exist only when there are any."""
+        self._db_names = {}
+        if self.is_main and self.config.db.get("enabled", True):
+            try:
+                self._db_names = {name: conn["engine"] for name, conn in databases.load_connections().items()}
+            except Exception:
+                pass
+
     def refresh_system_message(self) -> None:
         self.specs = self._load_specs()  # pick up helpers added since the last turn
         if self.is_main:
             self.rules = self._load_rules()  # ...and rule changes (config or .dcode/rules.json)
+            self._load_db_names()            # ...and database connections
         system = {"role": "system", "content": self.system_prompt()}
         if self.messages and self.messages[0].get("role") == "system":
             self.messages[0] = system
@@ -773,6 +793,13 @@ class Agent:
             self.host.emit("skill_saved", agent=self.agent_id, name=skill.name)
             self.refresh_system_message()
             return f"Saved skill '{skill.name}' to {skill.path}. It now appears in the skills list."
+        if name in ("db_schema", "db_query"):
+            try:
+                return self._db_tool(name, args)
+            except databases.DBError as exc:
+                return f"Database error: {exc}"
+            except tools.WorkspaceError as exc:
+                return f"Blocked: {exc}"
         if name == "memory_save":
             if self.memory is None:
                 return "Memory is disabled."
@@ -796,6 +823,57 @@ class Agent:
             return refusal
         with tools.outside_workspace_allowed(outside_ok):
             return self._dispatch_builtin(name, args)
+
+    # --- databases ------------------------------------------------------------------------
+    def _db_connection(self, wanted: str) -> dict[str, Any]:
+        connections = databases.load_connections()
+        if not wanted and len(connections) == 1:
+            return next(iter(connections.values()))
+        if not wanted:
+            raise databases.DBError("Say which connection: " + ", ".join(connections) + ".")
+        return databases.get_connection(wanted)
+
+    def _db_schema(self, conn: dict[str, Any]) -> dict[str, Any]:
+        cached = self._db_schemas.get(conn["name"])
+        if cached and time.time() - cached[0] < DB_SCHEMA_TTL:
+            return cached[1]
+        schema = databases.read_schema(conn)
+        self._db_schemas[conn["name"]] = (time.time(), schema)
+        return schema
+
+    def _db_tool(self, name: str, args: dict[str, Any]) -> str:
+        conn = self._db_connection(str(args.get("connection") or "").strip())
+        budget = tools.MAX_OUTPUT_CHARS // 2  # a schema or result must leave room to think about it
+        if name == "db_schema":
+            return databases.schema_text(self._db_schema(conn), str(args.get("table") or "").strip(), budget)
+        statement = databases.single_statement(str(args.get("sql") or ""))
+        save_as = str(args.get("save_as") or "").strip()
+        if databases.classify(statement) == "write":
+            if self.mode == "plan":
+                return "Plan mode: a statement that changes the database can't run. Put it in the plan instead."
+            if conn.get("read_only"):
+                return (f"Blocked: the user marked the connection '{conn['name']}' read-only in Dcode. "
+                        "Don't retry; tell the user what you would have run.")
+            # Always asked, in every mode, and never "for the session": each change is seen by the user.
+            if not self._approve("db_write", f"{statement}\n\non {databases.describe(conn)}"):
+                return "Change cancelled by the user. Nothing was run. Don't retry it; ask what they want instead."
+            result = databases.run_query(conn, statement, confirmed=True)
+            self._db_schemas.pop(conn["name"], None)  # the structure may have changed
+            return databases.result_text(result) + f" Ran on {conn['name']} in {result['elapsed']}s."
+        if save_as:
+            if self.mode == "plan":
+                return "Plan mode: saving a file is disabled. Run the query without save_as."
+            target = _safe_path(save_as)
+            if self.mode == "manual" and not self._approve("edit_file", f"write {save_as} (database export)"):
+                return f"Export cancelled by user for {save_as}"
+            self._checkpoint(save_as)
+            fmt = "jsonl" if target.suffix.lower() in (".json", ".jsonl", ".ndjson") else "csv"
+            done = databases.export_query(conn, statement, target, fmt)
+            self._track("write_file", {"path": save_as}, "Wrote")
+            cut = f" Stopped at {done['stopped']}: the file is incomplete." if done["truncated"] else ""
+            return f"Saved {done['rows']:,} rows ({done['size']}, {done['format']}) to {save_as}.{cut}"
+        result = databases.run_query(conn, statement, row_limit=min(DB_MODEL_ROWS, int(self.config.db.get("row_limit", 200))))
+        return databases.result_text(result, max_chars=budget)
 
     def _ruleset(self) -> permission_rules.RuleSet:
         return self.rules if self.rules is not None else permission_rules.load(self.config.rules)

@@ -69,6 +69,12 @@ def render_todos(items: list[dict[str, str]]) -> str:
     return "\n".join(f"{marks[i['status']]} {i['text']}" for i in items)
 
 
+DB_TOOL_NAMES = ["db_schema", "db_query"]
+DB_PROMPT = (
+    "Databases ({names}): call db_schema before writing SQL, then db_query with one statement. Reads are "
+    "read-only and row-limited, so count, group and filter in SQL instead of fetching rows. A statement that "
+    "changes data or structure is shown to the user for approval first; never work around a refusal."
+)
 ARTIFACT_TOOL_NAMES = ["artifact_save", "artifact_get"]
 SKILL_TOOL_NAMES = ["skill_use", "skill_save"]
 # Tools a sub-agent may get even though no permission switch governs them.
@@ -192,6 +198,33 @@ EXTRA_TOOL_SCHEMAS = {
                     "append": {"type": "boolean", "description": "add content to the end of artifact `id` (build long ones in parts)"},
                 },
                 "required": ["title", "kind", "content"],
+            },
+        },
+    },
+    "db_schema": {
+        "type": "function",
+        "function": {
+            "name": "db_schema",
+            "description": "Tables of a saved database connection (sizes, columns, keys). Pass table for one "
+                           "table's full detail.",
+            "parameters": {
+                "type": "object",
+                "properties": {"connection": {"type": "string"}, "table": {"type": "string"}},
+                "required": [],
+            },
+        },
+    },
+    "db_query": {
+        "type": "function",
+        "function": {
+            "name": "db_query",
+            "description": "Run one SQL statement on a saved connection. save_as writes all rows of a read to "
+                           "a .csv or .jsonl file instead of returning them.",
+            "parameters": {
+                "type": "object",
+                "properties": {"connection": {"type": "string"}, "sql": {"type": "string"},
+                               "save_as": {"type": "string"}},
+                "required": ["connection", "sql"],
             },
         },
     },

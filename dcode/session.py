@@ -31,6 +31,8 @@ from .memory import MemoryStore
 from .tools import _truncate, configure_limits, workspace_root
 
 EVENT_BUFFER = 4000
+# Approvals that can't be granted "for this session": each one must be seen (database changes).
+ALWAYS_ASK_KINDS = {"db_write"}
 TITLE_PROMPT = (
     "Write a short title (2-6 words) for a coding chat that starts with the user's message below. "
     "Reply with the title only: no quotes, no punctuation at the end. Use the same language as the message."
@@ -379,7 +381,7 @@ class Session:
         if approval.kind == "question":
             approval.answer = " ".join(str(answer or "").split())[:2000]
             approved = bool(approved and approval.answer)
-        elif approved and scope == "session":
+        elif approved and scope == "session" and approval.kind not in ALWAYS_ASK_KINDS:
             self.allowed_kinds.add(approval.kind)
         approval.result = bool(approved)
         approval.done.set()
