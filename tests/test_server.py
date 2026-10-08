@@ -382,3 +382,21 @@ def test_bang_message_runs_the_users_own_command(stack):
     result = next(e for e in session.bus.since(0) if e["type"] == "tool_result")
     assert result["by"] == "user" and "web-shell" in result["output"]
     assert not any(e["type"] == "assistant_message" for e in session.bus.since(0))  # the model was not called
+
+
+def test_redo_endpoint_and_state(stack):
+    session = stack["session"]
+    sid = session.id
+    status, body, _ = req(stack, "POST", f"/api/s/{sid}/redo", {})
+    assert status == 200 and body == {"ok": False, "files": []}
+    target = session.agent.checkpoints
+    path = __import__("pathlib").Path(session.cwd) / "note.txt"
+    target.begin("write a note")
+    target.record(path)
+    path.write_text("hello")
+    assert req(stack, "POST", f"/api/s/{sid}/undo", {})[1]["ok"] and not path.exists()
+    assert req(stack, "GET", f"/api/s/{sid}/state")[1]["can_redo"] is True
+    status, body, _ = req(stack, "POST", f"/api/s/{sid}/redo", {})
+    assert body == {"ok": True, "files": ["note.txt"]} and path.read_text() == "hello"
+    assert any(e["type"] == "redo" for e in session.bus.since(0))
+    assert "brought back your changes" in session.agent.messages[-2]["content"]

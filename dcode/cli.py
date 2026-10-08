@@ -351,6 +351,8 @@ class TerminalApp:
             ui.notice(f"Mode changed from the web UI: {MODE_SHORT.get(event.get('mode'), event.get('mode'))}")
         elif kind == "undo":
             ui.notice(f"Undid “{event.get('label')}”: restored {', '.join(event.get('files') or []) or 'nothing'}", "success")
+        elif kind == "redo":
+            ui.notice(f"Brought back “{event.get('label')}”: {', '.join(event.get('files') or []) or 'nothing'}", "success")
         elif kind == "artifact_saved":
             if event.get("update"):  # same artifact again in this task: one quiet line, no link
                 ui.console.print(f"{ui.PAD}  [{MUTED}]↻ updated · v{event.get('versions', 1)}[/]")
@@ -462,6 +464,9 @@ class TerminalApp:
                 result = session.undo()
                 if result is None:
                     ui.notice("Nothing to undo — Dcode hasn't changed any files in this session.")
+            elif command == "/redo":
+                if session.redo() is None:
+                    ui.notice("Nothing to redo — use it right after /undo, before Dcode changes files again.")
             elif command == "/diff":
                 from .tools import execute_tool
 

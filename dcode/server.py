@@ -302,6 +302,9 @@ class SessionServer:
         if path == "/undo":
             result = session.undo()
             return {"ok": bool(result), "files": result[1] if result else []}
+        if path == "/redo":
+            result = session.redo()
+            return {"ok": bool(result), "files": result[1] if result else []}
         raise RuntimeError(f"unknown command {path}")
 
 

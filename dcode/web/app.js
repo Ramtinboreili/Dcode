@@ -892,6 +892,9 @@
       case "undo":
         eventLine("success", "refresh", `Undid “${ev.label}”: restored ${(ev.files || []).join(", ") || "nothing"}`);
         break;
+      case "redo":
+        eventLine("success", "refresh", `Brought back “${ev.label}”: ${(ev.files || []).join(", ") || "nothing"}`);
+        break;
       case "check":
         eventLine("warning", "alert", `Check found ${ev.count > 1 ? ev.count + " problems" : "a problem"} in ${ev.path} — Dcode will fix ${ev.count > 1 ? "them" : "it"}: ${short(String(ev.problems || "").split("\n")[0], 100)}`);
         break;
@@ -1038,7 +1041,7 @@
   // ---------- @file and /command suggestions ----------
   const suggest = $("#suggest");
   const WEB_COMMANDS = [["/review", "Review the uncommitted changes"], ["/compact", "Summarize the chat to free context"],
-    ["/undo", "Undo the file changes from the last task"], ["/mode", "Switch mode: manual, accept, auto, plan"],
+    ["/undo", "Undo the file changes from the last task"], ["/redo", "Bring back what the last /undo removed"], ["/mode", "Switch mode: manual, accept, auto, plan"],
     ["/new", "Start a new chat"], ["/rename", "Rename this chat"], ["/init", "Write AGENTS.md for this project"]];
   const sug = { items: [], sel: 0, token: "", kind: "", seq: 0 };
   function hideSuggest() { suggest.hidden = true; sug.items = []; }
@@ -1122,6 +1125,10 @@
         const r = await api("POST", `/api/s/${S.id}/undo`, {});
         return toast(r.ok ? `Restored ${r.files.length} file(s)` : "Nothing to undo", !r.ok);
       }
+      if (cmd === "/redo") {
+        const r = await api("POST", `/api/s/${S.id}/redo`, {});
+        return toast(r.ok ? `Brought back ${r.files.length} file(s)` : "Nothing to redo", !r.ok);
+      }
       if (cmd === "/mode") {
         const key = arg.toLowerCase().replace(/[\s-]+/g, "_");
         await api("POST", `/api/s/${S.id}/mode`, { mode: key === "accept" ? "accept_edits" : key });
@@ -1133,7 +1140,7 @@
         try { await api("POST", `/api/s/${S.id}/command`, { name: cmd.slice(1), args: arg }); }
         catch (e) {
           if (!/Unknown command/.test(e.message)) throw e;
-          toast("Here you can use /review, /init, /compact, /undo, /mode, /new, /rename and your own commands (.dcode/commands). Everything else is in Settings.");
+          toast("Here you can use /review, /init, /compact, /undo, /redo, /mode, /new, /rename and your own commands (.dcode/commands). Everything else is in Settings.");
         }
       }
       else await api("POST", `/api/s/${S.id}/message`, { text });

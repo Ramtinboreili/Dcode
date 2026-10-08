@@ -413,6 +413,23 @@ class Session:
         self.save()
         return label, shown
 
+    def redo(self) -> tuple[str, list[str]] | None:
+        """Put back what the last /undo removed (until Dcode changes a file again)."""
+        if self.busy:
+            raise RuntimeError("Dcode is busy. Stop the current task first.")
+        result = self.checkpoints.redo()
+        if result is None:
+            return None
+        label, paths = result
+        shown = [self._rel(p) for p in paths]
+        self.agent.messages.append({"role": "user", "content": (
+            f"[The user brought back your changes from the task \"{label}\" (redo). These files have "
+            f"your changes again: {', '.join(shown)}]")})
+        self.agent.messages.append({"role": "assistant", "content": "Noted — those changes are back."})
+        self.emit("redo", label=label, files=shown)
+        self.save()
+        return label, shown
+
     def suggest_commit_message(self) -> str:
         from .tools import execute_tool
 
@@ -558,6 +575,7 @@ class Session:
             "jobs": [job.as_dict() for job in self.jobs.list()],
             "plan_pending": self.plan_pending,
             "can_undo": self.checkpoints.latest() is not None,
+            "can_redo": self.checkpoints.can_redo(),
             "todos": self.agent.todos,
             "commands": [c.as_dict() for c in self.custom_commands().values()],
         }

@@ -85,6 +85,33 @@ def test_checkpoints_undo_restores_edits_and_new_files(isolated):
     assert host.checkpoints.undo() is None
 
 
+def test_redo_brings_the_undone_changes_back(isolated):
+    (isolated / "a.txt").write_text("original")
+    agent, host = _agent(scripted(
+        AssistantTurn(tool_calls=[
+            call("edit_file", '{"path": "a.txt", "old_text": "original", "new_text": "changed"}', "c1"),
+            call("write_file", json.dumps({"path": "new.txt", "content": "fresh"}), "c2"),
+        ]),
+        AssistantTurn(content="done"),
+        AssistantTurn(tool_calls=[call("write_file", json.dumps({"path": "b.txt", "content": "later"}), "c3")]),
+        AssistantTurn(content="done"),
+    ), "accept_edits")
+    store = host.checkpoints
+    assert store.redo() is None and not store.can_redo()
+    agent.run_turn("change files")
+    store.undo()
+    assert store.can_redo()
+    label, changed = store.redo()
+    assert label == "change files" and len(changed) == 2
+    assert (isolated / "a.txt").read_text() == "changed" and (isolated / "new.txt").read_text() == "fresh"
+    assert not store.can_redo()
+    store.undo()  # undo → redo → undo walks back and forth
+    assert (isolated / "a.txt").read_text() == "original" and not (isolated / "new.txt").exists()
+    assert store.can_redo()
+    agent.run_turn("another change")  # a new change: the undone one can't be layered on top
+    assert (isolated / "b.txt").exists() and not store.can_redo() and store.redo() is None
+
+
 def test_force_compact_replaces_history_with_summary():
     agent, host = _agent(scripted(AssistantTurn(content="a1"), AssistantTurn(content="a2")), "accept_edits")
     agent.run_turn("first question")

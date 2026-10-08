@@ -92,6 +92,7 @@ COMMANDS: dict[str, str] = {
     "/init": "Write AGENTS.md: project commands, layout and conventions for Dcode",
     "/compact": "Summarize this session to free context: /compact [focus]",
     "/undo": "Undo Dcode's file changes from the last task",
+    "/redo": "Bring back the changes the last /undo removed",
     "/diff": "Show uncommitted git changes",
     "/commit": "Commit with a generated message: /commit [message]",
     "/guide": "Open the user guide in your browser (English / فارسی)",
