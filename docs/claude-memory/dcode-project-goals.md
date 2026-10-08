@@ -16,6 +16,8 @@ Status 2026-10-05: v0.3.1 released on dev (Phase 2 = artifacts done); full docs 
 
 Phase 3 (2026-10-05, on main and dev, still unreleased as a version — binary reports 0.3.1): user picked Tier 1+2 of an opencode comparison — post-edit checks, @file mentions, todo checklist, /init, helper model, custom helpers (.dcode/agents) + @name, custom commands (.dcode/commands), allow/ask/deny rules, hooks, ask_user. Tier 3–4 ideas are in docs/roadmap.md backlog.
 
+Phase 4 (2026-10-08, on dev, unreleased, version still 0.4.0): the owner said "going for phase 3" after 0.4.0 shipped; asked what was meant, they chose Tier 3 and Tier 4 of the opencode comparison. Built: `!command`, `/editor`, `/thinking`, `/details`, `/notify`, `/redo`, `/sessions` + `--continue`/`--resume`, export/import, `dcode stats`, helper sessions in the web UI, MCP stdio servers with a names-only tool index, `dcode attach`, `/api/openapi.json`, `dcode acp` (Zed), a VS Code extension, and `.rpm`/tarball/Docker packages from a glibc-2.28 binary (`make packages`). Not yet run in a real Zed or VS Code, nor with a real local model. My interpretation: when the owner names a phase that is already done, ask which work they mean rather than guess.
+
 Phase 1 asks (delivered 2026-10-03): rename to Dcode, blue theme, small-context performance, sub-agents/multi-agent, memory architecture, localhost web UI per user that controls live sessions (URL printed in CLI, hub stops when last session exits, history persists), CLI and UI share one design system.
 
 **Why:** targets have no internet — no CDNs, no new pip deps, stdlib HTTP only.
