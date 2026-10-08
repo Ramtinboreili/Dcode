@@ -35,6 +35,8 @@ echo ">> Building single-file binary"
   --collect-all prompt_toolkit \
   --collect-all rich \
   --collect-all openai \
+  --hidden-import pg8000 \
+  --hidden-import pymysql \
   --add-data "dcode/web:dcode/web" \
   --add-data "dcode/skills:dcode/skills" \
   dcode_bootstrap.py

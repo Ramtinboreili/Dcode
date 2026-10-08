@@ -1,8 +1,21 @@
 # Changelog
 
-## Unreleased — Phase 3: ideas from opencode, adapted to small models
+## Unreleased — Phase 3 (ideas from opencode), databases and scheduled jobs
 
 The version number is the owner's decision.
+
+### Databases
+- **Connect to your databases** (PostgreSQL, MySQL / MariaDB, SQLite) from the web UI, the terminal or by asking Dcode. Connections are saved once; the password stays in a file only you can read and is never shown. Dcode has exactly the rights of the database user you connect with.
+- **Databases screen in the web UI**: table list with sizes, data preview, structure (columns, keys, indexes), an SQL editor with a result grid, a summary of the whole database, and export.
+- **`/db` in the terminal**: `/db add`, `/db <name>` (tables), `/db <name> <table>`, `/db <name> SELECT …`, `summary`, `export`.
+- **Dcode can query them** with two new tools (`db_schema`, `db_query`), which exist only while a connection is saved (about 270 tokens). It can save a full result to a CSV or JSON-lines file.
+- **Guards**: reads run in a read-only session, one statement at a time, limited to 200 rows and 30 seconds. Anything that changes data or structure is shown to you and runs only after you confirm it, in every mode (auto included), and can't be allowed for the session. A connection can be marked read-only in Dcode. Exports refuse tables estimated above 1,000,000 rows or 200 MB (or cut there if you insist) and watch the free disk space. The limits are in Settings → Permissions → Databases.
+- The drivers (pg8000, PyMySQL) are pure Python, bundled in the binary and loaded only when used.
+
+### Scheduled jobs
+- **Run a shell command or a Dcode prompt on a schedule** (five-field cron expressions, or `@hourly`, `@daily`, …) and read each run's log afterwards: the Scheduled screen in the web UI, or `/cron` in the terminal.
+- Jobs run in the background even with no terminal open: the background service now stays up while a job is switched on. Run now, stop, switch off, time limit per run, overlapping runs skipped, last 50 runs kept.
+- **`dcode run "<prompt>"`** does one task unattended and prints plain text (`--mode plan|accept_edits|auto`). Nobody can approve anything there, so whatever would ask is refused and the run ends with a non-zero exit code.
 
 ### Memory use
 - The background web UI process (the hub) uses about 22 MB instead of about 40 MB: it no longer loads the terminal libraries, and it fetches the model list without an HTTP client library.
@@ -22,7 +35,7 @@ The version number is the owner's decision.
 - **Questions** (`ask_user`): the model can ask a multiple-choice question, answered in the terminal or the web UI. If you skip it, the model decides and says what it assumed.
 
 ### Testing
-- 156 unit tests, up from 110. `docs/dev/terminal_e2e.py` has 31 real-terminal checks, up from 22, and `--verbose` prints the screen when a check fails.
+- 199 unit tests, up from 110. `docs/dev/terminal_e2e.py` has 42 real-terminal checks, up from 22, and `--verbose` prints the screen when a check fails.
 - The new tools add about 245 tokens per request (system prompt plus schemas, about 1.9K in total).
 
 ## 0.3.1

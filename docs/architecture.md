@@ -18,6 +18,7 @@ dcode (terminal) ──┐                         ┌── browser (per OS use
 
 | Module | Responsibility |
 |---|---|
+| `__main__.py` | the real entry point: `hub` and `run` skip the terminal app's imports, everything else goes to `main.cli` |
 | `main.py` | click entry point, setup wizard, signal handling, starting/joining the hub, `dcode ui`, hidden `dcode hub` |
 | `cli.py` | `TerminalApp`: a state-driven loop (approval → busy → plan approval → input), event rendering, slash commands, live activity panel, `/jobs`, `/artifacts`, `/commit` |
 | `ui.py` | rich and prompt_toolkit widgets: header, bottom input box (labeled top rule, mode badge, slash suggestions, Shift+Tab, Ctrl+O, Ctrl+C×2), selectors, approval menu, diffs, links |
@@ -39,6 +40,9 @@ dcode (terminal) ──┐                         ┌── browser (per OS use
 | `rules.py` | `RuleSet`: allow/ask/deny by pattern for commands and files, outside-workspace policy, project rules that can only tighten |
 | `hooks.py` | user hooks: `before_tool` (can block), `after_tool`, `task_done`, `approval_needed` |
 | `jobs.py` | background jobs (process group, log file, exit callback) |
+| `db.py` | saved database connections; `Link` (one open connection, the only engine-specific code); schema, summary, guarded `run_query`, streaming exports; text for the model |
+| `schedules.py` | scheduled jobs: cron parser, jobs and runs on disk, `run_job` (log, time limit), `Scheduler` (a thread in the hub) |
+| `headless.py` | `dcode run`: a `Session` with no terminal; approvals are denied, events are printed as plain text |
 | `server.py` | `SessionServer` (per session), `Hub` (per user), registry, token, hub lifecycle (`ensure_hub`, `hub_usable`, `_retire_hub`, clean child env) |
 | `config.py` | `AppConfig`, paths (`DCODE_HOME`), env overrides, legacy migration, threads |
 | `web/` | `index.html`, `app.js`, `app.css` (main UI), `artifact.html` (`/a/<id>`), `guide.html` (`/guide`), `logo.svg` |
@@ -70,6 +74,22 @@ dcode (terminal) ──┐                         ┌── browser (per OS use
 
 `Session.request_approval` emits `approval_request` and waits. Questions from `ask_user` use the same channel with kind `question`, `options`, and an `answer` on resolve. Either the terminal (menu) or the web UI (card) resolves it; the first answer wins. "Allow for this session" adds the kind to `Session.allowed_kinds`.
 
+## Databases
+
+- **Connections** are saved in `~/.dcode/db/connections.json` (0600). The password is never returned by any API; a blank or masked password on save keeps the stored one.
+- **`Link`** opens one connection per operation. Reads set the session read-only (`default_transaction_read_only`, `SET SESSION TRANSACTION READ ONLY`, `PRAGMA query_only`) and a statement timeout, then stream rows (a server-side cursor on PostgreSQL, an unbuffered cursor on MySQL). `classify()` only decides *which path* a statement takes; the read-only session is what actually stops a write.
+- **Changes**: `run_query` raises `NeedsConfirmation` until called with `confirmed=True`. The engine turns that into a `db_write` approval that is asked in every mode and is excluded from "allow for this session" (`session.ALWAYS_ASK_KINDS`). The web UI and `/db` show the statement and ask.
+- **The model's tools** (`db_schema`, `db_query`) and their prompt line exist only when a connection is saved; results are capped at half the tool-output budget.
+- **Exports** go to `~/.dcode/db/exports` (or a workspace path with `save_as`), stop at the row and size limits, and refuse tables whose catalog estimate is above them unless forced.
+
+## Scheduled jobs
+
+- Jobs: `~/.dcode/cron/jobs.json`; runs and logs: `~/.dcode/cron/logs/<job>/` (`runs.json` + one `.log` per run, 50 kept).
+- The hub owns a `Scheduler`: every 5 s it starts jobs whose expression matches the current minute (only in the first 20 s of it), and jobs flagged `run_requested` (how `/cron run` asks without talking HTTP).
+- Each run is a child in its own process group with a clean environment; output is copied to the log (cut at 5 MB), and a timer kills the group at the time limit.
+- A prompt job runs `dcode run --mode <mode> <prompt>` in the job's folder.
+- The hub's idle watcher keeps it alive while any job is enabled or running.
+
 ## Events (`EventBus`)
 
 All UI comes from events, which the web UI can replay from `seq=0`:
@@ -92,7 +112,7 @@ All UI comes from events, which the web UI can replay from `seq=0`:
 - **Starting the hub:** the first session spawns `dcode hub`, detached and with a clean environment. Later sessions reuse it if `hub_usable()` (same version, assets present); otherwise they replace it. The hub exits about 6 seconds after the last session ends.
 - **Security:** binds 127.0.0.1 only. A per-user token is stored in `~/.dcode/run/token` (mode 0600). The browser gets an HttpOnly, SameSite=Strict cookie lasting 30 days. Mutations require an `X-Dcode: 1` header, and a Host-header check blocks DNS rebinding. Artifacts render in `sandbox="allow-scripts"` iframes with a CSP of `default-src 'none'`. Downloads are served as `application/octet-stream`.
 - **API:**
-  - Hub, for the browser: `/api/{hub,sessions,threads,config,models,memory,skills,agents,artifacts}`
+  - Hub, for the browser: `/api/{hub,sessions,threads,config,models,memory,skills,agents,artifacts,db,cron}`
   - Proxied to a session: `/api/s/<id>/{state,events,files,message,approve,interrupt,new,rename,resume,model,reload,mode,plan,compact,undo,init,command}`
   - Public (no token): `/api/health`, `/guide`, `/static/logo.svg`
 
@@ -106,6 +126,8 @@ skills/*.md           (+ .builtin-seeded marker)
 agents/*.md           your helpers        (projects: .dcode/agents/*.md)
 commands/*.md         your slash commands (projects: .dcode/commands/*.md; .dcode/rules.json = stricter rules)
 artifacts/<id>.json   content + history (≤10 versions)
+db/connections.json   0600 saved database connections · db/exports/ exported files
+cron/jobs.json        scheduled jobs · cron/logs/<job>/ runs.json + one log per run
 run/                  hub.json, token, sessions/, hub.log, hub.lock, jobs/*.log
 ```
 

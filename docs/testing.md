@@ -2,7 +2,7 @@
 
 Three layers. Run the first always, the second for any terminal or packaging change, and the third when layout or colors matter.
 
-## 1. Unit tests (`tests/`, about 156 tests, about 20 s)
+## 1. Unit tests (`tests/`, about 199 tests, about 30 s)
 
 ```bash
 .venv/bin/python -m pytest -q
@@ -32,16 +32,20 @@ Three layers. Run the first always, the second for any terminal or packaging cha
 | `test_modes.py` | modes, checkpoints/undo, force compact, plan flow |
 | `test_artifacts_skills.py` | artifacts, skills, stubbing payloads out of context |
 | `test_followthrough_jobs.py` | follow-through, cut-off continuation, append, jobs, save loop, one artifact per chat |
+| `test_db.py` | SQL splitting and classifying, connections and passwords, schema and summary, row limits, change confirmation, timeouts, exports and the heavy-table guard, the model's `db_*` tools in every mode (on SQLite) |
+| `test_schedules.py` | cron expressions, job validation, runs and logs, time limit, trimming, the scheduler (due, once a minute, overlap, run now), `dcode run`, hub keep-alive, the cron API |
 | `test_server.py` | auth, CSRF, Host check, proxy and SSE, config/memory/threads/artifacts/skills API, guide, hub lifecycle, health |
 
 ## 2. Real-terminal end-to-end (`docs/dev/terminal_e2e.py`)
 
-Drives the real `dcode` in a pseudo-terminal against **`docs/dev/mock_llm.py`**, a scripted OpenAI-compatible server. Its docstring lists the trigger words for each scenario. 31 checks, covering:
+Drives the real `dcode` in a pseudo-terminal against **`docs/dev/mock_llm.py`**, a scripted OpenAI-compatible server. Its docstring lists the trigger words for each scenario. 42 checks, covering:
 - the web UI link and hub, the bilingual guide
 - streaming and `<think>` stripping, tool calls, `/version`, Shift+Tab
 - approvals answered from the web and in the terminal
 - Ctrl+O, helpers, follow-through, the re-save cap
 - `/compact`, Ctrl+C twice, hub shutdown, thread saved
+- databases: `/db add` and queries on a SQLite file, the model's `db_query`, a change that asks even in auto mode and is not run when denied
+- scheduled jobs: `/cron add`, a run started by the hub with its log, `/cron rm`
 - Phase 3: `@` completion and attach, the checklist, the question menu, the post-edit check, `/rules`, a custom `/command`, `@helper`
 
 `--verbose` prints the last screen when a check fails.
@@ -59,6 +63,15 @@ Gotchas this harness handles (keep them in mind when writing new pty tests):
 - Raw captures strip cursor movement, so an in-place redraw looks like duplicated output. Check behavior, not counts.
 - On macOS, the repo's `.venv` editable install only imports from the repo root (hidden `.pth` files). The harness sets `PYTHONPATH`.
 - The binary starts slower (it unpacks itself and spawns the hub). Wait about 8–12 s.
+
+### Real database servers
+
+The unit tests use SQLite, which needs nothing. PostgreSQL and MySQL/MariaDB were checked by hand against throwaway Docker containers (`postgres:16-alpine`, `mysql:8.4`, `mariadb:11`) with a restricted user: schema, limits, timeouts, read-only refusal of disguised writes, permission errors, exports. Do the same after touching `db.Link`:
+
+```bash
+docker run -d --rm --name dcode-test-pg -e POSTGRES_PASSWORD=x -p 127.0.0.1:55432:5432 postgres:16-alpine
+# then: /db add t postgres://postgres:x@127.0.0.1:55432/postgres
+```
 
 ## 3. Rendered screen and colors (`docs/dev/screen.py`)
 

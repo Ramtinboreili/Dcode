@@ -40,6 +40,8 @@ Dcode works with any OpenAI-compatible server (Ollama, vLLM, llama.cpp, LM Studi
   - `allow` / `ask` / `deny` rules for commands and files (`.env` protected by default).
   - Hooks around tools and tasks.
   - The model can ask you multiple-choice questions.
+- **Databases.** Save a connection to PostgreSQL, MySQL / MariaDB or SQLite and browse it like a small DBeaver in the web UI (tables, data, structure, SQL editor, summary, export), use `/db` in the terminal, or just ask Dcode. Dcode has the rights of the database user you give it. Reads are read-only and limited; every change needs your confirmation in every mode; heavy tables are not exported whole.
+- **Scheduled jobs.** Run a shell command or a Dcode prompt on a cron schedule and read each run's log (`/cron`, or the Scheduled screen). They run in the background with no terminal open. `dcode run "<prompt>"` does one task unattended.
 - **One look.** The terminal and the web UI share the same blue palette, defined once in `dcode/theme.py`.
 
 > 🛠 **Developer docs:** [`docs/`](docs/README.md) (architecture, history, decisions, roadmap, testing, operations) · agent instructions in [`CLAUDE.md`](CLAUDE.md).
@@ -92,6 +94,9 @@ dcode/
   memory.py    long-term memory store (Markdown + BM25)
   llm.py       OpenAI-compatible client wrapper
   tools.py     sandboxed file / shell / git tools
+  db.py        database connections, schema, guarded queries, export
+  schedules.py scheduled jobs (cron), runs and logs, the scheduler
+  headless.py  `dcode run`: one unattended task
   server.py    session API + per-user hub
   web/         index.html, app.css, app.js (no external assets)
 packaging/     PyInstaller binary, .deb, offline installer

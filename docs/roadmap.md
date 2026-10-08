@@ -4,7 +4,8 @@
 
 - **Released:** v0.3.1. On 2026-10-07 everything was pushed: `main` and `dev` (same commit), the tags `v0.3.0` and `v0.3.1`, the macOS binary in `builds/`, and Claude's memory files in `docs/claude-memory/`.
 - **After 0.3.1** (committed, unreleased): the hub fix (clean environment, version and asset health check), these docs, and **Phase 3** (Tier 1 + 2 from the opencode comparison: post-edit checks, `@file` mentions, checklist, `/init`, helper model, custom helpers and commands, permission rules, hooks, questions). See CHANGELOG "Unreleased".
-- **Quality bar:** 154 unit tests. `docs/dev/terminal_e2e.py` runs 31 real-terminal checks, all passing on macOS arm64.
+- **After Phase 3** (committed, unreleased, 2026-10-08): a lean hub process, **databases** (connections, schema, guarded queries, summary, export; web UI, `/db`, model tools) and **scheduled jobs** (`/cron`, the Scheduled screen, `dcode run`).
+- **Quality bar:** 199 unit tests. `docs/dev/terminal_e2e.py` runs 42 real-terminal checks. All pass on Linux x86_64 (Ubuntu 22.04, Python 3.10) from source and against a one-file binary built there; the earlier 31 also passed on macOS arm64.
 - **Pending decision:** the user wanted **v1.0.0**; Claude recommended **1.0.0-rc.1** (see below). The user said "don't build it yet".
 
 ## Is it production-ready? Claude's honest assessment
@@ -37,6 +38,9 @@
 - [ ] Fix everything from the validation round, then cut 1.0.0 with a changelog entry and push the tag.
 
 ## Backlog and ideas (not committed to)
+
+- **Databases:** cancel a running query from the UI; more engines (SQL Server, Oracle, ClickHouse) if needed; SSH tunnels; a real `pg_dump`-style export; per-connection row limits; pagination in the data grid; saved queries.
+- **Scheduled jobs:** start the background service at boot (a systemd user unit) so jobs survive reboots; catch up one missed run; notify on failure; let a job's output become an artifact.
 
 - **Web UI:** background jobs panel (start/stop/view logs); diff viewer for file edits; plan-mode editing before approval; true phone-width testing (headless Chrome won't render below 500 px).
 - **Artifacts:** export bundle (zip); share an artifact between users on a shared server (opt-in); Mermaid diagrams, which would need a bundled renderer because there are no CDNs.

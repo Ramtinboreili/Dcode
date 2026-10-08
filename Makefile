@@ -39,6 +39,7 @@ mac:
 	rm -rf build dist
 	$(PYTHON) -m PyInstaller --onefile --name dcode --clean --noconfirm \
 	  --collect-all prompt_toolkit --collect-all rich --collect-all openai \
+	  --hidden-import pg8000 --hidden-import pymysql \
 	  --add-data "dcode/web:dcode/web" --add-data "dcode/skills:dcode/skills" dcode_bootstrap.py
 	install -m 0755 dist/dcode $(MAC_BIN)/dcode
 	@echo "Installed $(MAC_BIN)/dcode"

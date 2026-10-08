@@ -154,3 +154,13 @@ The user asked what Dcode could learn from [opencode](https://github.com/anomaly
 | 10 | `ask_user` questions | main agent only; asked even in auto mode |
 
 One commit per feature on `dev`, plus end-to-end checks and docs. 154 unit tests, 31 terminal checks, and the web UI was checked in headless Chrome. The extra prompt cost is about 245 tokens per request.
+
+## 11. A second machine, memory use, databases and scheduled jobs (unreleased, October 8, 2026)
+
+Work moved to a Linux server (Ubuntu 22.04). The GitHub repo was renamed to `Ramtinboreili/Dcode` and `main` became the default branch.
+
+- **Linux check:** 154 unit tests and the 31 terminal checks passed there from source, the first run outside macOS.
+- **Memory:** the owner reported the background server using too much memory. The hub was importing the whole terminal stack; it now starts through its own entry point and fetches the model list with the standard library: about 40 MB → 22 MB. A session is still 60–75 MB (the `openai` SDK and prompt_toolkit).
+- **Databases** (asked: connect from the CLI or UI, see the schema "like DBeaver", access decided by the database user, summaries and exports with guards for heavy databases, every change manual). Built `db.py`, the Databases screen, `/db`, and the model's `db_schema` / `db_query`. Checked against real PostgreSQL 16, MySQL 8.4 and MariaDB 11 in throwaway containers.
+- **Scheduled jobs** (asked: set cron jobs and see their logs). The owner chose shell commands *and* Dcode prompts, run by Dcode's own background scheduler. Built `schedules.py`, `dcode run`, the Scheduled screen and `/cron`.
+- **Found along the way:** PyMySQL printed "Exception ignored" noise when a half-read result was dropped; a job saved in the middle of a matching minute fired at once; the log-cut note was skipped when all output arrived in one chunk; a shell `pkill -f` matched its own command line.

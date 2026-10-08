@@ -9,6 +9,16 @@ Why Dcode is built the way it is. Each decision gives the choice and the reason;
 - **certifi's CA bundle for outbound HTTPS.** python.org's macOS Python has no CA store. Sessions use `httpx` (which uses certifi); the hub uses `urllib` with certifi's bundle, so it doesn't load a client library for one request.
 - **A lean hub process.** The hub lives as long as any session, so `dcode hub` skips the terminal app's imports. That cut it from about 40 MB to about 22 MB. A session is about 60–75 MB, of which the `openai` SDK is about 23 MB and prompt_toolkit about 13 MB.
 
+## Databases and scheduled jobs
+- **Two bundled drivers (pg8000, PyMySQL) despite the no-new-dependencies rule.** The owner asked to work with external databases as an admin would. Servers in air-gapped sites often have no `psql`/`mysql` client, and parsing a CLI's output can't enforce row limits or read-only sessions. Both drivers are pure Python, small, and imported only when a connection of that kind is used.
+- **The database's own permissions are the access model.** Dcode connects as the user it is given and adds no role system of its own; the catalog queries only list what that user can read.
+- **The read-only session is the guard, not the SQL classifier.** Classifying SQL by its first word is easy to fool (`WITH … DELETE`, `SELECT … INTO`), so it only picks the path; the server refuses writes on the read path.
+- **Database changes always ask, and never "for the session".** The owner's rule: every change is manual. That holds in auto mode too.
+- **Size estimates come from the catalog.** Counting rows to decide whether a table is too heavy would itself be the heavy query.
+- **Dcode's own scheduler instead of the system crontab.** Chosen by the owner. It needs no cron daemon, logs are in one place, and prompt jobs can reuse the session machinery. The cost: nothing runs after a reboot until `dcode` is started once, and missed runs are not caught up.
+- **Unattended runs deny approvals instead of waiting.** Nobody is there; a job that hangs on a question forever is worse than one that fails loudly. The job's mode says what it may do.
+- **The model has no tool to create scheduled jobs**, and nothing in a project folder can add one: a schedule is standing permission to run things later.
+
 ## Architecture
 - **The engine has no I/O.** It reports through a `Host` (events and approvals). That's what lets the terminal and the web UI drive the *same* session, and what makes the engine testable with a fake LLM.
 - **Approvals: the first answer wins.** Either surface can answer. The session raises an "attention" ping to close the terminal prompt only when the *web* answers. Pinging on the request itself closed the menu the terminal was about to open.

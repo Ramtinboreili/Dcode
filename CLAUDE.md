@@ -15,10 +15,10 @@ Dcode is a coding agent (terminal + per-user localhost web UI) for **local / air
 ## Commands
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/python -m pytest -q                 # ~156 tests, ~20 s
+.venv/bin/python -m pytest -q                 # ~199 tests, ~30 s
 .venv/bin/ruff check dcode tests              # must pass
 PYTHONPATH=. .venv/bin/dcode                  # run from source (see macOS .pth gotcha)
-python docs/dev/terminal_e2e.py [--binary /opt/homebrew/bin/dcode] [--verbose]   # 31 real-terminal checks
+python docs/dev/terminal_e2e.py [--binary /opt/homebrew/bin/dcode] [--verbose]   # 42 real-terminal checks
 python docs/dev/screen.py --type "say hello" [--html out.html]       # rendered screen (needs pyte)
 make mac PYTHON=.venv/bin/python              # macOS binary → /opt/homebrew/bin/dcode (no sudo)
 make deb                                      # Linux .deb (build on matching Linux host)
@@ -30,6 +30,7 @@ make deb                                      # Linux .deb (build on matching Li
 - `cli.py` + `ui.py` — terminal: state-driven loop, event rendering, slash commands, live panel; widgets (bottom input box, selectors, approval menu).
 - `server.py` — per-session API + per-user hub (UI, settings, memory, skills, artifacts, proxy/SSE, lifecycle).
 - `llm.py` (server quirks, `<think>`, text tool-call recovery, name cleaning, `with_model`), `context.py` (budget/compaction), `tools.py` (sandboxed tools, file guard, outside-workspace allowance), `agents.py` (prompts, roles, modes, extra schemas, todo helpers), `memory.py`, `artifacts.py`, `skills.py` (+ `skills/*.md`, `parse_frontmatter`), `checkpoints.py`, `jobs.py`, `config.py`, `theme.py`.
+- Databases: `db.py` (connections, `Link` = the only engine-specific code, schema, guarded `run_query`, exports). Scheduled jobs: `schedules.py` (cron parser, runs/logs, `Scheduler` thread in the hub) + `headless.py` (`dcode run`). Entry point: `__main__.py` (`hub` and `run` skip the terminal imports).
 - Phase 3: `checks.py` (post-edit checks), `mentions.py` (`@path`), `custom_agents.py` (`.dcode/agents`), `commands.py` (`.dcode/commands`), `rules.py` (allow/ask/deny), `hooks.py`.
 - `web/` — `index.html`/`app.js`/`app.css` (main UI), `artifact.html` (`/a/<id>`), `guide.html` (bilingual user guide, `/guide`).
 - Details: `docs/architecture.md`. History & every past bug: `docs/history.md`. Rationale: `docs/decisions.md`.
@@ -41,6 +42,8 @@ make deb                                      # Linux .deb (build on matching Li
 - Tests: use `conftest.FakeLLM` + `scripted(...)`/router functions; `isolated` fixture gives a private `DCODE_HOME`. Server tests use the in-process `stack` fixture.
 - User-facing text: humanized, short. Guide is bilingual — update **both** English and Persian sections.
 - Security boundaries: anything read from a project folder (`.dcode/agents`, `.dcode/commands`, `.dcode/rules.json`) is untrusted — project rules may only tighten, hooks come only from `~/.dcode/config.json`, and command `` !`shell` `` goes through mode + rules.
+- Databases: the read-only session is the guard (the SQL classifier only picks the path); a change needs `confirmed=True` after the user saw it, in every mode, never per session; never return a saved password; estimate sizes from the catalog, never by scanning.
+- Scheduled jobs come only from `~/.dcode/cron`; the model gets no tool to create one; unattended runs deny approvals.
 - Keep the system prompt stable within a turn (local servers cache the prompt prefix): only refresh it at turn start and after compaction.
 
 ## Gotchas (each one bit us)
@@ -53,6 +56,9 @@ make deb                                      # Linux .deb (build on matching Li
 - **rich:** `Text("x", style=S)` sets a *base* style that leaks into appended text; partial lines (`end=""`) break under `Live`/spinners — one print per line.
 - **macOS Terminal has no OSC 8 links** → `ui.link()` emits them only where supported; `/ui`, `/guide`, `/artifacts` open the browser.
 - **Headless Chrome:** `--virtual-time-budget` hangs on SSE pages; late iframes may not paint; min viewport 500 px. Never let tests open real browsers (`BROWSER=true`).
+- **PyMySQL unbuffered cursors** drain the rest of a result when dropped (slow, and noisy after the socket closed) → `Link.close()` clears `unbuffered_active` first.
+- **pg8000 loads whole results into memory** → big reads go through `DECLARE … CURSOR` / `FETCH`.
+- **`pkill -f pattern` in a shell command kills that shell too** (its own command line matches) → write `[p]attern`.
 - Session approvals: don't send an "attention" ping on `approval_request` (it closes the terminal's own menu); only when the web answers.
 
 ## Release checklist
