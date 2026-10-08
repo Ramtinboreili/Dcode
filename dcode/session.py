@@ -33,7 +33,7 @@ from .jobs import JobManager
 from .llm import Interrupted, LLMClient
 from .memory import MemoryStore
 from .tools import _truncate, configure_limits, workspace_root
-from .transcripts import SHELL_NOTE, transcript_from_messages
+from .transcripts import SHELL_NOTE, HelperLog, transcript_from_messages
 
 EVENT_BUFFER = 4000
 # Approvals that can't be granted "for this session": each one must be seen (database changes).
@@ -158,6 +158,7 @@ class Session:
         self._attention: list[Callable[[], None]] = []
         self._task_tools: collections.Counter[str] = collections.Counter()  # for the usage log (stats.py)
         self._helper_tokens = {"prompt": 0, "completion": 0}
+        self.helpers = HelperLog()  # each helper's own steps, so its session can be opened later
         self.bus.subscribe(self._on_event)
         self._worker = threading.Thread(target=self._work, name="dcode-worker", daemon=True)
         self._worker.start()
@@ -466,6 +467,7 @@ class Session:
             raise RuntimeError("Session is busy")
         self.save()
         self.agent.todos = []
+        self.helpers.clear()
         self.agent.messages = [{"role": "system", "content": self.agent.system_prompt()}]
         self.thread_name = self._timestamp()
         self.thread_created_at = datetime.now(timezone.utc).isoformat()
@@ -496,11 +498,12 @@ class Session:
         self.save()
         self.agent.messages = messages
         self.agent.todos = [t for t in payload.get("todos") or [] if isinstance(t, dict)]
+        self.helpers.load(payload.get("helpers"))
         self.agent.refresh_system_message()
         self.thread_name = str(payload.get("name") or thread_id)
         self.thread_created_at = str(payload.get("created_at") or datetime.now(timezone.utc).isoformat())
         self.emit("thread", name=self.thread_name, action="resume", by=source,
-                  items=transcript_from_messages(messages))
+                  items=transcript_from_messages(messages), helpers=self.helpers.summaries())
         return True
 
     def set_model(self, model: str | None = None, reasoning_effort: str | None = None) -> None:
@@ -568,7 +571,7 @@ class Session:
             messages,
             created_at=self.thread_created_at,
             extra={"cwd": self.cwd, "model": self.config.model, "summary": self.last_summary,
-                   "todos": self.agent.todos},
+                   "todos": self.agent.todos, "helpers": self.helpers.dump()},
         )
 
     def _fire_hooks(self, event: str, tool: str = "", **payload: Any) -> None:
@@ -617,6 +620,7 @@ class Session:
 
     def _on_event(self, event: dict[str, Any]) -> None:
         kind = event["type"]
+        self.helpers.feed(event)
         if kind == "tool_call" and event.get("by") != "user":
             self._task_tools[str(event.get("name") or "")] += 1
         elif kind == "usage" and event.get("agent", "main") != "main":

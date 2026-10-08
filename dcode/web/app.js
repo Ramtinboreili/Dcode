@@ -265,6 +265,7 @@
     busy: false, info: null, thread: null, ended: false, user: "",
     turn: null, activity: null, live: null, agents: {}, tools: {}, approvals: {}, hasContent: false, lastActions: null,
     cfg: null, tab: "general", skills: [], memories: [], models: null,
+    helperList: [], helperUsed: new Set(), histHelper: null,
   };
   const T = () => $("#transcript");
 
@@ -391,7 +392,8 @@
   }
   function resetTranscript() {
     T().replaceChildren();
-    Object.assign(S, { turn: null, activity: null, live: null, agents: {}, tools: {}, approvals: {}, hasContent: false, lastActions: null });
+    Object.assign(S, { turn: null, activity: null, live: null, agents: {}, tools: {}, approvals: {}, hasContent: false, lastActions: null,
+      helperUsed: new Set(), histHelper: null });
     renderWelcome();
   }
   function closeStream() { if (S.es) { S.es.close(); S.es = null; } }
@@ -447,6 +449,7 @@
     try { data = await api("GET", "/api/threads/" + encodeURIComponent(id)); }
     catch (_) { T().replaceChildren(h("div", { class: "empty-state" }, icon("info"), "This chat couldn't be found.")); renderHeader(); renderComposer(); return; }
     S.thread = data;
+    S.helperList = data.helpers || [];
     renderHeader();
     for (const item of data.items) render(item, true);
     finishTurn();
@@ -726,6 +729,16 @@
         break;
       }
       case "tool_call": {
+        if (ev.name === "delegate" && history) {  // a saved chat: rebuild the helper's card from its call
+          const a = parseArgs(ev.args);
+          const rec = S.helperList.find((x) => !S.helperUsed.has(x.id) && x.role === a.role && x.task === a.task);
+          const id = rec ? rec.id : "past-" + ev.id;
+          if (rec) S.helperUsed.add(rec.id);
+          render({ type: "agent_start", agent: id, role: a.role, task: a.task, saved: !!rec }, true);
+          if (rec) render({ type: "agent_end", agent: id, ok: rec.status === "done", report: rec.report, steps: rec.steps }, true);
+          else S.histHelper = { call: ev.id, agent: id };
+          break;
+        }
         if (["delegate", "todo_write", "ask_user"].includes(ev.name)) break; // shown as a helper / checklist / question card instead
         if (S.live && agent === "main") { S.live.remove(); S.live = null; }
         const step = stepRow(ev.name, ev.args, history);
@@ -747,6 +760,11 @@
         break;
       }
       case "tool_result": {
+        if (history && S.histHelper && S.histHelper.call === ev.id) {  // no saved steps: at least show the report
+          render({ type: "agent_end", agent: S.histHelper.agent, ok: true, report: String(ev.output || "").replace(/^\[[^\]]* report\]\n/, "") }, true);
+          S.histHelper = null;
+          break;
+        }
         const step = ev.id && S.tools[agent + "/" + ev.id];
         if (!step) break;
         finishStep(step, ev.output);
@@ -790,11 +808,14 @@
         const steps = h("div", { class: "steps" });
         const body = h("div", { class: "agent-body" }, steps);
         const title = h("div", { class: "agent-title" }, `${roleName} is on it`);
+        // Its own session: every step it took, in a dialog (also after the chat is reopened).
+        const open = history && !ev.saved ? "" : h("button", { class: "icon-btn agent-open", title: "Open this helper's session", "aria-label": "Open this helper's session",
+          html: svg("external"), onclick: (e) => { e.stopPropagation(); openHelper(ev.agent); } });
         const card = h("div", { class: "agent collapsed" },
           h("div", { class: "agent-head", role: "button", tabindex: "0", onclick: () => card.classList.toggle("collapsed") },
             h("span", { class: "agent-badge" }, icon(ic)),
             h("div", { class: "agent-meta" }, title, h("div", { class: "agent-task", title: ev.task }, ev.task)),
-            state),
+            state, open),
           body);
         S.agents[ev.agent] = { card, body, steps, state, title, count: 0, roleName };
         turn.body.append(card);
@@ -806,7 +827,8 @@
         if (!a) break;
         a.title.textContent = ev.ok ? `${a.roleName} finished` : `${a.roleName} stopped`;
         a.state.className = "agent-state" + (ev.ok ? " ok" : "");
-        a.state.replaceChildren(icon(ev.ok ? "check" : "info"), a.count ? `${a.count} step${a.count > 1 ? "s" : ""}` : ev.ok ? "Done" : "Stopped");
+        const n = a.count || ev.steps || 0;
+        a.state.replaceChildren(icon(ev.ok ? "check" : "info"), n ? `${n} step${n > 1 ? "s" : ""}` : ev.ok ? "Done" : "Stopped");
         if (ev.report && ev.report !== "interrupted") a.body.append(h("div", { class: "report" }, h("div", { class: "md", html: md(ev.report) })));
         if (!history) showThinking();
         break;
@@ -973,6 +995,7 @@
       case "thread":
         if (S.info) { S.info.thread_name = ev.name; renderHeader(); }
         if (ev.action === "new" || ev.action === "resume") {
+          S.helperList = ev.helpers || [];
           resetTranscript();
           if (ev.items) { for (const item of ev.items) render(item, true); finishTurn(); S.turn = null; }
           scrollDown(true);
@@ -982,6 +1005,49 @@
       default:
         break;
     }
+  }
+  async function openHelper(id) {
+    const body = $("#helper-body");
+    openModal("#helper-modal");
+    $("#helper-title").textContent = "Helper session";
+    body.replaceChildren(h("div", { class: "empty-state" }, h("span", { class: "spin" })));
+    let run;
+    try {
+      run = await api("GET", S.mode === "thread" ? `/api/threads/${encodeURIComponent(S.id)}/helpers/${encodeURIComponent(id)}`
+        : `/api/s/${S.id}/helpers/${encodeURIComponent(id)}`);
+    } catch (e) { return body.replaceChildren(h("div", { class: "empty-state" }, icon("info"), "This helper's steps were not kept.")); }
+    const custom = String(run.role || "Helper");
+    const [roleName, ic] = ROLES[run.role] || [custom.charAt(0).toUpperCase() + custom.slice(1).replace(/[-_]/g, " "), "users"];
+    $("#helper-title").replaceChildren(icon(ic), ` ${roleName} · ${run.id}`);
+    const bits = [run.status === "running" ? "still working" : run.status === "done" ? "finished" : "stopped",
+      `${run.steps} step${run.steps === 1 ? "" : "s"}`];
+    if (run.seconds) bits.push(spent(run.seconds));
+    if (run.tokens_in) bits.push(`${tokens(run.tokens_in)} tokens in · ${tokens(run.tokens_out)} out`);
+    if (run.model) bits.push(run.model);
+    const steps = h("div", { class: "steps" });
+    const calls = {};
+    for (const item of run.items || []) {
+      if (item.type === "tool_call") {
+        const step = stepRow(item.name, item.args, true);
+        step.pre.textContent = "(no result recorded)";
+        calls[item.id] = step;
+        steps.append(step.el);
+      } else if (item.type === "tool_result") {
+        if (calls[item.id]) finishStep(calls[item.id], item.output);
+      } else if (item.type === "thinking") {
+        steps.append(h("details", { class: "step thought" }, h("summary", {}, icon("brain", "si"), h("span", { class: "label" }, "Thought it through")), h("pre", {}, item.text)));
+      } else if (item.type === "assistant_note") {
+        steps.append(h("div", { class: "md note", html: md(item.text) }));
+      } else {
+        steps.append(h("div", { class: "event " + (item.type === "error" ? "error" : item.level || "") }, icon(item.type === "error" || item.level === "warning" ? "alert" : "info"), h("span", {}, item.text)));
+      }
+    }
+    body.replaceChildren(
+      h("div", { class: "helper-task" }, h("div", { class: "menu-label" }, "Task"), h("div", { class: "bubble" }, run.task)),
+      h("div", { class: "meta helper-meta" }, bits.join(" · ")),
+      (run.items || []).length ? steps : h("div", { class: "empty-state" }, icon("info"), "It answered without using a tool."),
+      run.report && run.report !== "interrupted" ? h("div", { class: "report" }, h("div", { class: "menu-label" }, "Report to Dcode"), h("div", { class: "md", html: md(run.report) })) : "",
+      run.status === "running" ? h("button", { class: "btn sm", onclick: () => openHelper(id) }, icon("refresh"), "Refresh") : "");
   }
   function questionCard(ev, turn) {
     const answer = async (text) => {

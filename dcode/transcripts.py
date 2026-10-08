@@ -57,6 +57,97 @@ def transcript_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, A
     return items
 
 
+# --- helper sessions --------------------------------------------------------------------------
+
+HELPER_KEEP = 30       # helper runs remembered per chat
+HELPER_ITEMS = 300     # steps kept per run
+HELPER_OUTPUT = 1500   # characters of each tool result
+HELPER_ARG = 400       # characters of each tool argument (a write_file body is not a transcript)
+_HELPER_EVENTS = ("tool_call", "tool_result", "assistant_note", "thinking", "notice", "error", "check")
+
+
+class HelperLog:
+    """What each helper did, so its own session can be opened afterwards.
+
+    Only the helper's report enters the main context; its steps would otherwise be gone once
+    the event buffer rolls over or the chat is reopened. Fed from the session's events and
+    saved with the chat.
+    """
+
+    def __init__(self) -> None:
+        self.runs: dict[str, dict[str, Any]] = {}
+
+    def clear(self) -> None:
+        self.runs = {}
+
+    def feed(self, event: dict[str, Any]) -> None:
+        kind, agent = event.get("type"), str(event.get("agent") or "main")
+        if kind == "agent_start":
+            if agent in self.runs:  # ids restart with the process: keep the earlier run under another key
+                old = self.runs.pop(agent)
+                old["id"] = f"{agent}.{sum(1 for key in self.runs if key.startswith(agent + '.')) + 1}"
+                self.runs[old["id"]] = old
+            self.runs[agent] = {
+                "id": agent, "role": str(event.get("role") or ""), "task": str(event.get("task") or ""),
+                "model": str(event.get("model") or ""), "started": float(event.get("ts") or 0.0),
+                "status": "running", "report": "", "steps": 0, "seconds": 0.0, "tokens_in": 0, "tokens_out": 0,
+                "items": [],
+            }
+            for key in list(self.runs)[:-HELPER_KEEP]:
+                del self.runs[key]
+            return
+        run = self.runs.get(agent)
+        if run is None or run["status"] != "running":
+            return
+        if kind == "agent_end":
+            run["status"] = "done" if event.get("ok") else "stopped"
+            run["report"] = str(event.get("report") or "")
+            run["seconds"] = round(max(0.0, float(event.get("ts") or 0.0) - run["started"]), 1)
+        elif kind == "usage":
+            run["tokens_in"] += int(event.get("prompt") or 0)
+            run["tokens_out"] += int(event.get("completion") or 0)
+        elif kind in _HELPER_EVENTS and len(run["items"]) < HELPER_ITEMS:
+            run["items"].append(self._item(event))
+            run["steps"] += kind == "tool_call"
+
+    @staticmethod
+    def _item(event: dict[str, Any]) -> dict[str, Any]:
+        kind = event["type"]
+        if kind == "tool_call":
+            args = event.get("args")
+            if isinstance(args, dict):
+                args = {k: (v[:HELPER_ARG] + f"… ({len(v):,} characters)" if isinstance(v, str) and len(v) > HELPER_ARG else v)
+                        for k, v in args.items()}
+            return {"type": kind, "name": str(event.get("name") or ""), "id": str(event.get("id") or ""), "args": args}
+        if kind == "tool_result":
+            return {"type": kind, "name": str(event.get("name") or ""), "id": str(event.get("id") or ""),
+                    "output": str(event.get("output") or "")[:HELPER_OUTPUT]}
+        if kind == "check":
+            return {"type": "notice", "level": "warning",
+                    "text": f"Check found a problem in {event.get('path')}: {str(event.get('problems') or '')[:300]}"}
+        item = {"type": kind, "text": str(event.get("text") or "")[:2000]}
+        if kind == "notice":
+            item["level"] = str(event.get("level") or "info")
+        return item
+
+    def summaries(self) -> list[dict[str, Any]]:
+        return [{k: v for k, v in run.items() if k != "items"} for run in self.runs.values()]
+
+    def get(self, helper_id: str) -> dict[str, Any] | None:
+        return self.runs.get(helper_id)
+
+    def dump(self) -> list[dict[str, Any]]:
+        return list(self.runs.values())
+
+    def load(self, runs: Any) -> None:
+        self.runs = {}
+        for run in runs if isinstance(runs, list) else []:
+            if isinstance(run, dict) and isinstance(run.get("id"), str) and isinstance(run.get("items"), list):
+                if run.get("status") == "running":
+                    run = dict(run, status="stopped")  # the process that ran it is gone
+                self.runs[run["id"]] = run
+
+
 # --- export ---------------------------------------------------------------------------------
 
 def find_thread(wanted: str = "", cwd: str = "") -> Path:

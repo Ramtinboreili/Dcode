@@ -210,6 +210,11 @@ class SessionServer:
                     helpers = ([{"name": n, "description": spec.description} for n, spec in session.agent.specs.items()
                                 if n.startswith(q.lower())] if session.config.agents.get("enabled", True) else [])
                     return self._json({"files": complete(q, Path(session.cwd)), "helpers": helpers})
+                if parsed.path == "/helpers":  # helper sessions of this chat (steps left out)
+                    return self._json(outer.session.helpers.summaries())
+                if parsed.path.startswith("/helpers/"):
+                    run = outer.session.helpers.get(urllib.parse.unquote(parsed.path[len("/helpers/"):]))
+                    return self._json(run) if run else self._json({"error": "not found"}, 404)
                 return self._json({"error": "not found"}, 404)
 
             def do_POST(self) -> None:
@@ -574,11 +579,20 @@ class Hub:
                 except transcripts.TranscriptError as exc:
                     return handler._json({"error": str(exc)}, 400)
                 return _download(handler, text.encode("utf-8"), name)
+            if action.startswith("helpers/"):
+                log = transcripts.HelperLog()
+                log.load(load_thread(path_obj).get("helpers"))
+                run = log.get(urllib.parse.unquote(action[len("helpers/"):]))
+                return handler._json(run) if run else handler._json({"error": "not found"}, 404)
+            if action:
+                return handler._json({"error": "not found"}, 404)
             payload = load_thread(path_obj)
             return handler._json({
                 "name": payload.get("name"), "cwd": payload.get("cwd"), "model": payload.get("model"),
                 "created_at": payload.get("created_at"), "updated_at": payload.get("updated_at"),
                 "items": transcript_from_messages(payload.get("messages") or []),
+                "helpers": [{k: v for k, v in run.items() if k != "items"}
+                            for run in payload.get("helpers") or [] if isinstance(run, dict)],
             })
         if path == "/api/config":
             raw = load_raw_config()

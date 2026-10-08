@@ -429,3 +429,25 @@ def test_stats_endpoint(stack):
     status, body, _ = req(stack, "GET", "/api/stats?days=7")
     assert status == 200 and body["tasks"] == 1 and body["days"] == 7 and body["tools"][0]["name"] == "read_file"
     assert req(stack, "GET", "/api/stats", cookie=False)[0] == 401
+
+
+def test_helper_session_endpoints(stack):
+    session = stack["session"]
+    for event in ({"type": "agent_start", "agent": "explore-9", "role": "explore", "task": "find it"},
+                  {"type": "tool_call", "agent": "explore-9", "name": "read_file", "id": "r", "args": {"path": "a"}},
+                  {"type": "agent_end", "agent": "explore-9", "ok": True, "report": "found"}):
+        session.bus.emit(**event)
+    status, listed, _ = req(stack, "GET", f"/api/s/{session.id}/helpers")
+    assert status == 200 and listed[0]["id"] == "explore-9" and "items" not in listed[0]
+    status, run, _ = req(stack, "GET", f"/api/s/{session.id}/helpers/explore-9")
+    assert status == 200 and run["items"][0]["name"] == "read_file" and run["report"] == "found"
+    assert req(stack, "GET", f"/api/s/{session.id}/helpers/nope")[0] == 404
+
+    save_thread("With helper", [{"role": "system", "content": "s"}, {"role": "user", "content": "q"}],
+                extra={"helpers": session.helpers.dump()})
+    status, thread, _ = req(stack, "GET", "/api/threads/With-helper")
+    assert thread["helpers"][0]["task"] == "find it" and "items" not in thread["helpers"][0]
+    status, run, _ = req(stack, "GET", "/api/threads/With-helper/helpers/explore-9")
+    assert status == 200 and run["items"][0]["args"] == {"path": "a"}
+    assert req(stack, "GET", "/api/threads/With-helper/helpers/nope")[0] == 404
+    assert req(stack, "GET", "/api/threads/With-helper/whatever")[0] == 404

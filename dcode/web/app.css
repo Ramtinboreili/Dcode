@@ -753,3 +753,13 @@ a.sb-link { text-decoration: none; }
 .day { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }
 .day i { width: 100%; max-width: 26px; border-radius: 6px 6px 2px 2px; background: var(--primary); display: block; }
 .day span { font-size: 11px; color: var(--muted); }
+
+/* a helper's own session */
+.agent-open { width: 28px; height: 28px; flex: none; }
+.helper-body { overflow-y: auto; gap: 12px; }
+.helper-task .bubble { background: var(--user-bubble); border-radius: 14px; padding: 10px 14px; white-space: pre-wrap; }
+.helper-meta { font-size: 12.5px; }
+.helper-body .steps { margin-left: 0; }
+.helper-body .report { padding: 12px 14px; background: var(--surface-2); border-radius: 12px; }
+#helper-title { display: flex; align-items: center; gap: 8px; }
+#helper-title .i { width: 18px; height: 18px; }
