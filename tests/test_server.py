@@ -451,3 +451,29 @@ def test_helper_session_endpoints(stack):
     assert status == 200 and run["items"][0]["args"] == {"path": "a"}
     assert req(stack, "GET", "/api/threads/With-helper/helpers/nope")[0] == 404
     assert req(stack, "GET", "/api/threads/With-helper/whatever")[0] == 404
+
+
+def test_mcp_servers_in_config_and_session(stack):
+    import sys
+    from pathlib import Path
+
+    fake = str(Path(__file__).parent / "fixtures" / "fake_mcp_server.py")
+    session = stack["session"]
+    assert req(stack, "GET", f"/api/s/{session.id}/mcp")[1] == []
+    status, body, _ = req(stack, "PUT", "/api/config", {"mcp": {"servers": {
+        "Notes": {"command": f"{sys.executable} {fake}", "env": {"TOKEN": "s3cret-value"}}, "junk": {"command": ""}}}})
+    assert status == 200 and body["sessions_reloaded"] == 1
+    saved = load_config().mcp["servers"]
+    assert list(saved) == ["notes"] and saved["notes"]["env"] == {"TOKEN": "s3cret-value"}
+    deadline = time.time() + 10
+    while time.time() < deadline and not (session.mcp and session.mcp.servers["notes"].state == "ready"):
+        time.sleep(0.05)
+    status, rows, _ = req(stack, "GET", f"/api/s/{session.id}/mcp")
+    assert rows[0]["state"] == "ready" and rows[0]["tools"][0]["name"] == "add"
+
+    shown = req(stack, "GET", "/api/config")[1]["mcp"]["servers"]["notes"]
+    assert "s3cret" not in json.dumps(shown) and shown["env"]["TOKEN"].endswith("alue")  # masked, like the API key
+    req(stack, "PUT", "/api/config", {"mcp": {"servers": {"notes": dict(shown, approve="allow")}}})  # saved back as shown
+    saved = load_config().mcp["servers"]["notes"]
+    assert saved["env"] == {"TOKEN": "s3cret-value"} and saved["approve"] == "allow"
+    assert req(stack, "POST", f"/api/s/{session.id}/mcp/restart", {})[1] == {"ok": True}

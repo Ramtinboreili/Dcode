@@ -30,6 +30,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 MOCK = Path(__file__).resolve().parent / "mock_llm.py"
+FAKE_MCP = REPO / "tests" / "fixtures" / "fake_mcp_server.py"
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\r")
 
 
@@ -231,6 +232,17 @@ def main() -> int:
         for _ in range(3):  # back to accept edits
             term.send(b"\x1b[Z")
             term.read(0.3)
+        term.send(f"/mcp add notes {sys.executable} {FAKE_MCP}\r")
+        check("/mcp add starts a local MCP server", term.expect(r"notes\s+ready · 6 tools", timeout=20))
+        term.send("use the notebook\r")
+        check("an external tool asks first", term.expect(r"Dcode wants to use an external tool")
+              and term.expect(r"notes · add"))
+        term.read(0.4)
+        term.send("y")
+        check("the external tool runs", term.expect(r"✓ Allowed · notes · add") and term.expect(r"Done\. Tool .?mcp_call"))
+        term.expect(r"Done in")
+        term.send("/mcp rm notes\r")
+        check("/mcp rm", term.expect(r"Removed the MCP server notes"))
         term.send('/cron add "0 0 1 1 *" echo hello-from-cron\r')
         check("/cron add schedules a job", term.expect(r"Scheduled echo-hello-from-cron: every year on January 1[\s\S]{0,40}next\s+run\s+\d{4}-01-01"))
         term.send("/cron run echo-hello-from-cron\r")

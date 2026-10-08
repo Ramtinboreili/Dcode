@@ -83,6 +83,7 @@ COMMANDS: dict[str, str] = {
     "/jobs": "Background jobs: see output, stop them",
     "/cron": "Scheduled jobs: /cron · /cron add · /cron run|on|off|rm|logs <id>",
     "/db": "Databases: /db · /db add · /db <name> [table | SQL | summary | export …]",
+    "/mcp": "External tools (MCP servers): /mcp · /mcp add <name> <command…> · /mcp tools <name>",
     "/editor": "Write a long message in your editor ($EDITOR)",
     "/thinking": "Show or hide the model's reasoning",
     "/details": "Show or hide tool calls and their results",
@@ -870,6 +871,9 @@ def _short_args(args: Any, limit: int = 100) -> str:
             text = str(args["path"]) + (
                 f":{args.get('start_line')}-{args.get('end_line', '')}" if args.get("start_line") else ""
             )
+        elif "tool" in args and "server" in args:  # an external (MCP) tool
+            inner = args.get("arguments")
+            text = f"{args['server']} · {args['tool']}" + (f"  {json.dumps(inner, ensure_ascii=False)}" if inner else "")
         elif "sql" in args:
             text = f"{args.get('connection', '')}: {args['sql']}"
         elif "task" in args:

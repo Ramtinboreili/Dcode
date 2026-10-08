@@ -75,6 +75,11 @@ DB_PROMPT = (
     "read-only and row-limited, so count, group and filter in SQL instead of fetching rows. A statement that "
     "changes data or structure is shown to the user for approval first; never work around a refusal."
 )
+MCP_TOOL_NAMES = ["mcp_tools", "mcp_call"]
+MCP_PROMPT = (
+    "External tools (MCP servers the user added). Only the names are listed here: call mcp_tools with a "
+    "server and tool to read its arguments, then mcp_call. Prefer the built-in tools when both fit.\n{index}"
+)
 ARTIFACT_TOOL_NAMES = ["artifact_save", "artifact_get"]
 SKILL_TOOL_NAMES = ["skill_use", "skill_save"]
 # Tools a sub-agent may get even though no permission switch governs them.
@@ -225,6 +230,31 @@ EXTRA_TOOL_SCHEMAS = {
                 "properties": {"connection": {"type": "string"}, "sql": {"type": "string"},
                                "save_as": {"type": "string"}},
                 "required": ["connection", "sql"],
+            },
+        },
+    },
+    "mcp_tools": {
+        "type": "function",
+        "function": {
+            "name": "mcp_tools",
+            "description": "Describe external (MCP) tools: a server's tool list, or one tool's arguments.",
+            "parameters": {
+                "type": "object",
+                "properties": {"server": {"type": "string"}, "tool": {"type": "string"}},
+                "required": [],
+            },
+        },
+    },
+    "mcp_call": {
+        "type": "function",
+        "function": {
+            "name": "mcp_call",
+            "description": "Run an external (MCP) tool. Read its arguments with mcp_tools first.",
+            "parameters": {
+                "type": "object",
+                "properties": {"server": {"type": "string"}, "tool": {"type": "string"},
+                               "arguments": {"type": "object"}},
+                "required": ["server", "tool"],
             },
         },
     },

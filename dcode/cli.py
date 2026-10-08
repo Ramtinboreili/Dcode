@@ -42,10 +42,11 @@ APPROVAL_LABELS = {"run_command": "Dcode wants to run a command", "delete_file":
                    "git_commit": "Dcode wants to make a git commit",
                    "rule": "A rule says to confirm this", "outside_workspace": "Dcode wants a file outside the project",
                    "edit_file": "Dcode wants to change a file",
-                   "db_write": "Dcode wants to change a database"}
+                   "db_write": "Dcode wants to change a database",
+                   "mcp_tool": "Dcode wants to use an external tool"}
 APPROVAL_KINDS = {"run_command": "commands", "delete_file": "deletions", "git_commit": "commits",
                   "rule": "rule-matched actions", "outside_workspace": "files outside the project",
-                  "edit_file": "file changes"}
+                  "edit_file": "file changes", "mcp_tool": "external tools"}
 CONTEXT_CHOICES = ["4096", "8192", "16384", "32768", "65536", "131072"]
 NOTIFY_MIN_SECONDS = 10.0  # a task shorter than this ends quietly: you were still watching
 
@@ -413,6 +414,8 @@ class TerminalApp:
                 self._db(arg.strip())
             elif command == "/cron":
                 self._cron(arg.strip())
+            elif command == "/mcp":
+                self._mcp(arg.strip())
             elif command == "/clear":
                 session.new_thread()
                 self.last_outputs = []
@@ -653,6 +656,102 @@ class TerminalApp:
                 ui.console.print(f"{ui.PAD}  [{color}]{decision:<7}[/] {ui._escape(pattern)}")
         ui.console.print(f"{ui.PAD}[bold]Outside the project[/] [{MUTED}]{rules.get('outside_workspace', 'ask')}[/]")
         ui.console.print(f"{ui.PAD}[{MUTED}]Add: /rules deny \"rm -rf *\" · /rules file ask \"*.pem\" · the last match wins[/]")
+
+    # --- external tools (MCP) ---------------------------------------------------------------------
+    def _mcp(self, arg: str) -> None:
+        """/mcp · /mcp add <name> <command…> · /mcp rm|on|off|allow|ask|tools <name> · /mcp restart [name]"""
+        import shlex
+        import time as clock
+
+        from . import mcp
+
+        session, cfg = self.session, self.session.config
+        servers = cfg.mcp.setdefault("servers", {})
+        word, _, rest = arg.partition(" ")
+        rest = rest.strip()
+        if not word:
+            return self._mcp_list()
+        if word == "add":
+            name, _, command = rest.partition(" ")
+            try:
+                parts = shlex.split(command)
+            except ValueError as exc:
+                ui.notice(f"Couldn't read that command: {exc}", "warning")
+                return
+            name = mcp.clean_name(name)
+            if not name or not parts:
+                ui.notice("Usage: /mcp add <name> <command and its arguments>   e.g. /mcp add files npx -y @modelcontextprotocol/server-filesystem .",
+                          "warning")
+                return
+            servers[name] = {"command": parts}
+            cfg.mcp = {"servers": mcp.clean_servers(servers)}
+            self._save()
+            with ui.console.status(f"Starting {name}…", spinner=ui.SPINNER, spinner_style=PRIMARY):
+                deadline = clock.time() + mcp.START_TIMEOUT
+                while clock.time() < deadline and session.mcp and name in session.mcp.servers \
+                        and session.mcp.servers[name].state == "starting":
+                    clock.sleep(0.1)
+            return self._mcp_list(only=name)
+        if word == "restart":
+            if session.mcp:
+                session.mcp.restart(mcp.clean_name(rest))
+                session.mcp.start(wait=5.0)
+            return self._mcp_list()
+        name = mcp.clean_name(rest)
+        if word not in ("rm", "remove", "on", "off", "allow", "ask", "tools") or name not in servers:
+            ui.notice(f"Usage: /mcp · /mcp add <name> <command…> · /mcp rm|on|off|allow|ask|tools <name> · /mcp restart   "
+                      f"(servers: {', '.join(servers) or 'none yet'})", "warning")
+            return
+        if word == "tools":
+            if not session.mcp or name not in session.mcp.servers:
+                ui.notice(f"{name} is off. Turn it on with /mcp on {name}", "warning")
+                return
+            try:
+                text = session.mcp.describe(name)
+            except mcp.MCPError as exc:
+                ui.notice(str(exc), "error")
+                return
+            for line in text.splitlines():
+                ui.console.print(f"{ui.PAD}  {ui._escape(line)}", highlight=False, soft_wrap=True)
+            return
+        if word in ("rm", "remove"):
+            del servers[name]
+        elif word in ("on", "off"):
+            servers[name]["enabled"] = word == "on"
+        else:
+            servers[name]["approve"] = word
+        cfg.mcp = {"servers": mcp.clean_servers(servers)}
+        self._save()
+        ui.notice({"rm": f"Removed the MCP server {name}.", "remove": f"Removed the MCP server {name}.",
+                   "on": f"{name} is on.", "off": f"{name} is off.",
+                   "allow": f"{name}: its tools now run without asking.",
+                   "ask": f"{name}: Dcode asks before each tool call (except in auto mode)."}[word], "success")
+
+    def _mcp_list(self, only: str = "") -> None:
+        servers = self.session.config.mcp.get("servers") or {}
+        if not servers:
+            ui.notice("No MCP servers yet. Add a local one: /mcp add <name> <command…>  "
+                      "(it gives Dcode extra tools; see the guide).")
+            return
+        live = {row["name"]: row for row in (self.session.mcp.status() if self.session.mcp else [])}
+        colors = {"ready": SUCCESS, "starting": PRIMARY, "failed": DANGER, "off": MUTED, "stopped": MUTED}
+        if not only:
+            ui.console.print(f"{ui.PAD}[bold]MCP servers[/]")
+        for name, spec in servers.items():
+            if only and name != only:
+                continue
+            row = live.get(name) or {"state": "off", "tools": [], "error": "", "command": " ".join(spec["command"])}
+            asks = "runs without asking" if spec.get("approve") == "allow" else "asks first"
+            count = f" · {len(row['tools'])} tools" if row["state"] == "ready" else ""
+            ui.console.print(f"{ui.PAD}  [{ACCENT}]{name}[/]  [{colors.get(row['state'], WARNING)}]{row['state']}[/]"
+                             f"[{MUTED}]{count} · {asks} · {ui._escape(ui._short_args(row['command'], 70))}[/]")
+            if row["error"]:
+                ui.console.print(f"{ui.PAD}      [{DANGER}]{ui._escape(row['error'][:300])}[/]", soft_wrap=True)
+            elif row["tools"]:
+                names = ", ".join(t["name"] for t in row["tools"][:12]) + (" …" if len(row["tools"]) > 12 else "")
+                ui.console.print(f"{ui.PAD}      [{MUTED}]{ui._escape(names)}[/]", soft_wrap=True)
+        if not only:
+            ui.console.print(f"{ui.PAD}[{MUTED}]/mcp tools <name> · /mcp on|off|allow|ask|rm <name> · /mcp restart[/]")
 
     # --- scheduled jobs ---------------------------------------------------------------------------
     def _cron(self, arg: str) -> None:

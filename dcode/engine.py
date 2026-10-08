@@ -23,6 +23,7 @@ from typing import Any, Protocol
 from . import agents as roles
 from . import checks, hooks, mentions, tools
 from . import db as databases
+from . import mcp as external
 from . import rules as permission_rules
 from .artifacts import ArtifactStore
 from .config import AppConfig
@@ -175,6 +176,8 @@ class Agent:
             names.append("todo_write")
             if self._db_names:
                 names += roles.DB_TOOL_NAMES
+            if getattr(self.host, "mcp", None):
+                names += roles.MCP_TOOL_NAMES
             if hasattr(self.host, "ask_user"):
                 names.append("ask_user")
         else:
@@ -243,6 +246,12 @@ class Agent:
             parts.append(roles.JOBS_PROMPT)
         if self._db_names:
             parts.append(roles.DB_PROMPT.format(names=", ".join(f"{n} [{e}]" for n, e in self._db_names.items())))
+        servers = getattr(self.host, "mcp", None)
+        if servers:
+            # ~3% of the window: names only. Like the checklist, read once per turn (keeps the prompt cache).
+            index = servers.index_text(max_chars=max(300, int(window * 3.5 * 0.03)))
+            if index:
+                parts.append(roles.MCP_PROMPT.format(index=index))
         parts.append(roles.TODO_PROMPT)
         if self.todos:
             # Refreshed only at turn start and after compaction, so local servers keep their prompt cache.
@@ -797,6 +806,11 @@ class Agent:
             self.host.emit("skill_saved", agent=self.agent_id, name=skill.name)
             self.refresh_system_message()
             return f"Saved skill '{skill.name}' to {skill.path}. It now appears in the skills list."
+        if name in ("mcp_tools", "mcp_call"):
+            try:
+                return self._mcp_tool(name, args)
+            except external.MCPError as exc:
+                return f"MCP error: {exc}"
         if name in ("db_schema", "db_query"):
             try:
                 return self._db_tool(name, args)
@@ -878,6 +892,33 @@ class Agent:
             return f"Saved {done['rows']:,} rows ({done['size']}, {done['format']}) to {save_as}.{cut}"
         result = databases.run_query(conn, statement, row_limit=min(DB_MODEL_ROWS, int(self.config.db.get("row_limit", 200))))
         return databases.result_text(result, max_chars=budget)
+
+    # --- external tools (MCP) ---------------------------------------------------------------
+    def _mcp_tool(self, name: str, args: dict[str, Any]) -> str:
+        servers = getattr(self.host, "mcp", None)
+        if not servers:
+            return "No MCP servers are set up."
+        wanted, tool = str(args.get("server") or "").strip(), str(args.get("tool") or "").strip()
+        if name == "mcp_tools":
+            return servers.describe(wanted, tool, max_chars=tools.MAX_OUTPUT_CHARS // 2)
+        if not tool:
+            return "mcp_call needs a tool name. Call mcp_tools to list them."
+        server, spec = servers.find(wanted, tool)
+        arguments = args.get("arguments")
+        if isinstance(arguments, str):  # small models often send the object as a JSON string
+            arguments = parse_arguments(arguments)
+        if not isinstance(arguments, dict):
+            arguments = {}
+        if self.mode == "plan" and not external.read_only(spec):
+            return (f"Plan mode: {server.name} · {tool} may change something, so it can't run yet. "
+                    "Put it in the plan instead.")
+        # A server's "read-only" note is its own claim: enough for plan mode, not enough to skip asking.
+        asks = server.spec.get("approve") != "allow" and self.mode != "auto"
+        detail = f"{server.name} · {tool}  {json.dumps(arguments, ensure_ascii=False)[:600]}"
+        if asks and not self._approve("mcp_tool", detail):
+            return f"{server.name} · {tool} was cancelled by the user. Don't retry it; ask what they want instead."
+        text, failed = server.call(tool, arguments)
+        return _truncate(("The tool reported an error:\n" if failed else "") + text)
 
     def _ruleset(self) -> permission_rules.RuleSet:
         return self.rules if self.rules is not None else permission_rules.load(self.config.rules)

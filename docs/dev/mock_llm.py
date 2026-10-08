@@ -26,6 +26,7 @@ Trigger words (in the user's message unless noted):
     break the syntax          → edit_file that leaves app.py with a syntax error (post-edit check)
     count the parts           → db_query SELECT on the connection "stock" (database tools)
     delete the old parts      → db_query DELETE on "stock" (a change: must ask, in every mode)
+    use the notebook          → mcp_call add(20, 22) on the MCP server "notes" (external tools)
 
 After any tool result the mock answers "Done. Tool `x` returned N chars." Tool
 arguments stream in 400-character chunks (8-character chunks made long
@@ -84,6 +85,8 @@ def choose_reply(messages: list[dict]) -> dict:
         return {"tool": ("db_query", {"connection": "stock", "sql": "SELECT count(*) AS parts FROM parts"})}
     if "delete the old parts" in text:
         return {"tool": ("db_query", {"connection": "stock", "sql": "DELETE FROM parts WHERE id = 1"})}
+    if "use the notebook" in text:
+        return {"tool": ("mcp_call", {"server": "notes", "tool": "add", "arguments": {"a": 20, "b": 22}})}
     if "make a checklist" in text:
         return {"tool": ("todo_write", {"items": [{"text": "Read the code", "status": "done"},
                                                   {"text": "Write the fix", "status": "in_progress"}]})}

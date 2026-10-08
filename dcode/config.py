@@ -97,6 +97,10 @@ DEFAULT_DB = {
     "export_max_rows": 1_000_000,  # an export stops here…
     "export_max_mb": 200,         # …or here, whichever comes first
 }
+DEFAULT_MCP = {
+    # name -> {"command": ["program", "arg"…], "env": {}, "enabled": true, "approve": "ask" | "allow", "timeout": 60}
+    "servers": {},
+}
 DEFAULT_UI = {
     "enabled": True,        # start / join the localhost hub UI
     "port": 0,              # 0 = deterministic per-user port
@@ -128,6 +132,7 @@ class AppConfig:
     rules: dict[str, Any] = field(default_factory=lambda: json.loads(json.dumps(DEFAULT_RULES)))
     hooks: list[dict[str, Any]] = field(default_factory=list)  # see dcode/hooks.py
     db: dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_DB))  # guards; connections live in db/
+    mcp: dict[str, Any] = field(default_factory=lambda: {"servers": {}})  # external tool servers, see dcode/mcp.py
     enabled_skills: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -149,6 +154,7 @@ class AppConfig:
             "rules": json.loads(json.dumps(self.rules)),
             "hooks": json.loads(json.dumps(self.hooks)),
             "db": dict(self.db),
+            "mcp": json.loads(json.dumps(self.mcp)),
             "enabled_skills": list(self.enabled_skills),
         }
 
@@ -272,6 +278,12 @@ def clean_hooks(value: Any) -> list[dict[str, Any]]:
     return clean(value)
 
 
+def clean_mcp(value: Any) -> dict[str, Any]:
+    from .mcp import clean_servers  # local import: keeps config importable on its own
+
+    return {"servers": clean_servers(value.get("servers") if isinstance(value, dict) else None)}
+
+
 def config_from_dict(data: dict[str, Any]) -> AppConfig | None:
     base_url = data.get("base_url")
     api_key = data.get("api_key")
@@ -301,6 +313,7 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig | None:
         rules=json.loads(json.dumps(_merge_defaults(data.get("rules"), DEFAULT_RULES))),
         hooks=clean_hooks(data.get("hooks")),
         db=_merge_defaults(data.get("db"), DEFAULT_DB),
+        mcp=clean_mcp(data.get("mcp")),
         enabled_skills=[str(name) for name in enabled_skills],
     )
 

@@ -210,6 +210,8 @@ class SessionServer:
                     helpers = ([{"name": n, "description": spec.description} for n, spec in session.agent.specs.items()
                                 if n.startswith(q.lower())] if session.config.agents.get("enabled", True) else [])
                     return self._json({"files": complete(q, Path(session.cwd)), "helpers": helpers})
+                if parsed.path == "/mcp":  # external tool servers: state and tools, as this session sees them
+                    return self._json(outer.session.mcp.status() if outer.session.mcp else [])
                 if parsed.path == "/helpers":  # helper sessions of this chat (steps left out)
                     return self._json(outer.session.helpers.summaries())
                 if parsed.path.startswith("/helpers/"):
@@ -307,6 +309,10 @@ class SessionServer:
         if path == "/undo":
             result = session.undo()
             return {"ok": bool(result), "files": result[1] if result else []}
+        if path == "/mcp/restart":
+            if session.mcp:
+                session.mcp.restart(str(body.get("name") or ""))
+            return {"ok": bool(session.mcp)}
         if path == "/redo":
             result = session.redo()
             return {"ok": bool(result), "files": result[1] if result else []}
@@ -602,6 +608,8 @@ class Hub:
             data["env_locked"] = env_locked_keys()
             data["has_api_key"] = bool(data.get("api_key"))
             data["api_key"] = _mask(str(data.get("api_key") or ""))
+            for spec in ((data.get("mcp") or {}).get("servers") or {}).values():
+                spec["env"] = {k: _mask(v) for k, v in spec.get("env", {}).items()}  # often tokens: never sent back
             data["reasoning_efforts"] = REASONING_EFFORTS
             return handler._json(data)
         if path == "/api/stats":
@@ -682,6 +690,15 @@ class Hub:
                 }
             if isinstance(body.get("hooks"), list):
                 raw["hooks"] = clean_hooks(body["hooks"])
+            if isinstance(body.get("mcp"), dict):  # replaced whole, so removing a server works
+                from .mcp import clean_servers
+
+                old = clean_servers((raw.get("mcp") or {}).get("servers"))
+                new = clean_servers(body["mcp"].get("servers"))
+                for name, spec in new.items():  # a masked value means "unchanged"
+                    kept = old.get(name, {}).get("env", {})
+                    spec["env"] = {k: (kept.get(k, "") if "•" in v else v) for k, v in spec["env"].items()}
+                raw["mcp"] = {"servers": new}
             if isinstance(body.get("enabled_skills"), list):
                 raw["enabled_skills"] = [str(s) for s in body["enabled_skills"]]
             if config_from_dict(apply_env_overrides(dict(raw))) is None:

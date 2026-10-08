@@ -141,6 +141,7 @@ class Session:
         self.checkpoints = CheckpointStore()
         self.jobs = JobManager(run_dir() / "jobs", on_exit=self._job_exited)
         self.plan_pending = False
+        self.mcp = self._start_mcp(config)  # external tool servers; None when there are none
         self.agent = Agent(config, self.llm, self, self.memory, git=self.git)
         self.thread_name = self._timestamp()
         self.thread_created_at = datetime.now(timezone.utc).isoformat()
@@ -224,6 +225,14 @@ class Session:
         if text:
             self._queue.put(("task", text, source))
             self._notify_attention()
+
+    def _start_mcp(self, config: AppConfig) -> Any:
+        servers = (config.mcp or {}).get("servers") or {}
+        if not any(spec.get("enabled", True) for spec in servers.values()):
+            return None
+        from .mcp import Manager
+
+        return Manager(servers, self.cwd).start()
 
     def run_shell(self, command: str, source: str = "cli") -> None:
         """"!command": the user runs a shell command themselves; the model sees it and its output."""
@@ -517,6 +526,10 @@ class Session:
     def apply_config(self, config: AppConfig) -> None:
         """Swap in a new config (e.g. edited from the web UI) without losing history."""
         endpoint_changed = (config.base_url, config.api_key) != (self.config.base_url, self.config.api_key)
+        if (config.mcp or {}).get("servers") != (self.mcp.config if self.mcp else {}):
+            if self.mcp:
+                self.mcp.close()
+            self.mcp = self._start_mcp(config)
         ratio = self.agent.budget.counter.ratio
         self.config = config
         self.llm = LLMClient(config) if endpoint_changed else self.llm
@@ -560,6 +573,7 @@ class Session:
             "can_redo": self.checkpoints.can_redo(),
             "todos": self.agent.todos,
             "commands": [c.as_dict() for c in self.custom_commands().values()],
+            "mcp": [{"name": s["name"], "state": s["state"], "tools": len(s["tools"])} for s in self.mcp.status()] if self.mcp else [],
         }
 
     def save(self) -> None:
@@ -595,6 +609,8 @@ class Session:
         if self._closed.is_set():
             return
         self.jobs.stop_all()
+        if self.mcp:
+            self.mcp.close()
         self._stop.set()
         self._closed.set()
         self._queue.put(None)

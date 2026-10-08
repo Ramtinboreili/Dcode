@@ -128,6 +128,7 @@
     play: '<path d="M7 4.5v15l12-7.5z"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+    plug: '<path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"/>',
   };
   const svg = (name) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${P[name] || P.info}</svg>`;
   const icon = (name, cls = "i") => h("span", { class: cls, html: svg(name) });
@@ -245,6 +246,9 @@
       case "db_query": return a.save_as
         ? ["database", `Exporting rows to ${c(a.save_as)}`, `Exported rows to ${c(a.save_as)}`]
         : ["database", `Querying ${c(a.connection)}: ${c(a.sql)}`, `Queried ${c(a.connection)}: ${c(a.sql)}`];
+      case "mcp_tools": return ["plug", a.tool ? `Reading how ${c(a.tool)} works` : `Listing the tools of ${c(a.server || "the MCP servers")}`,
+        a.tool ? `Read how ${c(a.tool)} works` : `Listed the tools of ${c(a.server || "the MCP servers")}`];
+      case "mcp_call": return ["plug", `Using ${c(a.tool)} from ${c(a.server)}`, `Used ${c(a.tool)} from ${c(a.server)}`];
       default: return ["zap", `Using ${c(name)}`, `Used ${c(name)}`];
     }
   }
@@ -841,7 +845,7 @@
         if (ev.kind === "question") { questionCard(ev, turn); break; }
         const what = { run_command: "run a command", delete_file: "delete a file", git_commit: "make a git commit", edit_file: "change a file",
           rule: "do something a rule says to confirm", outside_workspace: "use a file outside the project",
-          db_write: "change a database" }[ev.kind] || ev.kind;
+          db_write: "change a database", mcp_tool: "use an external tool" }[ev.kind] || ev.kind;
         const who = agent !== "main" ? ` for the ${(ROLES[roleOf(agent)] || ["helper"])[0]}` : "";
         const verdict = h("span", { class: "verdict" });
         const decide = async (approved, scope) => {
@@ -1306,7 +1310,7 @@
   const TABS = [
     ["general", "General", "palette"], ["model", "Model", "cpu"], ["agents", "Helpers", "users"],
     ["memory", "Memory & context", "layers"], ["permissions", "Permissions", "shield"], ["skills", "Skills", "zap"], ["ui", "Web UI", "globe"],
-    ["usage", "Usage", "chart"],
+    ["mcp", "External tools", "plug"], ["usage", "Usage", "chart"],
   ];
   async function openSettings(tab) {
     if (tab) S.tab = tab;
@@ -1315,6 +1319,7 @@
     try {
       S.cfg = await api("GET", "/api/config"); S.skills = await api("GET", "/api/skills");
       S.helpers = await api("GET", "/api/agents" + (S.info?.cwd ? "?cwd=" + encodeURIComponent(S.info.cwd) : ""));
+      S.mcpLive = S.mode === "session" && !S.ended ? await api("GET", `/api/s/${S.id}/mcp`).catch(() => []) : [];
     }
     catch (e) { toast(e.message, true); return; }
     renderSettings();
@@ -1481,6 +1486,8 @@
             try { await api("POST", "/api/skills", { name: nName.value, description: nDesc.value, content: nBody.value }); toast("Skill added"); S.skills = await api("GET", "/api/skills"); renderSettings(); }
             catch (e) { toast(e.message, true); }
           } }, icon("plus"), "Add skill")));
+    } else if (S.tab === "mcp") {
+      body.append(mcpSection(c));
     } else if (S.tab === "usage") {
       usageSection(body);
     } else if (S.tab === "ui") {
@@ -1528,6 +1535,47 @@
       u.models.length ? section("By model", null, bars(u.models, (r) => r.tasks, (r) => `${r.tasks} · ${tokens(r.tokens_in)} in`)) : "",
       u.projects.length ? section("By project", null, bars(u.projects, (r) => r.tasks, (r) => `${r.tasks} · ${spent(r.seconds)}`)) : "",
       u.tools.length ? section("Most used tools", null, bars(u.tools, (r) => r.calls, (r) => String(r.calls))) : "");
+  }
+  function mcpSection(c) {
+    c.mcp ||= { servers: {} };
+    c.mcp.servers ||= {};
+    const servers = c.mcp.servers;
+    const live = Object.fromEntries((S.mcpLive || []).map((s) => [s.name, s]));
+    const rows = h("div", { class: "mcp-rows" });
+    const draw = () => {
+      rows.replaceChildren(...Object.entries(servers).map(([name, spec]) => {
+        const now = live[name];
+        const state = spec.enabled === false ? "off" : now ? now.state : "saved";
+        const command = Array.isArray(spec.command) ? spec.command.join(" ") : String(spec.command || "");
+        return h("div", { class: "mcp-row" },
+          h("div", { class: "mcp-head" },
+            h("b", {}, name), h("span", { class: "tag mcp-" + state }, state === "ready" ? `ready · ${now.tools.length} tools` : state),
+            h("span", { class: "grow" }),
+            seg(["ask", "allow"], spec.approve || "ask", (v) => (spec.approve = v)),
+            toggle(spec.enabled !== false, (v) => { spec.enabled = v; draw(); }),
+            h("button", { class: "btn sm ghost", title: "Remove", "aria-label": "Remove", onclick: () => { delete servers[name]; draw(); } }, icon("x"))),
+          h("code", { class: "rule-pat", title: command }, command),
+          now?.error ? h("div", { class: "mcp-error" }, now.error) : "",
+          now?.tools?.length ? h("div", { class: "skill-desc" }, now.tools.map((t) => t.name).join(" · ")) : "");
+      }));
+      if (!Object.keys(servers).length) rows.append(h("div", { class: "skill-desc" }, "No servers yet."));
+    };
+    draw();
+    const name = textInput("", () => {}, { placeholder: "name, e.g. files", style: "max-width:170px" });
+    const cmd = textInput("", () => {}, { placeholder: "command that starts the server, e.g. python3 /opt/mcp/files.py /srv/data" });
+    return section("External tools (MCP servers)",
+      "Programs on this machine that give Dcode extra tools, started with each session and spoken to over standard input and output. " +
+      "Only tool names go into the model's prompt; it reads a tool's details when it needs them, so many tools cost little context. " +
+      "“Ask” confirms each call (except in auto mode); “Allow” runs them without asking. Adding a server runs its command: add only programs you trust.",
+      rows,
+      h("div", { class: "with-btn", style: "margin-top:10px" }, name, cmd,
+        h("button", { class: "btn sm", onclick: () => {
+          const key = name.value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+          if (!key || !cmd.value.trim()) return toast("Give the server a name and the command that starts it", true);
+          servers[key] = { command: cmd.value.trim(), approve: "ask", enabled: true };
+          name.value = ""; cmd.value = ""; draw();
+        } }, icon("plus"), "Add")),
+      h("p", { class: "desc", style: "margin-top:12px" }, "Save to start them. A live session shows each server's state and tools here. In the terminal: /mcp."));
   }
   function hooksSection(c) {
     c.hooks ||= [];
