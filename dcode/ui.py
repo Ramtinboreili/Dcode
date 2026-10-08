@@ -81,6 +81,7 @@ COMMANDS: dict[str, str] = {
     "/clear": "Clear the screen and start a fresh chat (the old one is saved)",
     "/artifacts": "Browse artifacts and open one in your browser",
     "/jobs": "Background jobs: see output, stop them",
+    "/cron": "Scheduled jobs: /cron · /cron add · /cron run|on|off|rm|logs <id>",
     "/db": "Databases: /db · /db add · /db <name> [table | SQL | summary | export …]",
     "/version": "Show the Dcode version",
     "/mode": "Switch mode: manual · accept edits · auto · plan",

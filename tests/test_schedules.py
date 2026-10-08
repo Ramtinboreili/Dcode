@@ -51,6 +51,7 @@ def test_next_run_and_plain_words():
     assert schedules.explain("15 * * * *") == "every hour at :15"
     assert schedules.explain("@daily") == "every day at 00:00"
     assert schedules.explain("0 3 1 * *") == "on day 1 of every month at 03:00"
+    assert schedules.explain("@yearly") == "every year on January 1 at 00:00"
     assert schedules.explain("5 4 * 2 1,3") == "5 4 * 2 1,3"  # unusual: shown as written
 
 
@@ -133,11 +134,15 @@ def test_scheduler_runs_what_is_due_once_per_minute(isolated):
     schedules.save_job({"name": "off", "schedule": "30 14 * * *", "command": "echo off", "enabled": False})
     scheduler = schedules.Scheduler()
     assert scheduler.tick(datetime(2026, 10, 8, 14, 30, 2)) == ["due"]
-    assert scheduler.tick(datetime(2026, 10, 8, 14, 30, 40)) == []          # same minute: not again
+    assert scheduler.tick(datetime(2026, 10, 8, 14, 30, 8)) == []           # same minute: not again
     assert _wait(lambda: not scheduler.busy())
     assert scheduler.tick(datetime(2026, 10, 8, 14, 31, 1)) == ["later"]
     assert _wait(lambda: not scheduler.busy())
     assert [r["status"] for r in schedules.load_runs("due")] == ["ok"] and schedules.load_runs("off") == []
+    # Saved (or the hub started) in the middle of a matching minute: wait for the next one, like cron.
+    schedules.save_job({"name": "fresh", "schedule": "* * * * *", "command": "echo fresh"})
+    assert scheduler.tick(datetime(2026, 10, 8, 14, 31, 40)) == []
+    assert scheduler.tick(datetime(2026, 10, 8, 14, 32, 3)) == ["fresh"] and _wait(lambda: not scheduler.busy())
 
 
 def test_run_now_and_overlap(isolated):

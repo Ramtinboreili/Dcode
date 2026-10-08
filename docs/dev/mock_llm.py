@@ -24,6 +24,8 @@ Trigger words (in the user's message unless noted):
     make a checklist          → todo_write with two items
     ask me                    → ask_user "Which database?" (Postgres / SQLite)
     break the syntax          → edit_file that leaves app.py with a syntax error (post-edit check)
+    count the parts           → db_query SELECT on the connection "stock" (database tools)
+    delete the old parts      → db_query DELETE on "stock" (a change: must ask, in every mode)
 
 After any tool result the mock answers "Done. Tool `x` returned N chars." Tool
 arguments stream in 400-character chunks (8-character chunks made long
@@ -78,6 +80,10 @@ def choose_reply(messages: list[dict]) -> dict:
                                            "content": "<h1>Project</h1><p>Overview.</p>"})}
     if "about this project" in text:
         return {"content": "I have the full picture. Building the artifact now."}
+    if "count the parts" in text:
+        return {"tool": ("db_query", {"connection": "stock", "sql": "SELECT count(*) AS parts FROM parts"})}
+    if "delete the old parts" in text:
+        return {"tool": ("db_query", {"connection": "stock", "sql": "DELETE FROM parts WHERE id = 1"})}
     if "make a checklist" in text:
         return {"tool": ("todo_write", {"items": [{"text": "Read the code", "status": "done"},
                                                   {"text": "Write the fix", "status": "in_progress"}]})}

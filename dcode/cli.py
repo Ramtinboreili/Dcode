@@ -380,6 +380,8 @@ class TerminalApp:
                 self._artifacts()
             elif command == "/db":
                 self._db(arg.strip())
+            elif command == "/cron":
+                self._cron(arg.strip())
             elif command == "/clear":
                 session.new_thread()
                 self.last_outputs = []
@@ -581,6 +583,107 @@ class TerminalApp:
                 ui.console.print(f"{ui.PAD}  [{color}]{decision:<7}[/] {ui._escape(pattern)}")
         ui.console.print(f"{ui.PAD}[bold]Outside the project[/] [{MUTED}]{rules.get('outside_workspace', 'ask')}[/]")
         ui.console.print(f"{ui.PAD}[{MUTED}]Add: /rules deny \"rm -rf *\" · /rules file ask \"*.pem\" · the last match wins[/]")
+
+    # --- scheduled jobs ---------------------------------------------------------------------------
+    def _cron(self, arg: str) -> None:
+        """/cron · /cron add ["<schedule>" <command>] · /cron run|on|off|rm|logs <id> · /cron open"""
+        from . import schedules
+
+        word, _, rest = arg.partition(" ")
+        rest = rest.strip()
+        try:
+            if not word:
+                return self._cron_list(schedules)
+            if word == "add":
+                return self._cron_add(schedules, rest)
+            if word == "open":
+                return self._open_web("#cron", "Scheduled jobs")
+            job = schedules.load_jobs().get(schedules.clean_id(rest))
+            if word not in ("run", "on", "off", "rm", "remove", "logs", "log") or job is None:
+                known = ", ".join(schedules.load_jobs()) or "none yet"
+                ui.notice(f"Usage: /cron · /cron add · /cron run|on|off|rm|logs <id>   (jobs: {known})", "warning")
+                return
+            if word in ("rm", "remove"):
+                schedules.delete_job(job["id"])
+                ui.notice(f"Removed the job {job['id']} and its logs.", "success")
+            elif word in ("on", "off"):
+                shown = schedules.describe_job(schedules.update_job(job["id"], enabled=word == "on"))
+                ui.notice(f"{job['id']} is {word}" + (f" — next run {shown['next_run'].replace('T', ' ')}" if shown["next_run"] else ""),
+                          "success")
+            elif word == "run":
+                schedules.update_job(job["id"], run_requested=True)  # the background service picks it up
+                ui.notice(f"Starting {job['id']} now. See the output with /cron logs {job['id']}", "success")
+                self._cron_service_hint()
+            else:
+                self._cron_logs(schedules, job)
+        except schedules.ScheduleError as exc:
+            ui.notice(str(exc), "error")
+
+    def _cron_service_hint(self) -> None:
+        if not self.ui_url:
+            ui.notice("Scheduled jobs are run by Dcode's background service, which is off here "
+                      "(--no-ui or DCODE_NO_UI). Start dcode without it.", "warning")
+
+    def _cron_list(self, schedules: Any) -> None:
+        jobs = [schedules.describe_job(j) for j in schedules.load_jobs().values()]
+        if not jobs:
+            ui.notice("No scheduled jobs yet. Add one: /cron add \"*/30 * * * *\" df -h   (or /cron add for questions, "
+                      "or the Scheduled screen in the web UI).")
+            return
+        colors = {"ok": SUCCESS, "running": PRIMARY, "failed": DANGER, "timeout": DANGER}
+        ui.console.print(f"{ui.PAD}[bold]Scheduled jobs[/]")
+        for job in jobs:
+            last = job["last_run"]
+            status = f"[{colors.get(last['status'], WARNING)}]{last['status']}[/] {last['started'][5:16].replace('T', ' ')}" if last else "never ran"
+            upcoming = f"next {job['next_run'][5:].replace('T', ' ')}" if job["next_run"] else "off"
+            what = ("Dcode: " if job["kind"] == "prompt" else "") + job["command"]
+            ui.console.print(f"{ui.PAD}  [{ACCENT}]{job['id']}[/]  {ui._escape(job['schedule_text'])} [{MUTED}]· {upcoming} · last[/] {status}")
+            ui.console.print(f"{ui.PAD}      [{MUTED}]{ui._escape(ui._short_args(what, 96))}[/]")
+        ui.console.print(f"{ui.PAD}[{MUTED}]/cron run|on|off|rm|logs <id> · they run in the background, even with no terminal open[/]")
+        self._cron_service_hint()
+
+    def _cron_add(self, schedules: Any, rest: str) -> None:
+        import shlex
+
+        data: dict[str, Any] = {}
+        if rest:  # /cron add "<schedule>" <command…>   or   /cron add @daily <command…>
+            try:
+                first = shlex.split(rest)[0]
+            except (ValueError, IndexError):
+                first = ""
+            body = rest[rest.index(first) + len(first):] if first else ""
+            body = (body[1:] if body[:1] in ("'", '"') else body).strip()  # the schedule's closing quote
+            data = {"schedule": first, "command": body, "kind": "command"}
+        else:
+            kind = ui.select_one("What should run?", ["A shell command", "A Dcode prompt (unattended task)"], "A shell command")
+            data["kind"] = "prompt" if kind.startswith("A Dcode") else "command"
+            data["schedule"] = ui.prompt_input("Schedule (min hour day month weekday, e.g. */15 * * * *  or  30 2 * * *  or @daily)")
+            data["command"] = ui.prompt_input("What should Dcode do" if data["kind"] == "prompt" else "Command")
+            data["name"] = ui.prompt_input("Name", default=data["command"][:40])
+            if data["kind"] == "prompt":
+                modes = {"read only (plan)": "plan", "may edit files (accept edits)": "accept_edits",
+                         "may edit files and run commands (auto)": "auto"}
+                picked = ui.select_one("Nobody can approve things at run time. The job…", list(modes), list(modes)[1])
+                data["mode"] = modes.get(picked, "accept_edits")
+        if data["kind"] == "prompt" or not rest:
+            data["cwd"] = self.session.cwd
+        job = schedules.describe_job(schedules.save_job(data))
+        ui.notice(f"Scheduled {job['id']}: {job['schedule_text']} — next run {str(job['next_run']).replace('T', ' ')}", "success")
+        self._cron_service_hint()
+
+    def _cron_logs(self, schedules: Any, job: dict[str, Any]) -> None:
+        runs = list(reversed(schedules.load_runs(job["id"])))
+        if not runs:
+            ui.notice(f"{job['id']} hasn't run yet.")
+            return
+        labels = [f"{r['started'].replace('T', ' ')}  {r['status']:<11} "
+                  f"{(str(r['duration']) + 's') if r.get('duration') is not None else '':>8}  {r['trigger']}" for r in runs]
+        picked = ui.select_one(f"Runs of {job['id']} — enter shows the log", labels, labels[0])
+        if picked not in labels:
+            return
+        run = runs[labels.index(picked)]
+        text = schedules.read_log(job["id"], run["id"], max_bytes=20_000) if run.get("log") else "(skipped: the previous run was still going)"
+        ui.show_expanded([(f"{job['id']} · {run['status']}", {"command": job["command"]}, text or "(no output)")])
 
     # --- databases ------------------------------------------------------------------------------
     def _db(self, arg: str) -> None:

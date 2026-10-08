@@ -36,6 +36,7 @@ MAX_TIMEOUT = 24 * 3600
 KEEP_RUNS = 50                # runs (and their logs) kept per job
 MAX_LOG_BYTES = 5_000_000     # a run's log is cut here; the job keeps running
 TICK = 5.0                    # seconds between scheduler checks
+FIRE_WINDOW = 20              # a due job starts in the first seconds of its minute, or not at all
 
 _MACROS = {"@hourly": "0 * * * *", "@daily": "0 0 * * *", "@midnight": "0 0 * * *", "@weekly": "0 0 * * 0",
            "@monthly": "0 0 1 * *", "@yearly": "0 0 1 1 *", "@annually": "0 0 1 1 *"}
@@ -43,6 +44,8 @@ _FIELDS = (("minute", 0, 59), ("hour", 0, 23), ("day of month", 1, 31), ("month"
 _NAMES = ({}, {}, {},
           {m: i for i, m in enumerate("jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)},
           {d: i for i, d in enumerate("sun mon tue wed thu fri sat".split())})
+_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+           "November", "December"]
 _DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
 
@@ -138,6 +141,8 @@ def explain(expression: str) -> str:
     hours = re.fullmatch(r"\*/(\d+)", hour)
     if minute.isdigit() and hours and (day, month, weekday) == ("*", "*", "*"):
         return f"every {hours.group(1)} hours at :{int(minute):02d}"
+    if minute.isdigit() and hour.isdigit() and day.isdigit() and month.isdigit() and weekday == "*" and 1 <= int(month) <= 12:
+        return f"every year on {_MONTHS[int(month) - 1]} {int(day)} at {int(hour):02d}:{int(minute):02d}"
     if minute.isdigit() and hour.isdigit() and month == "*":
         at = f"{int(hour):02d}:{int(minute):02d}"
         if (day, weekday) == ("*", "*"):
@@ -223,7 +228,7 @@ def save_job(data: dict[str, Any]) -> dict[str, Any]:
         job_id = clean_id(data.get("id") or "")
         previous = jobs.get(job_id)
         if previous is None:
-            base = clean_id(name or command.split()[0]) or "job"
+            base = clean_id(name or command)[:28].strip("-") or "job"
             job_id, count = base, 1
             while job_id in jobs:
                 count += 1
@@ -470,7 +475,9 @@ class Scheduler:
             if manual:
                 update_job(job["id"], run_requested=False)
             due = False
-            if job.get("enabled") and self._fired.get(job["id"]) != minute:
+            # Like cron, a minute is decided as it begins: a job saved (or a hub started) later in
+            # that minute waits for the next match instead of firing at once.
+            if job.get("enabled") and self._fired.get(job["id"]) != minute and now.second < FIRE_WINDOW:
                 try:
                     due = matches(job["schedule"], now)
                 except ScheduleError:

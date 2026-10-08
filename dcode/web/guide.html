@@ -265,6 +265,8 @@ dcode</pre></div>
       <tr><td><code>/diff</code> · <code>/commit [message]</code></td><td>Show uncommitted changes; commit with a generated message (asks first)</td></tr>
       <tr><td><code>/artifacts</code> · <code>/clear</code></td><td>Browse and open artifacts; clear the screen and start a fresh chat</td></tr>
       <tr><td><code>/jobs</code></td><td>Background jobs (servers, watchers): see their output, stop them</td></tr>
+      <tr><td><code>/db</code></td><td>Databases: connections, tables, queries, summary, export (see <a href="#en-db">Databases</a>)</td></tr>
+      <tr><td><code>/cron</code></td><td>Scheduled jobs and their logs (see <a href="#en-cron">Scheduled jobs</a>)</td></tr>
       <tr><td><code>/version</code> · <code>/guide</code></td><td>Show the version; open this guide</td></tr>
       <tr><td><code>/setup</code> · <code>/exit</code></td><td>Run setup again; quit (your chat is saved)</td></tr>
     </tbody>
@@ -395,7 +397,79 @@ description: Writing Ansible playbooks and roles our team's way.
 - Secrets come from ansible-vault, never plain text.
 - Check with --check --diff before applying.</pre></div>
 
-  <h2 id="en-small"><span class="num">10</span>Tips for small models (32K or less)</h2>
+  <h2 id="en-db"><span class="num">10</span>Databases</h2>
+  <p>Save a connection to a database once, then browse it, query it, summarize it and export from it, in the web UI, in the terminal, or by simply asking Dcode. PostgreSQL, MySQL / MariaDB and SQLite are supported; the drivers are built in, so nothing has to be installed on the server.</p>
+  <p><strong>What a connection may do is decided by the database.</strong> Dcode logs in as the database user you give it and has exactly that user's rights: tables the user can't read don't even show up. A read-only user is a good default.</p>
+  <h3>Add a connection</h3>
+  <ul>
+    <li><strong>Web UI:</strong> <em>Databases</em> in the sidebar → <em>New connection</em>. Fill in host, port, database, user and password, press <em>Test</em>, then <em>Save</em>.</li>
+    <li><strong>Terminal:</strong> <code>/db add</code> asks the same questions, or give it all at once as a URL.</li>
+    <li>The password is stored only on your machine, in a file only you can read, and is never shown again. You can name an environment variable to take it from instead.</li>
+    <li>Encryption is automatic: TLS when the server offers it. You can require it, or require a verified certificate.</li>
+  </ul>
+  <div class="code"><div class="bar"><span>terminal</span><button>Copy</button></div><pre>/db add shop postgres://analyst:secret@db.internal:5432/shop
+/db shop                      tables with their sizes
+/db shop orders               one table: columns, keys, indexes
+/db shop SELECT status, count(*) FROM orders GROUP BY status
+/db shop summary              size, biggest tables, heavy tables
+/db shop export orders        to a CSV file (also: export schema, export all)</pre></div>
+  <h3>The Databases screen</h3>
+  <ul>
+    <li><strong>Tables</strong> on the left with their row counts; click one to see its <strong>Data</strong> (first 100 rows) and <strong>Structure</strong> (columns, keys, indexes).</li>
+    <li><strong>SQL:</strong> write a statement and press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd>. Results appear in a grid.</li>
+    <li><strong>Summary:</strong> total size, number of tables, the largest tables, tables without a primary key, and a button to have Dcode write a summary of the whole database.</li>
+    <li><strong>Export:</strong> a table or a query's full result as CSV or JSON lines, the structure as Markdown, or the whole database as a zip of CSV files. Files are kept in <code>~/.dcode/db/exports</code>.</li>
+  </ul>
+  <h3>Ask Dcode</h3>
+  <p>When at least one connection is saved, Dcode can read the structure and run queries itself. It counts and groups in SQL instead of pulling rows into the chat.</p>
+  <div class="code"><div class="bar"><span>try it</span><button>Copy</button></div><pre>In the shop database, which 10 customers spent the most last month? Save the list as top-customers.csv.</pre></div>
+  <h3>Guards</h3>
+  <table>
+    <thead><tr><th>Guard</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Reads are read-only</td><td>Queries run in a read-only session, one statement at a time. The database itself refuses anything that would write.</td></tr>
+      <tr><td>Changes ask every time</td><td><code>INSERT</code>, <code>UPDATE</code>, <code>DELETE</code>, <code>DROP</code> and anything else that isn't a plain read is shown to you first and runs only after you confirm it. This holds in every mode, including auto, and can't be allowed "for the session". Plan mode refuses changes.</td></tr>
+      <tr><td>Read-only in Dcode</td><td>A switch on each connection that refuses every change through it, whatever the database user may do.</td></tr>
+      <tr><td>Row and time limits</td><td>A query returns at most 200 rows and is cancelled after 30 seconds.</td></tr>
+      <tr><td>Heavy tables</td><td>A table estimated above 1,000,000 rows or 200 MB is not exported whole: Dcode tells you and offers to export only what fits. Every export also stops at those limits and when the disk is nearly full.</td></tr>
+    </tbody>
+  </table>
+  <p>Change the limits, or stop Dcode from using your connections, in Settings → Permissions → Databases.</p>
+
+  <h2 id="en-cron"><span class="num">11</span>Scheduled jobs</h2>
+  <p>Run something on a schedule and read its output afterwards. A job is either a <strong>shell command</strong> (like crontab) or a <strong>Dcode prompt</strong>: a task Dcode does by itself, for example checking logs every morning and writing a report.</p>
+  <ul>
+    <li><strong>Web UI:</strong> <em>Scheduled</em> in the sidebar → <em>New job</em>. Pick a common schedule or type one; the page shows the next run times as you type.</li>
+    <li><strong>Terminal:</strong> <code>/cron add</code> asks a few questions, or give the schedule and the command directly.</li>
+    <li>Every run keeps a <strong>log</strong> with its output, result and duration. The last 50 runs of each job are kept.</li>
+    <li><em>Run now</em> starts a job at once; the switch turns it off without deleting it; a running job can be stopped.</li>
+  </ul>
+  <div class="code"><div class="bar"><span>terminal</span><button>Copy</button></div><pre>/cron add "30 2 * * *" pg_dump -Fc shop > /backups/shop.dump
+/cron                         jobs, next run, last result
+/cron run &lt;id&gt;   ·   /cron logs &lt;id&gt;
+/cron off &lt;id&gt;   ·   /cron on &lt;id&gt;   ·   /cron rm &lt;id&gt;</pre></div>
+  <h3>Schedules</h3>
+  <p>A schedule has five fields: minute, hour, day of month, month, day of week. Times are the machine's local time.</p>
+  <table>
+    <thead><tr><th>Schedule</th><th>Runs</th></tr></thead>
+    <tbody>
+      <tr><td><code>*/15 * * * *</code></td><td>every 15 minutes</td></tr>
+      <tr><td><code>0 * * * *</code> or <code>@hourly</code></td><td>every hour</td></tr>
+      <tr><td><code>30 2 * * *</code></td><td>every day at 02:30</td></tr>
+      <tr><td><code>0 9 * * 1-5</code></td><td>Monday to Friday at 09:00</td></tr>
+      <tr><td><code>0 4 1 * *</code></td><td>on the 1st of every month at 04:00</td></tr>
+    </tbody>
+  </table>
+  <h3>Good to know</h3>
+  <ul>
+    <li><strong>Jobs run in the background</strong>, even with no terminal open: Dcode's background service stays up while at least one job is switched on. After a reboot it starts again the next time you run <code>dcode</code>. Runs that were due while it was down are not caught up.</li>
+    <li>If a job is still running when its next time comes, that run is skipped and noted in the log. A run is stopped after its time limit (60 minutes unless you change it).</li>
+    <li><strong>A Dcode prompt runs unattended.</strong> Nobody is there to approve anything, so whatever would ask is refused, and the run is marked failed. Choose what the job may do: read only, edit files, or edit files and run commands. Your rules still apply.</li>
+    <li>Jobs are yours alone: they live in <code>~/.dcode/cron</code>, a project folder can't add one, and Dcode can't create one for itself.</li>
+    <li>The same unattended mode is available to you: <code>dcode run --mode auto "update the changelog"</code>.</li>
+  </ul>
+
+  <h2 id="en-small"><span class="num">12</span>Tips for small models (32K or less)</h2>
   <ul>
     <li>Give clear, specific tasks: "add input validation to <code>api/users.py</code>" works better than "improve the code".</li>
     <li>Keep helpers on. Exploration happens outside the main context, so long sessions stay accurate.</li>
@@ -405,7 +479,7 @@ description: Writing Ansible playbooks and roles our team's way.
     <li>Start a <code>/new</code> chat when you switch to an unrelated task.</li>
   </ul>
 
-  <h2 id="en-config"><span class="num">11</span>Configuration</h2>
+  <h2 id="en-config"><span class="num">13</span>Configuration</h2>
   <p>Settings are saved in <code>~/.dcode/config.json</code>, and you can change them in the web UI or with slash commands. Environment variables override the file; the web UI shows those fields as read-only.</p>
   <table>
     <thead><tr><th>Variable</th><th>Meaning</th></tr></thead>
@@ -424,7 +498,7 @@ description: Writing Ansible playbooks and roles our team's way.
   </table>
   <p>Old <code>CODE_ONE_*</code> variables still work, and an existing <code>~/.code-one</code> folder is copied over on first run.</p>
 
-  <h2 id="en-security"><span class="num">12</span>Security</h2>
+  <h2 id="en-security"><span class="num">14</span>Security</h2>
   <ul>
     <li><strong>Folder sandbox:</strong> file tools stay in the project folder. If Dcode needs a file outside it, it asks first.</li>
     <li><strong>Approvals:</strong> commands, deletions and commits always ask first, unless you turn on auto-approve (only for trusted, sandboxed machines).</li>
@@ -432,10 +506,12 @@ description: Writing Ansible playbooks and roles our team's way.
     <li><strong>Hooks:</strong> your own shell commands before or after a tool, when a task is done, or when Dcode needs an answer: block risky commands, keep an audit log, get a desktop notification. They're set in your own settings only, never by a project.</li>
     <li><strong>Private web UI:</strong> it listens only on <code>127.0.0.1</code> and needs a secret per-user link. Other users on the same server can't see or control your sessions.</li>
     <li><strong>Secrets:</strong> <code>~/.dcode</code> is readable only by you, and the web UI never shows your API key.</li>
+    <li><strong>Databases:</strong> Dcode has the rights of the database user you connect with, nothing more. Reads are read-only, and every change is shown to you and needs your confirmation, in every mode. Saved passwords are never shown.</li>
+    <li><strong>Scheduled jobs</strong> can only be created by you. A Dcode prompt that runs on a schedule can't get approvals, so anything that would ask is refused.</li>
     <li><strong>Artifacts</strong> run in a sandbox with no network access.</li>
   </ul>
 
-  <h2 id="en-trouble"><span class="num">13</span>Troubleshooting</h2>
+  <h2 id="en-trouble"><span class="num">15</span>Troubleshooting</h2>
   <table>
     <thead><tr><th>Problem</th><th>Fix</th></tr></thead>
     <tbody>
@@ -448,7 +524,7 @@ description: Writing Ansible playbooks and roles our team's way.
     </tbody>
   </table>
 
-  <h2 id="en-ref"><span class="num">14</span>Quick reference</h2>
+  <h2 id="en-ref"><span class="num">16</span>Quick reference</h2>
   <div class="code"><div class="bar"><span>cheatsheet</span><button>Copy</button></div><pre>dcode                       <span class="c"># start in the current folder</span>
 dcode --setup               <span class="c"># run setup again</span>
 dcode --model NAME --context-window 32768
@@ -545,6 +621,8 @@ dcode</pre></div>
       <tr><td><code>/diff</code> · <code>/commit [message]</code></td><td>نمایش تغییرات commit‌نشده؛ commit با پیامی که خودکار نوشته می‌شود (اول اجازه می‌گیرد)</td></tr>
       <tr><td><code>/artifacts</code> · <code>/clear</code></td><td>مرور و باز کردن آرتیفکت‌ها؛ پاک کردن صفحه و شروع گفتگوی تازه</td></tr>
       <tr><td><code>/jobs</code></td><td>کارهای پس‌زمینه (سرورها، watcherها): دیدن خروجی و متوقف کردن</td></tr>
+      <tr><td><code>/db</code></td><td>پایگاه‌های داده: اتصال‌ها، جدول‌ها، کوئری، خلاصه، خروجی (بخش <a href="#fa-db">پایگاه‌های داده</a>)</td></tr>
+      <tr><td><code>/cron</code></td><td>کارهای زمان‌بندی‌شده و لاگ‌هایشان (بخش <a href="#fa-cron">کارهای زمان‌بندی‌شده</a>)</td></tr>
       <tr><td><code>/version</code> · <code>/guide</code></td><td>نمایش نسخه؛ باز کردن همین راهنما</td></tr>
       <tr><td><code>/setup</code> · <code>/exit</code></td><td>راه‌اندازی دوباره؛ خروج (گفتگو ذخیره می‌شود)</td></tr>
     </tbody>
@@ -676,7 +754,79 @@ description: Writing Ansible playbooks and roles our team's way.
 - Secrets come from ansible-vault, never plain text.
 - Check with --check --diff before applying.</pre></div>
 
-  <h2 id="fa-small"><span class="num">۱۰</span>نکته‌هایی برای مدل‌های کوچک (۳۲K یا کمتر)</h2>
+  <h2 id="fa-db"><span class="num">۱۰</span>پایگاه‌های داده</h2>
+  <p>اتصال به یک پایگاه داده را یک بار ذخیره کنید؛ بعد می‌توانید آن را مرور کنید، کوئری بگیرید، خلاصه‌اش را ببینید و خروجی بگیرید: در رابط وب، در ترمینال، یا فقط با پرسیدن از Dcode. از PostgreSQL، MySQL / MariaDB و SQLite پشتیبانی می‌شود و درایورها داخل خود Dcode هستند؛ لازم نیست چیزی روی سرور نصب شود.</p>
+  <p><strong>اینکه یک اتصال چه کاری می‌تواند بکند را خودِ پایگاه داده تعیین می‌کند.</strong> Dcode با همان کاربری که می‌دهید وارد می‌شود و دقیقاً دسترسی‌های همان کاربر را دارد: جدول‌هایی که آن کاربر اجازهٔ خواندنشان را ندارد اصلاً نمایش داده نمی‌شوند. یک کاربر فقط‌خواندنی انتخاب خوبی برای شروع است.</p>
+  <h3>افزودن اتصال</h3>
+  <ul>
+    <li><strong>رابط وب:</strong> در نوار کناری <em>Databases</em> → <em>New connection</em>. میزبان، پورت، نام پایگاه، کاربر و رمز را وارد کنید، <em>Test</em> را بزنید و بعد <em>Save</em>.</li>
+    <li><strong>ترمینال:</strong> <code dir="ltr">/db add</code> همین سؤال‌ها را می‌پرسد؛ یا همه را یک‌جا به شکل URL بدهید.</li>
+    <li>رمز فقط روی دستگاه خودتان و در فایلی که فقط شما می‌توانید بخوانید ذخیره می‌شود و دیگر نمایش داده نمی‌شود. می‌توانید به‌جای آن نام یک متغیر محیطی را بدهید.</li>
+    <li>رمزنگاری خودکار است: اگر سرور TLS داشته باشد استفاده می‌شود. می‌توانید آن را اجباری کنید یا تأیید گواهی را هم بخواهید.</li>
+  </ul>
+  <div class="code"><div class="bar"><span>terminal</span><button>Copy</button></div><pre>/db add shop postgres://analyst:secret@db.internal:5432/shop
+/db shop                      tables with their sizes
+/db shop orders               one table: columns, keys, indexes
+/db shop SELECT status, count(*) FROM orders GROUP BY status
+/db shop summary              size, biggest tables, heavy tables
+/db shop export orders        to a CSV file (also: export schema, export all)</pre></div>
+  <h3>صفحهٔ Databases</h3>
+  <ul>
+    <li><strong>جدول‌ها</strong> در سمت کنار با تعداد سطرهایشان؛ روی هر کدام بزنید تا <strong>Data</strong> (۱۰۰ سطر اول) و <strong>Structure</strong> (ستون‌ها، کلیدها، ایندکس‌ها) را ببینید.</li>
+    <li><strong>SQL:</strong> دستور را بنویسید و <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd> بزنید. نتیجه در یک جدول نمایش داده می‌شود.</li>
+    <li><strong>Summary:</strong> حجم کل، تعداد جدول‌ها، بزرگ‌ترین جدول‌ها، جدول‌های بدون کلید اصلی، و دکمه‌ای که از Dcode می‌خواهد خلاصه‌ای از کل پایگاه بنویسد.</li>
+    <li><strong>Export:</strong> یک جدول یا نتیجهٔ کامل یک کوئری به شکل CSV یا JSON lines، ساختار به شکل Markdown، یا کل پایگاه به شکل یک فایل zip از CSVها. فایل‌ها در <code dir="ltr">~/.dcode/db/exports</code> می‌مانند.</li>
+  </ul>
+  <h3>از Dcode بپرسید</h3>
+  <p>وقتی دست‌کم یک اتصال ذخیره شده باشد، Dcode خودش می‌تواند ساختار را بخواند و کوئری اجرا کند. به‌جای آوردن سطرها به گفتگو، شمارش و گروه‌بندی را در خود SQL انجام می‌دهد.</p>
+  <div class="code"><div class="bar"><span>try it</span><button>Copy</button></div><pre>In the shop database, which 10 customers spent the most last month? Save the list as top-customers.csv.</pre></div>
+  <h3>محافظ‌ها</h3>
+  <table>
+    <thead><tr><th>محافظ</th><th>چه می‌کند</th></tr></thead>
+    <tbody>
+      <tr><td>خواندن فقط‌خواندنی است</td><td>کوئری‌ها در یک نشست فقط‌خواندنی و هر بار یک دستور اجرا می‌شوند. خودِ پایگاه داده هر چیزی را که بخواهد بنویسد رد می‌کند.</td></tr>
+      <tr><td>تغییرها هر بار پرسیده می‌شوند</td><td><code dir="ltr">INSERT</code>، <code dir="ltr">UPDATE</code>، <code dir="ltr">DELETE</code>، <code dir="ltr">DROP</code> و هر چیزی که خواندنِ ساده نباشد اول به شما نشان داده می‌شود و فقط بعد از تأیید شما اجرا می‌شود. این در همهٔ حالت‌ها، حتی auto، برقرار است و نمی‌توان آن را «برای کل نشست» مجاز کرد. حالت plan تغییرها را رد می‌کند.</td></tr>
+      <tr><td>فقط‌خواندنی در Dcode</td><td>کلیدی روی هر اتصال که هر تغییری از طریق آن را رد می‌کند، هر دسترسی‌ای که کاربر پایگاه داشته باشد.</td></tr>
+      <tr><td>سقف سطر و زمان</td><td>هر کوئری حداکثر ۲۰۰ سطر برمی‌گرداند و بعد از ۳۰ ثانیه لغو می‌شود.</td></tr>
+      <tr><td>جدول‌های سنگین</td><td>جدولی که تخمین زده شود بیش از ۱٬۰۰۰٬۰۰۰ سطر یا ۲۰۰ مگابایت دارد کامل خروجی گرفته نمی‌شود: Dcode خبر می‌دهد و پیشنهاد می‌کند فقط همان مقداری که جا می‌شود خروجی بگیرد. هر خروجی هم در همین سقف‌ها، و وقتی دیسک تقریباً پر است، متوقف می‌شود.</td></tr>
+    </tbody>
+  </table>
+  <p>سقف‌ها را در Settings → Permissions → Databases تغییر دهید؛ همان‌جا می‌توانید استفادهٔ Dcode از اتصال‌هایتان را هم خاموش کنید.</p>
+
+  <h2 id="fa-cron"><span class="num">۱۱</span>کارهای زمان‌بندی‌شده</h2>
+  <p>چیزی را طبق زمان‌بندی اجرا کنید و بعداً خروجی‌اش را بخوانید. هر کار یا یک <strong>دستور شل</strong> است (مثل crontab) یا یک <strong>درخواست از Dcode</strong>: کاری که Dcode خودش انجام می‌دهد، مثلاً هر صبح لاگ‌ها را بررسی کند و گزارش بنویسد.</p>
+  <ul>
+    <li><strong>رابط وب:</strong> در نوار کناری <em>Scheduled</em> → <em>New job</em>. یک زمان‌بندی رایج را انتخاب کنید یا خودتان بنویسید؛ همان موقع زمان اجراهای بعدی نمایش داده می‌شود.</li>
+    <li><strong>ترمینال:</strong> <code dir="ltr">/cron add</code> چند سؤال می‌پرسد؛ یا زمان‌بندی و دستور را مستقیم بدهید.</li>
+    <li>هر اجرا یک <strong>لاگ</strong> با خروجی، نتیجه و مدت‌زمان دارد. ۵۰ اجرای آخر هر کار نگه داشته می‌شود.</li>
+    <li><em>Run now</em> کار را همان لحظه اجرا می‌کند؛ با کلید می‌توانید آن را بدون حذف خاموش کنید؛ کارِ در حال اجرا را می‌توان متوقف کرد.</li>
+  </ul>
+  <div class="code"><div class="bar"><span>terminal</span><button>Copy</button></div><pre>/cron add "30 2 * * *" pg_dump -Fc shop > /backups/shop.dump
+/cron                         jobs, next run, last result
+/cron run &lt;id&gt;   ·   /cron logs &lt;id&gt;
+/cron off &lt;id&gt;   ·   /cron on &lt;id&gt;   ·   /cron rm &lt;id&gt;</pre></div>
+  <h3>زمان‌بندی‌ها</h3>
+  <p>هر زمان‌بندی پنج بخش دارد: دقیقه، ساعت، روز ماه، ماه، روز هفته. زمان‌ها به وقت محلی همان دستگاه هستند.</p>
+  <table>
+    <thead><tr><th>زمان‌بندی</th><th>اجرا</th></tr></thead>
+    <tbody>
+      <tr><td><code dir="ltr">*/15 * * * *</code></td><td>هر ۱۵ دقیقه</td></tr>
+      <tr><td><code dir="ltr">0 * * * *</code> یا <code dir="ltr">@hourly</code></td><td>هر ساعت</td></tr>
+      <tr><td><code dir="ltr">30 2 * * *</code></td><td>هر روز ساعت ۰۲:۳۰</td></tr>
+      <tr><td><code dir="ltr">0 9 * * 1-5</code></td><td>دوشنبه تا جمعه ساعت ۰۹:۰۰</td></tr>
+      <tr><td><code dir="ltr">0 4 1 * *</code></td><td>روز اول هر ماه ساعت ۰۴:۰۰</td></tr>
+    </tbody>
+  </table>
+  <h3>خوب است بدانید</h3>
+  <ul>
+    <li><strong>کارها در پس‌زمینه اجرا می‌شوند</strong>، حتی وقتی هیچ ترمینالی باز نیست: تا وقتی دست‌کم یک کار روشن باشد، سرویس پس‌زمینهٔ Dcode بالا می‌ماند. بعد از ری‌استارت دستگاه، دفعهٔ بعدی که <code dir="ltr">dcode</code> را اجرا کنید دوباره شروع می‌شود. اجراهایی که در زمان خاموش‌بودن سرویس موعدشان بوده جبران نمی‌شوند.</li>
+    <li>اگر کاری هنوز در حال اجرا باشد و نوبت بعدی‌اش برسد، آن نوبت رد می‌شود و در لاگ ثبت می‌شود. هر اجرا بعد از سقف زمانی‌اش متوقف می‌شود (۶۰ دقیقه، مگر اینکه تغییرش دهید).</li>
+    <li><strong>درخواست از Dcode بدون حضور شما اجرا می‌شود.</strong> کسی نیست که چیزی را تأیید کند؛ پس هر کاری که نیاز به تأیید داشته باشد رد می‌شود و آن اجرا ناموفق ثبت می‌شود. خودتان تعیین کنید کار چه اجازه‌ای دارد: فقط خواندن، ویرایش فایل‌ها، یا ویرایش فایل‌ها و اجرای دستورها. قوانین شما همچنان اعمال می‌شوند.</li>
+    <li>کارها فقط مال شما هستند: در <code dir="ltr">~/.dcode/cron</code> نگه داشته می‌شوند، پوشهٔ یک پروژه نمی‌تواند کاری اضافه کند و Dcode هم نمی‌تواند برای خودش کاری بسازد.</li>
+    <li>همین حالتِ بدون‌حضور برای خودتان هم در دسترس است: <code dir="ltr">dcode run --mode auto "update the changelog"</code>.</li>
+  </ul>
+
+  <h2 id="fa-small"><span class="num">۱۲</span>نکته‌هایی برای مدل‌های کوچک (۳۲K یا کمتر)</h2>
   <ul>
     <li>کارهای واضح و مشخص بدهید: «به <code>api/users.py</code> اعتبارسنجی ورودی اضافه کن» بهتر از «کد را بهتر کن» جواب می‌دهد.</li>
     <li>دستیارهای کمکی را روشن نگه دارید؛ کاوش بیرون از زمینهٔ اصلی انجام می‌شود و نشست‌های طولانی دقیق می‌مانند.</li>
@@ -686,7 +836,7 @@ description: Writing Ansible playbooks and roles our team's way.
     <li>وقتی سراغ کاری بی‌ارتباط می‌روید، با <code>/new</code> گفتگوی تازه شروع کنید.</li>
   </ul>
 
-  <h2 id="fa-config"><span class="num">۱۱</span>تنظیمات</h2>
+  <h2 id="fa-config"><span class="num">۱۳</span>تنظیمات</h2>
   <p>تنظیمات در <code>~/.dcode/config.json</code> ذخیره می‌شوند و می‌توانید آن‌ها را در رابط وب یا با دستورهای اسلش تغییر دهید. متغیرهای محیطی بر فایل اولویت دارند و رابط وب آن فیلدها را فقط‌خواندنی نشان می‌دهد.</p>
   <table>
     <thead><tr><th>متغیر</th><th>معنی</th></tr></thead>
@@ -705,7 +855,7 @@ description: Writing Ansible playbooks and roles our team's way.
   </table>
   <p>متغیرهای قدیمی <code>CODE_ONE_*</code> هنوز کار می‌کنند و پوشهٔ قدیمی <code>~/.code-one</code> در اولین اجرا منتقل می‌شود.</p>
 
-  <h2 id="fa-security"><span class="num">۱۲</span>امنیت</h2>
+  <h2 id="fa-security"><span class="num">۱۴</span>امنیت</h2>
   <ul>
     <li><strong>محدودیت پوشه:</strong> ابزارهای فایل داخل پوشهٔ پروژه می‌مانند. اگر Dcode به فایلی بیرون از آن نیاز داشته باشد، اول اجازه می‌گیرد.</li>
     <li><strong>تأییدها:</strong> اجرای دستور، حذف فایل و commit همیشه اول اجازه می‌گیرند، مگر تأیید خودکار را روشن کنید (فقط برای سیستم‌های مطمئن و ایزوله).</li>
@@ -713,10 +863,12 @@ description: Writing Ansible playbooks and roles our team's way.
     <li><strong>Hookها:</strong> دستورهای shell خودتان، قبل یا بعد از یک ابزار، وقتی کاری تمام شد یا وقتی Dcode منتظر پاسخ شماست: مسدود کردن دستورهای پرخطر، ثبت گزارش، اعلان دسکتاپ. فقط در تنظیمات خودتان تعریف می‌شوند، نه توسط پروژه.</li>
     <li><strong>رابط وب خصوصی:</strong> فقط روی <code>127.0.0.1</code> در دسترس است و یک لینک مخفی مخصوص هر کاربر لازم دارد. کاربران دیگر همان سرور نمی‌توانند نشست‌های شما را ببینند یا کنترل کنند.</li>
     <li><strong>اسرار:</strong> پوشهٔ <code>~/.dcode</code> فقط برای شما خواندنی است و رابط وب هیچ‌وقت کلید API را نشان نمی‌دهد.</li>
+    <li><strong>پایگاه‌های داده:</strong> Dcode دقیقاً دسترسی‌های همان کاربر پایگاه داده‌ای را دارد که با آن وصل می‌شوید، نه بیشتر. خواندن‌ها فقط‌خواندنی‌اند و هر تغییری، در هر حالتی، اول به شما نشان داده می‌شود و تأیید شما را می‌خواهد. رمزهای ذخیره‌شده هیچ‌وقت نمایش داده نمی‌شوند.</li>
+    <li><strong>کارهای زمان‌بندی‌شده</strong> را فقط خودتان می‌توانید بسازید. درخواستی که طبق زمان‌بندی به Dcode داده می‌شود نمی‌تواند تأیید بگیرد؛ پس هر چیزی که نیاز به تأیید داشته باشد رد می‌شود.</li>
     <li><strong>آرتیفکت‌ها</strong> در محیط ایزوله و بدون دسترسی به شبکه اجرا می‌شوند.</li>
   </ul>
 
-  <h2 id="fa-trouble"><span class="num">۱۳</span>رفع مشکل</h2>
+  <h2 id="fa-trouble"><span class="num">۱۵</span>رفع مشکل</h2>
   <table>
     <thead><tr><th>مشکل</th><th>راه‌حل</th></tr></thead>
     <tbody>
@@ -729,7 +881,7 @@ description: Writing Ansible playbooks and roles our team's way.
     </tbody>
   </table>
 
-  <h2 id="fa-ref"><span class="num">۱۴</span>مرجع سریع</h2>
+  <h2 id="fa-ref"><span class="num">۱۶</span>مرجع سریع</h2>
   <div class="code"><div class="bar"><span>cheatsheet</span><button>Copy</button></div><pre>dcode                       <span class="c"># start in the current folder</span>
 dcode --setup               <span class="c"># run setup again</span>
 dcode --model NAME --context-window 32768

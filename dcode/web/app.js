@@ -374,11 +374,12 @@
     const params = new URLSearchParams(hash.includes("=") ? hash : "");
     app.classList.remove("sb-open");
     const [page, sub] = hash.split(":");
-    if (["settings", "memory", "artifacts", "db"].includes(page) || params.get("a")) {
+    if (["settings", "memory", "artifacts", "db", "cron"].includes(page) || params.get("a")) {
       // Deep link to a dialog / artifact over the current (or first live) session.
       if (!S.mode && S.sessions.length) openSession(S.sessions[0].id);
       if (params.get("a")) return openArtifact(params.get("a"));
       if (page === "db") return openDatabases(sub);
+      if (page === "cron") return openCron(sub);
       return page === "settings" ? openSettings(sub) : page === "memory" ? openMemory() : openArtifacts();
     }
     if (params.get("s")) openSession(params.get("s"));
@@ -2058,6 +2059,137 @@
   $("#open-db").addEventListener("click", () => openDatabases());
 
   // =====================================================================
+  // Scheduled jobs (cron)
+  // =====================================================================
+  const C = { jobs: [], id: null, form: null, runs: [], run: null, log: "", timer: null, modes: [] };
+  const when = (iso) => iso ? iso.replace("T", " ").slice(0, 16) : "";
+  const RUN_STATE = { ok: ["check", "ok"], running: ["refresh", "run"], failed: ["alert", "bad"], timeout: ["alert", "bad"],
+    stopped: ["x", "warn"], skipped: ["info", "warn"], interrupted: ["info", "warn"] };
+  const PRESETS = [["*/15 * * * *", "Every 15 minutes"], ["0 * * * *", "Every hour"], ["30 2 * * *", "Every day at 02:30"],
+    ["0 9 * * 1-5", "Weekdays at 09:00"], ["0 3 * * 0", "Sundays at 03:00"], ["0 4 1 * *", "The 1st of each month at 04:00"]];
+  const cronJob = () => C.jobs.find((j) => j.id === C.id);
+
+  async function refreshCron() {
+    try { const r = await api("GET", "/api/cron"); C.jobs = r.jobs || []; C.modes = r.modes || []; } catch (_) { return; }
+    const on = C.jobs.filter((j) => j.enabled).length;
+    const pill = $("#cron-count");
+    pill.textContent = on; pill.hidden = !on;
+  }
+  async function openCron(id) {
+    openModal("#cron-modal");
+    await refreshCron();
+    if (id && C.jobs.some((j) => j.id === id)) C.id = id;
+    if (!cronJob()) C.id = C.jobs[0]?.id || null;
+    C.form = null; C.run = null;
+    if (!C.jobs.length) cronForm(null);
+    await loadRuns();
+    renderCron();
+    clearInterval(C.timer);
+    C.timer = setInterval(async () => {
+      if ($("#cron-modal").hidden) return clearInterval(C.timer);
+      if (C.form && document.activeElement && $("#cron-main").contains(document.activeElement)) return; // don't redraw under the cursor
+      await refreshCron(); await loadRuns(); renderCron();
+    }, 3000);
+  }
+  async function loadRuns() {
+    if (!C.id) { C.runs = []; return; }
+    try { C.runs = await api("GET", `/api/cron/${encodeURIComponent(C.id)}/runs`); } catch (_) { C.runs = []; }
+    if (C.run && !C.runs.some((r) => r.id === C.run)) C.run = null;
+    if (!C.run && C.runs.length) C.run = (C.runs.find((r) => r.log) || {}).id || null;
+    if (C.run) { try { C.log = (await api("GET", `/api/cron/${encodeURIComponent(C.id)}/log?run=${encodeURIComponent(C.run)}`)).text; } catch (_) { C.log = ""; } }
+  }
+  function runBadge(status) {
+    const [ic, cls] = RUN_STATE[status] || ["info", "warn"];
+    return h("span", { class: "run-badge " + cls }, status === "running" ? h("span", { class: "spin" }) : icon(ic), status);
+  }
+  function renderCron() {
+    const side = $("#cron-side");
+    side.replaceChildren(
+      h("button", { class: "btn", onclick: () => cronForm(null) }, icon("plus"), "New job"),
+      h("div", { class: "db-tables" }, ...C.jobs.map((j) => h("button", { class: "cron-job" + (j.id === C.id && !C.form?.isNew ? " active" : ""),
+        onclick: async () => { C.id = j.id; C.form = null; C.run = null; await loadRuns(); renderCron(); } },
+        h("span", { class: "live-dot" + (j.running ? " busy" : j.enabled ? "" : " off") }),
+        h("span", { class: "row-main" }, h("div", { class: "row-title" }, j.name),
+          h("div", { class: "row-sub" }, j.enabled ? `${j.schedule_text} · next ${when(j.next_run).slice(5)}` : "off")),
+        j.last_run ? runBadge(j.last_run.status) : ""))),
+      h("div", { class: "sb-empty" }, "Jobs run in the background, even with no terminal open. Times are this machine's local time."));
+    const main = $("#cron-main");
+    if (C.form) return main.replaceChildren(cronFormView());
+    const j = cronJob();
+    if (!j) return main.replaceChildren(h("div", { class: "empty-state" }, icon("clock"), "No scheduled jobs yet."));
+    const act = async (path, body, msg) => { try { await api("POST", `/api/cron/${encodeURIComponent(j.id)}/${path}`, body || {}); if (msg) toast(msg); await refreshCron(); await loadRuns(); renderCron(); } catch (e) { toast(e.message, true); } };
+    const bar = h("div", { class: "db-bar" },
+      h("span", { class: "db-crumb" }, j.name), h("span", { class: "tag" + (j.kind === "prompt" ? " blue" : "") }, j.kind === "prompt" ? "Dcode prompt" : "command"),
+      h("span", { class: "muted" }, j.enabled ? `${j.schedule_text} · next run ${when(j.next_run)}` : "switched off"),
+      h("span", { class: "grow" }),
+      h("span", { title: j.enabled ? "On" : "Off" }, toggle(j.enabled, (v) => act("toggle", { enabled: v }))),
+      j.running ? h("button", { class: "btn sm danger", onclick: () => act("stop", {}, "Stopping…") }, icon("stop"), "Stop")
+        : h("button", { class: "btn sm primary", onclick: () => act("run", {}, "Started") }, icon("play"), "Run now"),
+      h("button", { class: "btn sm", onclick: () => cronForm(j) }, icon("pencil"), "Edit"));
+    const what = h("div", { class: "db-pad cron-what" },
+      h("pre", {}, j.command),
+      h("div", { class: "muted" }, [j.cwd ? `in ${j.cwd}` : "", j.kind === "prompt" ? `mode: ${(MODES[j.mode] || [j.mode])[0]}` : "", `time limit ${Math.round(j.timeout / 60)} min`, `schedule: ${j.schedule}`].filter(Boolean).join(" · ")));
+    const runs = h("div", { class: "cron-runs" }, ...C.runs.map((r) => h("button", { class: "cron-run" + (r.id === C.run ? " active" : ""), disabled: r.log ? null : true,
+      onclick: async () => { C.run = r.id; await loadRuns(); renderCron(); } },
+      runBadge(r.status), h("span", { class: "row-main" }, when(r.started)),
+      h("span", { class: "meta" }, [r.duration !== null && r.duration !== undefined ? r.duration + "s" : "", r.trigger === "manual" ? "by hand" : ""].filter(Boolean).join(" · ")))));
+    const log = h("pre", { class: "cron-log" }, C.run ? (C.log || "(no output yet)") : "");
+    main.replaceChildren(bar, what, C.runs.length
+      ? h("div", { class: "cron-split" }, runs, log)
+      : h("div", { class: "empty-state" }, icon("clock"), "This job hasn't run yet. Its output will be kept here."));
+    log.scrollTop = log.scrollHeight;
+  }
+  function cronForm(job) {
+    C.form = job ? { ...job } : { isNew: true, name: "", kind: "command", schedule: "0 * * * *", command: "", cwd: S.info?.cwd || "", mode: "accept_edits", timeout: 3600, enabled: true };
+    renderCron();
+  }
+  function cronFormView() {
+    const f = C.form;
+    const set = (k) => (v) => { f[k] = v; };
+    const hint = h("div", { class: "help" }, "");
+    const preview = async () => {
+      try {
+        const r = await api("GET", "/api/cron/preview?schedule=" + encodeURIComponent(f.schedule || ""));
+        hint.className = "help"; hint.textContent = `Runs ${r.text}. Next: ${r.next.map(when).join(", ") || "never"}`;
+      } catch (e) { hint.className = "help lock"; hint.textContent = e.message; }
+    };
+    const sched = textInput(f.schedule, (v) => { f.schedule = v; preview(); }, { class: "input mono", placeholder: "minute hour day month weekday", spellcheck: "false" });
+    const presets = h("select", { class: "select", style: "width:auto" }, h("option", { value: "" }, "Common schedules…"), ...PRESETS.map(([v, label]) => h("option", { value: v }, label)));
+    presets.addEventListener("change", () => { if (presets.value) { f.schedule = sched.value = presets.value; preview(); } });
+    preview();
+    const body = h("textarea", { class: "textarea mono", rows: 5, spellcheck: "false",
+      placeholder: f.kind === "prompt" ? "e.g. Check the nginx error log for new problems since yesterday and write a short report to reports/nginx.md" : "e.g. pg_dump -Fc shop > /backups/shop-$(date +%F).dump" }, f.command);
+    body.addEventListener("input", () => { f.command = body.value; });
+    const kind = seg(["command", "prompt"], f.kind, (v) => { f.kind = v; renderCron(); });
+    $$("button", kind).forEach((b, i) => (b.lastChild.textContent = ["Shell command", "Dcode prompt"][i]));
+    const mode = h("select", { class: "select" }, ...[["plan", "Read only (plan)"], ["accept_edits", "May edit files"], ["auto", "May edit files and run commands"]]
+      .map(([k, label]) => { const o = h("option", { value: k }, label); if (k === f.mode) o.selected = true; return o; }));
+    mode.addEventListener("change", () => { f.mode = mode.value; });
+    return h("div", { class: "db-pad db-form" },
+      h("h3", {}, f.isNew ? "New scheduled job" : `Edit ${f.name}`),
+      h("div", { class: "grid2" }, field("Name", textInput(f.name, set("name"), { placeholder: "e.g. nightly backup" })), field("What runs", kind)),
+      field("Schedule", h("div", { class: "with-btn" }, sched, presets), hint),
+      field(f.kind === "prompt" ? "What should Dcode do?" : "Command", body,
+        f.kind === "prompt" ? help("Dcode works on its own: nobody is there to approve anything, so whatever would ask is refused. Choose below what it may do.") : help("Runs through the shell as you, like crontab. Output and exit code are kept for each run.")),
+      h("div", { class: "grid2" },
+        field(f.kind === "prompt" ? "Project folder" : "Folder (optional)", textInput(f.cwd || "", set("cwd"), { placeholder: f.kind === "prompt" ? "/path/to/project" : "your home folder" })),
+        f.kind === "prompt" ? field("It may…", mode) : field("Time limit (minutes)", textInput(Math.round((f.timeout || 3600) / 60), (v) => { f.timeout = Math.max(1, v) * 60; }, { type: "number", min: 1 }))),
+      f.kind === "prompt" ? field("Time limit (minutes)", textInput(Math.round((f.timeout || 3600) / 60), (v) => { f.timeout = Math.max(1, v) * 60; }, { type: "number", min: 1, style: "max-width:160px" })) : "",
+      setRow("Switched on", "Off keeps the job and its logs but doesn't run it.", toggle(f.enabled, set("enabled"))),
+      h("div", { class: "with-btn", style: "margin-top:8px" }, h("span", { class: "grow" }),
+        !f.isNew ? h("button", { class: "btn danger", onclick: async () => {
+          if (!confirm(`Delete the job “${f.name}” and its logs?`)) return;
+          await api("DELETE", "/api/cron/" + encodeURIComponent(f.id)); C.id = null; openCron();
+        } }, icon("trash"), "Delete") : "",
+        C.jobs.length ? h("button", { class: "btn ghost", onclick: () => { C.form = null; renderCron(); } }, "Cancel") : "",
+        h("button", { class: "btn primary", onclick: async () => {
+          try { const saved = await api("POST", "/api/cron", { ...f, id: f.isNew ? "" : f.id }); toast("Job saved"); openCron(saved.id); }
+          catch (e) { toast(e.message, true); }
+        } }, "Save")));
+  }
+  $("#open-cron").addEventListener("click", () => openCron());
+
+  // =====================================================================
   // Boot
   // =====================================================================
   async function boot() {
@@ -2067,7 +2199,7 @@
       $("#user-name").textContent = S.user || "Local user";
       $("#user-avatar").textContent = (S.user || "D").charAt(0).toUpperCase();
     } catch (_) { /* unauthorized → server shows its own page */ }
-    await Promise.all([refreshSessions(), refreshThreads(), refreshArtifactCount()]);
+    await Promise.all([refreshSessions(), refreshThreads(), refreshArtifactCount(), refreshCron()]);
     window.addEventListener("hashchange", route);
     route();
     setInterval(refreshSessions, 2500);

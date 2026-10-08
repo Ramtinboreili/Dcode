@@ -82,6 +82,13 @@ def main() -> int:
     work = tmp / "work"
     work.mkdir()
     (work / "app.py").write_text("print('hi')\n")
+    import sqlite3
+
+    stock = sqlite3.connect(work.parent / "stock.db")  # a real database for the /db checks
+    stock.executescript("CREATE TABLE parts (id INTEGER PRIMARY KEY, name TEXT);"
+                        "INSERT INTO parts VALUES (1, 'bolt'), (2, 'nut'), (3, 'gear');")
+    stock.commit()
+    stock.close()
     (work / ".dcode" / "commands").mkdir(parents=True)
     (work / ".dcode" / "commands" / "hello.md").write_text("---\ndescription: Greet someone\n---\nSay hello to $ARGUMENTS")
     port = free_port()
@@ -179,6 +186,44 @@ def main() -> int:
         term.send("@explore find the entry point\r")
         check("@helper runs directly", term.expect(r"◆ explore-\d+ +find the entry point")
               and term.expect(r"explore-\d+ finished") and term.expect(r"✓ Done in [\d.]+s · 1 helper"))
+        term.send(f"/db add stock sqlite:///{work.parent / 'stock.db'}\r")
+        check("/db add saves and tests a connection", term.expect(r"Saved stock and connected"))
+        term.send("/db stock\r")
+        check("/db lists tables with sizes", term.expect(r"parts · 2 cols, ~3 rows"))
+        term.send("/db stock SELECT name FROM parts ORDER BY id\r")
+        check("/db runs a query", term.expect(r"bolt\s+nut\s+gear\s+3 rows"))
+        term.send("count the parts\r")
+        check("the model queries the database", term.expect(r"db_query\s+stock: SELECT count") and term.expect(r"Done\. Tool .?db_query"))
+        term.send(b"\x1b[Z")  # auto mode: even there a database change must ask
+        term.expect(r"◆ auto mode", timeout=4)
+        term.send("delete the old parts\r")
+        check("a database change asks even in auto mode", term.expect(r"Dcode wants to change a database")
+              and term.expect(r"asked every time"))
+        term.read(0.4)
+        term.send("n")
+        check("a denied change is not run", term.expect(r"✕ Denied · DELETE FROM parts") and term.expect(r"Done in"))
+        _, rows = hub("POST", "/api/db/stock/query", {"sql": "SELECT count(*) FROM parts"})
+        check("the row is still there (web API)", rows.get("rows") == [[3]])
+        for _ in range(3):  # back to accept edits
+            term.send(b"\x1b[Z")
+            term.read(0.3)
+        term.send('/cron add "0 0 1 1 *" echo hello-from-cron\r')
+        check("/cron add schedules a job", term.expect(r"Scheduled echo-hello-from-cron: every year on January 1[\s\S]{0,40}next\s+run\s+\d{4}-01-01"))
+        term.send("/cron run echo-hello-from-cron\r")
+        term.expect(r"Starting echo-hello-from-cron now")
+        log = ""
+        for _ in range(60):  # the hub's scheduler picks the request up within a few seconds
+            _, runs = hub("GET", "/api/cron/echo-hello-from-cron/runs")
+            if runs and runs[0]["status"] == "ok":
+                _, body = hub("GET", f"/api/cron/echo-hello-from-cron/log?run={runs[0]['id']}")
+                log = body["text"]
+                break
+            time.sleep(0.25)
+        check("the hub runs the job and keeps its log", "hello-from-cron" in log and "exit code 0" in log)
+        term.send("/cron\r")
+        check("/cron shows the last result", term.expect(r"echo-hello-from-cron\s+every year on January 1 at 00:00[\s\S]{0,60}last\s+ok"))
+        term.send("/cron rm echo-hello-from-cron\r")  # an enabled job would keep the hub alive (checked below)
+        check("/cron rm", term.expect(r"Removed the job echo-hello-from-cron"))
         term.send("tell me about this project and make an artifact\r")
         check("follow-through after an announced-but-skipped artifact",
               term.expect(r"Reminding the model to follow through") and term.expect(r"◆ Artifact"))

@@ -45,6 +45,7 @@
       <div class="sb-footer">
         <button class="sb-link" id="open-artifacts"><span class="i" data-icon="sparkles"></span>Artifacts<span class="pill" id="artifact-count" hidden>0</span></button>
         <button class="sb-link" id="open-db"><span class="i" data-icon="database"></span>Databases</button>
+        <button class="sb-link" id="open-cron"><span class="i" data-icon="clock"></span>Scheduled<span class="pill" id="cron-count" hidden>0</span></button>
         <button class="sb-link" id="open-memory"><span class="i" data-icon="brain"></span>Memory</button>
         <button class="sb-link" id="open-settings"><span class="i" data-icon="settings"></span>Settings</button>
         <a class="sb-link" href="/guide" target="_blank" rel="noopener"><span class="i" data-icon="book"></span>Guide · راهنما</a>
@@ -212,6 +213,19 @@
       <div class="dialog-body db">
         <aside class="db-side" id="db-side"></aside>
         <section class="db-main" id="db-main"></section>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="cron-modal" hidden>
+    <div class="dialog full" role="dialog" aria-modal="true" aria-labelledby="cron-title">
+      <div class="dialog-head">
+        <h2 id="cron-title">Scheduled jobs</h2>
+        <button class="icon-btn" data-close aria-label="Close"></button>
+      </div>
+      <div class="dialog-body db">
+        <aside class="db-side" id="cron-side"></aside>
+        <section class="db-main" id="cron-main"></section>
       </div>
     </div>
   </div>
