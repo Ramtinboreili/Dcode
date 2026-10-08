@@ -317,3 +317,56 @@ def test_model_list_is_fetched_without_an_http_client_library(stack):
     save_config(make_config(base_url="http://127.0.0.1:9/v1"))  # nothing listens: an error, not a crash
     status, data, _ = req(stack, "GET", "/api/models")
     assert status == 200 and data["models"] == [] and data["error"]
+
+
+def test_database_api(stack, isolated):
+    import sqlite3
+
+    path = isolated.parent / "api.db"
+    handle = sqlite3.connect(path)
+    handle.executescript("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);"
+                         "INSERT INTO items VALUES (1, 'bolt'), (2, 'nut'), (3, 'gear');")
+    handle.commit()
+    handle.close()
+    form = {"name": "Stock", "engine": "sqlite", "database": str(path), "password": "unused-secret"}
+    status, tested, _ = req(stack, "POST", "/api/db/test", form)
+    assert status == 200 and tested["ok"] and tested["version"]
+    status, saved, _ = req(stack, "POST", "/api/db", form)
+    assert status == 200 and saved["name"] == "stock" and "password" not in saved
+    status, listing, _ = req(stack, "GET", "/api/db")
+    assert [c["name"] for c in listing["connections"]] == ["stock"] and "unused-secret" not in json.dumps(listing)
+    assert listing["drivers"]["sqlite"] is True and listing["limits"]["row_limit"] == 200
+    status, schema, _ = req(stack, "GET", "/api/db/stock/schema")
+    assert status == 200 and schema["tables"][0]["label"] == "items" and schema["tables"][0]["rows"] == 3
+    status, summary, _ = req(stack, "GET", "/api/db/stock/summary")
+    assert summary["tables"] == 1 and summary["rows_estimate"] == 3
+
+    status, rows, _ = req(stack, "POST", "/api/db/stock/query", {"sql": "SELECT name FROM items ORDER BY id", "limit": 2})
+    assert rows["rows"] == [["bolt"], ["nut"]] and rows["truncated"]
+    # A change is never run on the first request: the page must show it and confirm.
+    status, ask, _ = req(stack, "POST", "/api/db/stock/query", {"sql": "DELETE FROM items WHERE id = 3"})
+    assert status == 200 and ask["needs_confirmation"] and ask["statement"] == "DELETE FROM items WHERE id = 3"
+    assert req(stack, "POST", "/api/db/stock/query", {"sql": "SELECT count(*) FROM items"})[1]["rows"] == [[3]]
+    status, done, _ = req(stack, "POST", "/api/db/stock/query", {"sql": "DELETE FROM items WHERE id = 3", "confirmed": True})
+    assert done["kind"] == "write" and done["rowcount"] == 1
+    status, schema, _ = req(stack, "GET", "/api/db/stock/schema")
+    assert schema["tables"][0]["rows"] == 2  # the cached schema was dropped after the change
+    status, bad, _ = req(stack, "POST", "/api/db/stock/query", {"sql": "SELECT nope FROM items"})
+    assert status == 400 and "nope" in bad["error"]
+    assert req(stack, "POST", "/api/db/stock/query", {"sql": "SELECT 1"}, csrf=False)[0] == 401
+
+    status, out, _ = req(stack, "POST", "/api/db/stock/export", {"what": "table", "table": "items"})
+    assert status == 200 and out["rows"] == 2 and out["url"].startswith("/api/db/exports/stock-items-")
+    status, data, resp = req(stack, "GET", out["url"])
+    assert status == 200 and data.decode().splitlines() == ["id,name", "1,bolt", "2,nut"]
+    assert resp.getheader("Content-Disposition").startswith("attachment")
+    save_config(make_config(db={"export_max_rows": 1, "export_max_mb": 1}))
+    req(stack, "GET", "/api/db/stock/schema?refresh=1")
+    status, heavy, _ = req(stack, "POST", "/api/db/stock/export", {"what": "table", "table": "items"})
+    assert heavy["too_heavy"] and "items is heavy" in heavy["message"]
+    status, cut, _ = req(stack, "POST", "/api/db/stock/export", {"what": "table", "table": "items", "force": True})
+    assert cut["rows"] == 1 and cut["truncated"]
+    assert len(req(stack, "GET", "/api/db/exports")[1]) == 2
+    assert req(stack, "GET", "/api/db/exports/..%2F..%2Fconfig.json")[0] == 404  # only files in the exports folder
+    assert req(stack, "DELETE", "/api/db/stock")[1]["ok"]
+    assert req(stack, "GET", "/api/db/stock/schema")[0] == 400

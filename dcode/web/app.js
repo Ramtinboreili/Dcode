@@ -123,6 +123,9 @@
     table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/>',
     link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
     external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+    database: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+    play: '<path d="M7 4.5v15l12-7.5z"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   };
   const svg = (name) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${P[name] || P.info}</svg>`;
   const icon = (name, cls = "i") => h("span", { class: cls, html: svg(name) });
@@ -235,6 +238,11 @@
       case "artifact_get": return ["sparkles", a.id ? `Opening artifact ${c(a.id)}` : "Listing artifacts", a.id ? `Opened artifact ${c(a.id)}` : "Listed artifacts"];
       case "skill_use": return ["zap", `Using the ${c(a.name)} skill`, `Used the ${c(a.name)} skill`];
       case "skill_save": return ["zap", `Writing skill ${c(a.name)}`, `Wrote skill ${c(a.name)}`];
+      case "db_schema": return ["database", a.table ? `Reading the structure of ${c(a.table)}` : `Reading the tables of ${c(a.connection || "the database")}`,
+        a.table ? `Read the structure of ${c(a.table)}` : `Read the tables of ${c(a.connection || "the database")}`];
+      case "db_query": return a.save_as
+        ? ["database", `Exporting rows to ${c(a.save_as)}`, `Exported rows to ${c(a.save_as)}`]
+        : ["database", `Querying ${c(a.connection)}: ${c(a.sql)}`, `Queried ${c(a.connection)}: ${c(a.sql)}`];
       default: return ["zap", `Using ${c(name)}`, `Used ${c(name)}`];
     }
   }
@@ -366,10 +374,11 @@
     const params = new URLSearchParams(hash.includes("=") ? hash : "");
     app.classList.remove("sb-open");
     const [page, sub] = hash.split(":");
-    if (["settings", "memory", "artifacts"].includes(page) || params.get("a")) {
+    if (["settings", "memory", "artifacts", "db"].includes(page) || params.get("a")) {
       // Deep link to a dialog / artifact over the current (or first live) session.
       if (!S.mode && S.sessions.length) openSession(S.sessions[0].id);
       if (params.get("a")) return openArtifact(params.get("a"));
+      if (page === "db") return openDatabases(sub);
       return page === "settings" ? openSettings(sub) : page === "memory" ? openMemory() : openArtifacts();
     }
     if (params.get("s")) openSession(params.get("s"));
@@ -753,14 +762,16 @@
         closeActivity();
         if (ev.kind === "question") { questionCard(ev, turn); break; }
         const what = { run_command: "run a command", delete_file: "delete a file", git_commit: "make a git commit", edit_file: "change a file",
-          rule: "do something a rule says to confirm", outside_workspace: "use a file outside the project" }[ev.kind] || ev.kind;
+          rule: "do something a rule says to confirm", outside_workspace: "use a file outside the project",
+          db_write: "change a database" }[ev.kind] || ev.kind;
         const who = agent !== "main" ? ` for the ${(ROLES[roleOf(agent)] || ["helper"])[0]}` : "";
         const verdict = h("span", { class: "verdict" });
         const decide = async (approved, scope) => {
           try { await api("POST", `/api/s/${S.id}/approve`, { id: ev.id, approved, scope }); } catch (e) { toast(e.message, true); }
         };
         const allow = h("button", { class: "btn primary sm", onclick: () => decide(true) }, icon("check"), "Allow");
-        const always = h("button", { class: "btn sm", onclick: () => decide(true, "session") }, "Allow for this session");
+        // Database changes are asked one by one: there is no "for this session".
+        const always = ev.kind === "db_write" ? h("span") : h("button", { class: "btn sm", onclick: () => decide(true, "session") }, "Allow for this session");
         const deny = h("button", { class: "btn sm ghost", onclick: () => decide(false) }, "Deny");
         const subline = h("div", { class: "approval-sub" }, "Nothing runs until you allow it. You can also answer in the terminal.");
         const card = h("div", { class: "approval" },
@@ -1281,6 +1292,12 @@
         section("Checks after edits", "Dcode checks each file right after changing it (syntax errors, undefined names) and fixes what it finds. Uses tools you already have, like ruff, node or bash.",
           setRow("Check files after edits", null, toggle((c.checks || {}).enabled !== false, (v) => ((c.checks ||= {}).enabled = v))),
           setRow("Also format them", "Runs ruff or black, gofmt, rustfmt, or the project's own prettier.", toggle(!!(c.checks || {}).format, (v) => ((c.checks ||= {}).format = v)))),
+        section("Databases", "Guards for saved database connections. What a connection may do is decided by the database user you connect with.",
+          setRow("Let Dcode query them", "Off: only you use the connections, in the Databases screen and with /db.", toggle((c.db || {}).enabled !== false, (v) => ((c.db ||= {}).enabled = v))),
+          setRow("Rows per query", null, textInput((c.db || {}).row_limit ?? 200, (v) => ((c.db ||= {}).row_limit = v), { type: "number", min: 1, style: "width:110px" })),
+          setRow("Seconds per query", "Longer statements are cancelled.", textInput((c.db || {}).timeout ?? 30, (v) => ((c.db ||= {}).timeout = v), { type: "number", min: 1, style: "width:110px" })),
+          setRow("Export limit: rows", null, textInput((c.db || {}).export_max_rows ?? 1000000, (v) => ((c.db ||= {}).export_max_rows = v), { type: "number", min: 1, style: "width:130px" })),
+          setRow("Export limit: MB", "Bigger tables are refused, or cut here if you insist.", textInput((c.db || {}).export_max_mb ?? 200, (v) => ((c.db ||= {}).export_max_mb = v), { type: "number", min: 1, style: "width:110px" }))),
         section("Artifacts", null, setRow("Create artifacts", "Let Dcode save pages, diagrams and reports to the Artifacts library.", toggle((c.artifacts || {}).enabled !== false, (v) => ((c.artifacts ||= {}).enabled = v)))),
         section("Advanced", null, ...Object.entries(exp).map(([k, [t, d]]) => setRow(t, d, toggle(!!c.experimental[k], (v) => (c.experimental[k] = v))))));
     } else if (S.tab === "skills") {
@@ -1751,6 +1768,294 @@
   }
   $$("#new-tabs button").forEach((b) => b.addEventListener("click", () => { newTab = b.dataset.tab; renderNewArtifact(); }));
   $("#artifact-new").addEventListener("click", () => openNewArtifact("ask"));
+
+
+  // =====================================================================
+  // Databases (a small DBeaver: connections, tables, SQL, export)
+  // =====================================================================
+  const D = { list: [], drivers: {}, engines: {}, ports: {}, limits: {}, name: null, schema: null, error: "", table: null,
+    tab: "sql", view: "browse", filter: "", sql: {}, result: null, data: null, busy: false, pending: null, form: null };
+  const fmtN = (n) => n === null || n === undefined ? "?" : Number(n).toLocaleString();
+  const shortN = (n) => n === null || n === undefined ? "?" : n >= 1e9 ? (n / 1e9).toFixed(1) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n);
+  const dbConn = () => D.list.find((c) => c.name === D.name);
+  const dbApi = (method, tail, body) => api(method, `/api/db/${encodeURIComponent(D.name)}/${tail}`, body);
+  const sqlName = (t) => {
+    const q = D.schema?.engine === "mysql" ? "`" : '"';
+    return [t.schema, t.name].filter(Boolean).map((x) => q + x.split(q).join(q + q) + q).join(".");
+  };
+
+  async function openDatabases(name) {
+    openModal("#db-modal");
+    try { Object.assign(D, await api("GET", "/api/db")); D.list = D.connections || []; }
+    catch (e) { toast(e.message, true); return; }
+    const wanted = name || D.name || store.get("dcode-db");
+    if (!D.list.length) return dbForm(null);
+    selectDb(D.list.some((c) => c.name === wanted) ? wanted : D.list[0].name);
+  }
+  async function selectDb(name, refresh) {
+    Object.assign(D, { name, schema: null, error: "", table: null, result: null, data: null, pending: null, view: "browse", busy: false });
+    if (D.tab !== "summary") D.tab = "sql";
+    store.set("dcode-db", name);
+    renderDb();
+    try { D.schema = await dbApi("GET", "schema" + (refresh ? "?refresh=1" : "")); }
+    catch (e) { D.error = e.message; }
+    if (D.name === name) renderDb();
+  }
+  function renderDb() { renderDbSide(); renderDbMain(); }
+
+  function renderDbSide() {
+    const side = $("#db-side");
+    const pick = h("select", { class: "select", "aria-label": "Connection" },
+      ...D.list.map((c) => { const o = h("option", { value: c.name }, c.name); if (c.name === D.name) o.selected = true; return o; }));
+    pick.addEventListener("change", () => selectDb(pick.value));
+    const conn = dbConn();
+    const head = h("div", { class: "db-conn" },
+      h("div", { class: "with-btn" }, D.list.length ? pick : h("span", { class: "muted grow" }, "No connections yet"),
+        h("button", { class: "icon-btn", title: "New connection", "aria-label": "New connection", html: svg("plus"), onclick: () => dbForm(null) })),
+      conn ? h("div", { class: "db-target", title: conn.target }, conn.target) : "",
+      conn ? h("div", { class: "with-btn" },
+        h("button", { class: "btn sm ghost", onclick: () => dbForm(conn) }, icon("pencil"), "Edit"),
+        h("button", { class: "btn sm ghost", onclick: () => selectDb(D.name, true) }, icon("refresh"), "Reload"),
+        conn.read_only ? h("span", { class: "tag", title: "Dcode never changes this database" }, "read-only") : "") : "");
+    const filter = h("input", { class: "input", placeholder: "Filter tables", value: D.filter, "aria-label": "Filter tables" });
+    const list = h("div", { class: "db-tables" });
+    const draw = () => {
+      const q = D.filter.trim().toLowerCase();
+      const tables = (D.schema?.tables || []).filter((t) => !q || t.label.toLowerCase().includes(q));
+      list.replaceChildren(...tables.slice(0, 600).map((t) => h("button", {
+        class: "db-table" + (D.table && D.table.label === t.label ? " active" : ""), title: t.comment || t.label,
+        onclick: () => openTable(t) },
+        icon(t.type === "view" ? "eye" : "table"), h("span", { class: "row-main" }, t.label),
+        h("span", { class: "meta" }, t.rows === null ? "" : shortN(t.rows)))));
+      if (D.schema && !tables.length) list.append(h("div", { class: "sb-empty" }, q ? "No table matches." : "This user can't read any table here."));
+      if (tables.length > 600) list.append(h("div", { class: "sb-empty" }, `Showing 600 of ${tables.length}. Filter to narrow.`));
+    };
+    filter.addEventListener("input", () => { D.filter = filter.value; draw(); });
+    draw();
+    side.replaceChildren(head, D.schema ? filter : "", !D.schema && !D.error && D.name ? h("div", { class: "sb-empty" }, h("span", { class: "spin" }), " Reading the schema…") : "", list);
+  }
+
+  function openTable(t) {
+    D.table = t; D.view = "browse"; D.data = null;
+    if (!["data", "structure"].includes(D.tab)) D.tab = "data";
+    renderDb();
+    if (D.tab === "data") loadTableData();
+  }
+  async function loadTableData() {
+    const t = D.table;
+    D.data = { loading: true }; renderDbMain();
+    try { D.data = await dbApi("POST", "query", { sql: `SELECT * FROM ${sqlName(t)}`, limit: 100 }); }
+    catch (e) { D.data = { error: e.message }; }
+    if (D.table === t && D.tab === "data") renderDbMain();
+  }
+
+  function dbGrid(res) {
+    if (!res.rows.length) return h("div", { class: "empty-state" }, icon("table"), "No rows.");
+    const numeric = res.columns.map((_, i) => res.rows.every((r) => r[i] === null || typeof r[i] === "number"));
+    return h("div", { class: "db-grid" }, h("table", { class: "csv" },
+      h("thead", {}, h("tr", {}, h("th", { class: "rownum" }, "#"), ...res.columns.map((c) => h("th", {}, c)))),
+      h("tbody", {}, ...res.rows.map((r, n) => h("tr", {}, h("td", { class: "rownum" }, n + 1), ...r.map((v, i) =>
+        v === null ? h("td", { class: "null" }, "NULL")
+          : h("td", { class: numeric[i] ? "num" : "", title: typeof v === "string" && v.length > 60 ? v : null }, String(v))))))));
+  }
+  const resultNote = (res) => h("div", { class: "db-note" + (res.truncated ? " warn" : "") },
+    res.truncated ? icon("alert") : icon("check"),
+    res.truncated ? `Showing the first ${fmtN(res.rows.length)} rows — there are more. Narrow the query, or export it to get everything.`
+      : `${fmtN(res.rows.length)} row${res.rows.length === 1 ? "" : "s"}`, h("span", { class: "meta" }, ` · ${res.elapsed}s`));
+
+  async function runSql(confirmed) {
+    const sql = (D.sql[D.name] || "").trim();
+    if (!sql || D.busy) return;
+    D.busy = true; D.pending = null; renderDbMain();
+    try {
+      const res = await dbApi("POST", "query", { sql, confirmed: confirmed === true, limit: D.limit || 200 });
+      if (res.needs_confirmation) D.pending = res; else D.result = res;
+      if (res.kind === "write") { toast(res.rowcount >= 0 ? `Done — ${fmtN(res.rowcount)} row${res.rowcount === 1 ? "" : "s"} affected` : "Done"); dbApi("GET", "schema?refresh=1").then((sc) => { D.schema = sc; renderDbSide(); }).catch(() => {}); }
+    } catch (e) { D.result = { error: e.message }; }
+    D.busy = false; renderDbMain();
+  }
+
+  async function dbExport(body) {
+    toast("Exporting…");
+    try {
+      let r = await dbApi("POST", "export", body);
+      if (r.too_heavy) {
+        if (!confirm(r.message + "\n\nExport anyway, cut at the limits?")) return;
+        r = await dbApi("POST", "export", { ...body, force: true });
+      }
+      toast(r.truncated ? `Exported ${fmtN(r.rows)} rows (${r.size}) — incomplete: ${r.stopped}` : `Exported ${fmtN(r.rows)} ${body.what === "schema" ? "tables" : "rows"} (${r.size})`, !!r.truncated);
+      location.href = r.url;
+      if (D.tab === "summary") renderDbMain();
+    } catch (e) { toast(e.message, true); }
+  }
+  function exportMenu(anchor) {
+    $$(".db-menu").forEach((m) => m.remove());
+    const item = (label, body, off) => h("button", { type: "button", class: "menu-item", disabled: off ? true : null,
+      onclick: () => { menu.remove(); dbExport(body); } }, icon("download"), label);
+    const t = D.table, sql = (D.sql[D.name] || "").trim();
+    const menu = h("div", { class: "menu db-menu" },
+      t ? item(`${t.label} as CSV`, { what: "table", table: t.label }) : "",
+      t ? item(`${t.label} as JSON lines`, { what: "table", table: t.label, format: "jsonl" }) : "",
+      item("The SQL query's full result (CSV)", { what: "query", sql }, !sql),
+      h("div", { class: "menu-sep" }),
+      item("Structure only (Markdown)", { what: "schema" }),
+      item("Whole database (zip of CSVs)", { what: "database" }));
+    anchor.parentElement.append(menu);
+    setTimeout(() => document.addEventListener("click", () => menu.remove(), { once: true }), 0);
+  }
+
+  function renderDbMain() {
+    const main = $("#db-main");
+    if (D.view === "form") return main.replaceChildren(dbFormView());
+    if (!D.name) return main.replaceChildren(h("div", { class: "empty-state" }, icon("database"), "Add a connection to get started."));
+    if (D.error) return main.replaceChildren(h("div", { class: "db-pad" }, h("div", { class: "db-note error" }, icon("alert"), D.error),
+      h("div", { class: "with-btn", style: "margin-top:12px" }, h("button", { class: "btn", onclick: () => dbForm(dbConn()) }, icon("pencil"), "Edit connection"),
+        h("button", { class: "btn", onclick: () => selectDb(D.name, true) }, icon("refresh"), "Try again"))));
+    if (!D.schema) return main.replaceChildren(h("div", { class: "empty-state" }, h("span", { class: "spin" }), "Connecting…"));
+    const tabs = [["sql", "SQL"], ["data", "Data"], ["structure", "Structure"], ["summary", "Summary"]];
+    const bar = h("div", { class: "db-bar" },
+      h("div", { class: "seg" }, ...tabs.map(([id, label]) => h("button", { type: "button", class: D.tab === id ? "on" : "",
+        disabled: (id === "data" || id === "structure") && !D.table ? true : null,
+        onclick: () => { D.tab = id; renderDbMain(); if (id === "data" && !D.data) loadTableData(); } }, label))),
+      h("span", { class: "db-crumb" }, D.table && D.tab !== "sql" && D.tab !== "summary" ? D.table.label : ""),
+      h("span", { class: "grow" }),
+      h("div", { class: "db-menu-wrap" }, h("button", { class: "btn sm", onclick: (e) => { e.stopPropagation(); exportMenu(e.currentTarget); } }, icon("download"), "Export")));
+    const body = h("div", { class: "db-body" });
+    if (D.tab === "sql") body.append(...dbSqlView());
+    else if (D.tab === "data") body.append(D.data?.loading || !D.data ? h("div", { class: "empty-state" }, h("span", { class: "spin" }))
+      : D.data.error ? h("div", { class: "db-note error" }, icon("alert"), D.data.error) : h("div", { class: "db-result" }, resultNote(D.data), dbGrid(D.data)));
+    else if (D.tab === "structure") body.append(dbStructureView(D.table));
+    else body.append(dbSummaryView());
+    main.replaceChildren(bar, body);
+    if (D.tab === "sql") $("#db-sql")?.focus();
+  }
+
+  function dbSqlView() {
+    const conn = dbConn();
+    const ta = h("textarea", { class: "textarea mono db-sql", id: "db-sql", rows: 6, spellcheck: "false",
+      placeholder: "SELECT …   (Ctrl/⌘ + Enter runs it)" }, D.sql[D.name] || "");
+    ta.addEventListener("input", () => { D.sql[D.name] = ta.value; });
+    ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runSql(); } });
+    const limit = h("select", { class: "select", title: "Rows to show", style: "width:auto" },
+      ...[50, 200, 1000, 5000].map((n) => { const o = h("option", { value: n }, `${fmtN(n)} rows`); if (n === (D.limit || 200)) o.selected = true; return o; }));
+    limit.addEventListener("change", () => { D.limit = Number(limit.value); });
+    const tools = h("div", { class: "db-tools" },
+      h("button", { class: "btn primary sm", disabled: D.busy ? true : null, onclick: () => runSql() }, D.busy ? h("span", { class: "spin" }) : icon("play"), D.busy ? "Running…" : "Run"),
+      limit,
+      h("span", { class: "muted grow" }, conn?.read_only ? "Read-only connection: changes are refused." : "Reads run read-only. A statement that changes data asks you first."));
+    const out = [ta, tools];
+    if (D.pending) {
+      out.push(h("div", { class: "approval db-confirm" },
+        h("div", { class: "approval-head" }, icon("shield"), "This statement changes the database"),
+        h("div", { class: "approval-sub" }, `Nothing has run yet. It will run as the database user on ${D.pending.target}.`),
+        h("pre", {}, D.pending.statement),
+        h("div", { class: "approval-actions" },
+          h("button", { class: "btn sm danger", onclick: () => runSql(true) }, icon("check"), "Run this change"),
+          h("button", { class: "btn sm ghost", onclick: () => { D.pending = null; renderDbMain(); } }, "Cancel"))));
+    } else if (D.result?.error) out.push(h("div", { class: "db-note error" }, icon("alert"), D.result.error));
+    else if (D.result?.kind === "write") out.push(h("div", { class: "db-note" }, icon("check"),
+      D.result.rowcount >= 0 ? `Done — ${fmtN(D.result.rowcount)} row${D.result.rowcount === 1 ? "" : "s"} affected` : "Done", h("span", { class: "meta" }, ` · ${D.result.elapsed}s`)));
+    else if (D.result) out.push(h("div", { class: "db-result" }, resultNote(D.result), dbGrid(D.result)));
+    else out.push(h("div", { class: "empty-state" }, icon("database"), "Pick a table on the left, or write a query and run it."));
+    return out;
+  }
+
+  function dbStructureView(t) {
+    const refs = {};
+    for (const k of t.keys) { const m = /FOREIGN KEY \("?([\w$]+)"?\) REFERENCES ([^\s(]+)\s*\(([^)]+)\)/.exec(k); if (m) refs[m[1]] = `${m[2]}.${m[3]}`.replace(/"/g, ""); }
+    const facts = [t.type, `${t.columns.length} columns`, t.rows !== null ? `about ${fmtN(t.rows)} rows` : "", t.bytes !== null ? shortBytes(t.bytes) : ""].filter(Boolean).join(" · ");
+    return h("div", { class: "db-pad" },
+      h("div", { class: "muted", style: "margin-bottom:10px" }, facts, t.comment ? ` — ${t.comment}` : ""),
+      h("div", { class: "db-grid" }, h("table", { class: "csv" },
+        h("thead", {}, h("tr", {}, ...["Column", "Type", "Null", "Default", "Key"].map((x) => h("th", {}, x)))),
+        h("tbody", {}, ...t.columns.map((c) => h("tr", {}, h("td", {}, h("b", {}, c.name)), h("td", { class: "mono" }, c.type), h("td", {}, c.nullable ? "yes" : "no"),
+          h("td", { class: "mono" }, c.default ?? ""), h("td", {}, c.pk ? h("span", { class: "tag blue" }, "primary key") : refs[c.name] ? h("span", { class: "tag" }, "→ " + refs[c.name]) : "")))))),
+      t.keys.length ? section("Keys", null, ...t.keys.map((k) => h("div", { class: "db-line mono" }, k))) : "",
+      t.indexes.length ? section("Indexes", null, ...t.indexes.map((k) => h("div", { class: "db-line mono" }, k))) : "",
+      h("div", { class: "with-btn", style: "margin-top:14px" },
+        h("button", { class: "btn sm", onclick: () => { D.sql[D.name] = `SELECT *\nFROM ${sqlName(t)}\nLIMIT 100`; D.tab = "sql"; renderDbMain(); } }, icon("code"), "Query this table")));
+  }
+  const shortBytes = (b) => b === null || b === undefined ? "?" : b >= 1073741824 ? (b / 1073741824).toFixed(1) + " GB" : b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
+
+  function dbSummaryView() {
+    const wrap = h("div", { class: "db-pad" }, h("div", { class: "empty-state" }, h("span", { class: "spin" })));
+    Promise.all([dbApi("GET", "summary"), api("GET", "/api/db/exports")]).then(([m, files]) => {
+      const tile = (label, value) => h("div", { class: "db-tile" }, h("b", {}, value), h("span", {}, label));
+      const top = Math.max(1, ...m.largest.map((x) => x.bytes || x.rows || 0));
+      const lim = D.limits;
+      const ask = `Summarize the database connection "${D.name}" for me. Start with db_schema, then run a few small aggregate queries (counts, date ranges, top groups) with db_query. Report: what the data is about, the main tables and how they relate, sizes, and anything that looks wrong (missing keys, empty or oversized tables). Don't change anything.`;
+      wrap.replaceChildren(
+        h("div", { class: "muted", style: "margin-bottom:12px" }, `${m.target} · ${m.version}`),
+        h("div", { class: "db-tiles" }, tile("size", m.size), tile("tables", fmtN(m.tables)), tile("views", fmtN(m.views)), tile("rows (estimate)", shortN(m.rows_estimate)), tile("columns", fmtN(m.columns)), tile("foreign keys", fmtN(m.foreign_keys))),
+        m.heavy.length ? h("div", { class: "db-note warn" }, icon("alert"), `Heavy (above the export limits): ${m.heavy.join(", ")}. Query these with WHERE / LIMIT; a full export is refused or cut.`) : "",
+        section("Largest tables", null, ...m.largest.map((x) => h("div", { class: "db-bar-row" }, h("span", { class: "row-main" }, x.table),
+          h("span", { class: "db-meter" }, h("i", { style: `width:${Math.max(2, Math.round(100 * (x.bytes || x.rows || 0) / top))}%` })),
+          h("span", { class: "meta" }, `${x.rows === null ? "?" : shortN(x.rows)} rows · ${x.size}`)))),
+        m.without_primary_key.length ? section("Tables without a primary key", null, h("div", { class: "db-line" }, m.without_primary_key.join(", "))) : "",
+        section("Ask Dcode", liveSession() ? "Dcode reads the structure and runs small read-only queries, then writes you a summary in the chat." : "Open a live session to have Dcode summarize this database.",
+          h("button", { class: "btn primary", disabled: liveSession() ? null : true, onclick: () => { closeModals(); sendText(ask); } }, icon("sparkles"), "Summarize this database")),
+        section("Guards", `A query shows at most ${fmtN(lim.row_limit)} rows by default and is cancelled after ${lim.timeout} seconds. An export stops at ${fmtN(lim.export_max_rows)} rows or ${lim.export_max_mb} MB. Change these in Settings → Permissions → Databases.`),
+        files.length ? section("Exported files", "Kept in ~/.dcode/db/exports until you delete them.", ...files.slice(0, 30).map((f) => h("div", { class: "rule-row" },
+          h("a", { class: "rule-pat", href: "/api/db/exports/" + encodeURIComponent(f.file) }, f.file), h("span", { class: "meta" }, f.size),
+          h("button", { class: "btn sm ghost", title: "Delete", "aria-label": "Delete", onclick: async () => { await api("DELETE", "/api/db/exports/" + encodeURIComponent(f.file)); renderDbMain(); } }, icon("trash"))))) : "");
+    }).catch((e) => wrap.replaceChildren(h("div", { class: "db-note error" }, icon("alert"), e.message)));
+    return wrap;
+  }
+
+  // ---------- connection form ----------
+  function dbForm(conn) {
+    D.view = "form";
+    D.form = conn ? { ...conn, password: "" } : { name: "", engine: "postgres", host: "localhost", port: "", database: "", user: "", password: "", password_env: "", ssl: "auto", read_only: false, note: "" };
+    D.form.existing = !!conn;
+    renderDb();
+  }
+  function dbFormView() {
+    const f = D.form;
+    const set = (k) => (v) => { f[k] = v; };
+    const engine = h("select", { class: "select" }, ...Object.entries(D.engines || {}).map(([k, label]) => {
+      const o = h("option", { value: k, disabled: D.drivers[k] === false ? true : null }, label + (D.drivers[k] === false ? " (driver not in this build)" : ""));
+      if (k === f.engine) o.selected = true; return o;
+    }));
+    engine.addEventListener("change", () => { f.engine = engine.value; renderDbMain(); });
+    const ssl = h("select", { class: "select" }, ...[["auto", "Automatic (use TLS when the server offers it)"], ["require", "Require TLS"], ["verify", "Require TLS and verify the certificate"], ["off", "No TLS"]]
+      .map(([k, label]) => { const o = h("option", { value: k }, label); if (k === (f.ssl || "auto")) o.selected = true; return o; }));
+    ssl.addEventListener("change", () => { f.ssl = ssl.value; });
+    const payload = () => ({ ...f, port: f.port || D.ports[f.engine] || 0 });
+    const status = h("span", { class: "muted grow" });
+    const fields = f.engine === "sqlite"
+      ? [field("Database file", textInput(f.database, set("database"), { placeholder: "/path/to/data.db" }))]
+      : [h("div", { class: "grid2" }, field("Host", textInput(f.host, set("host"), { placeholder: "db.internal" })),
+          field("Port", textInput(f.port || "", set("port"), { type: "number", placeholder: String(D.ports[f.engine] || "") }))),
+        h("div", { class: "grid2" }, field("Database", textInput(f.database, set("database"), { placeholder: f.engine === "mysql" ? "empty = every database you can see" : "postgres" })),
+          field("User", textInput(f.user, set("user"), { placeholder: "a read-only user is a good default" }), help("Dcode gets exactly this user's rights."))),
+        h("div", { class: "grid2" }, field("Password", textInput("", set("password"), { type: "password", autocomplete: "new-password", placeholder: f.has_password ? "•••••••• (saved)" : "" }), help("Stored only on this machine, in a file only you can read.")),
+          field("…or take it from an environment variable", textInput(f.password_env || "", set("password_env"), { placeholder: "e.g. PGPASSWORD" }))),
+        field("Encryption", ssl)];
+    return h("div", { class: "db-pad db-form" },
+      h("h3", {}, f.existing ? `Edit ${f.name}` : "New connection"),
+      h("div", { class: "grid2" }, field("Name", textInput(f.name, set("name"), { placeholder: "e.g. billing-prod", disabled: f.existing ? true : null })), field("Kind", engine)),
+      ...fields,
+      setRow("Read-only in Dcode", "Refuse every change through this connection, even ones you would approve.", toggle(f.read_only, set("read_only"))),
+      field("Note", textInput(f.note || "", set("note"), { placeholder: "optional: what this database is" })),
+      h("div", { class: "with-btn", style: "margin-top:6px" },
+        h("button", { class: "btn", onclick: async (e) => {
+          const b = e.currentTarget; b.disabled = true; status.textContent = "Connecting…";
+          try { const r = await api("POST", "/api/db/test", payload()); status.textContent = `Connected — ${r.version} · ${r.ms} ms${r.tls ? " · encrypted" : ""}`; }
+          catch (err) { status.textContent = err.message; }
+          b.disabled = false;
+        } }, icon("zap"), "Test"),
+        status,
+        f.existing ? h("button", { class: "btn danger", onclick: async () => {
+          if (!confirm(`Remove the connection “${f.name}”? The database itself is not touched.`)) return;
+          await api("DELETE", "/api/db/" + encodeURIComponent(f.name)); D.name = null; openDatabases();
+        } }, icon("trash"), "Remove") : "",
+        D.list.length ? h("button", { class: "btn ghost", onclick: () => { D.view = "browse"; renderDb(); } }, "Cancel") : "",
+        h("button", { class: "btn primary", onclick: async () => {
+          try { const saved = await api("POST", "/api/db", payload()); toast("Connection saved"); D.name = saved.name; openDatabases(saved.name); }
+          catch (err) { toast(err.message, true); }
+        } }, "Save")));
+  }
+  $("#open-db").addEventListener("click", () => openDatabases());
 
   // =====================================================================
   // Boot

@@ -81,6 +81,7 @@ COMMANDS: dict[str, str] = {
     "/clear": "Clear the screen and start a fresh chat (the old one is saved)",
     "/artifacts": "Browse artifacts and open one in your browser",
     "/jobs": "Background jobs: see output, stop them",
+    "/db": "Databases: /db · /db add · /db <name> [table | SQL | summary | export …]",
     "/version": "Show the Dcode version",
     "/mode": "Switch mode: manual · accept edits · auto · plan",
     "/init": "Write AGENTS.md: project commands, layout and conventions for Dcode",
@@ -932,6 +933,16 @@ def show_tool_result_brief(output: str, agent: str = "main") -> None:
     lines = len((output or "").splitlines())
     summary = (first[0][:96] if first else "(no output)") + (f"  [+{lines - 1} lines]" if lines > 1 else "")
     console.print(f"{_indent(agent)}  [{MUTED}]╰─ {_escape(summary)}[/]")
+
+
+def show_rows(columns: Sequence[str], rows: Sequence[Sequence[Any]], limit: int = 40, cell: int = 48) -> None:
+    """A query result as a table: white text, structure in gray."""
+    table = Table(box=None, padding=(0, 2, 0, 0), header_style=f"bold {TEXT}", pad_edge=False)
+    for column in columns:
+        table.add_column(_escape(str(column)), overflow="ellipsis", no_wrap=True, max_width=cell)
+    for row in rows[:limit]:
+        table.add_row(*[Text("NULL", style=MUTED) if v is None else Text(str(v).replace("\n", "⏎")[:cell * 2]) for v in row])
+    console.print(Padding(table, (0, 0, 0, len(PAD) + 2)))
 
 
 def show_todos(items: list) -> None:

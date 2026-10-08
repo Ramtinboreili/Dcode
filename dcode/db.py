@@ -128,8 +128,8 @@ def parse_url(url: str) -> dict[str, Any]:
     }
 
 
-def save_connection(data: dict[str, Any]) -> dict[str, Any]:
-    """Create or update a connection. An empty or masked password keeps the saved one."""
+def build_connection(data: dict[str, Any]) -> dict[str, Any]:
+    """Validate connection settings (from a form or a URL). An empty or masked password keeps the saved one."""
     name = clean_name(data.get("name") or "")
     if not name:
         raise DBError("Give the connection a short name (letters, digits, - and _).")
@@ -137,8 +137,7 @@ def save_connection(data: dict[str, Any]) -> dict[str, Any]:
     engine = _ENGINE_ALIASES.get(engine, engine)
     if engine not in ENGINES:
         raise DBError(f"Unknown database kind '{engine}'. Choose from: {', '.join(ENGINES)}.")
-    connections = load_connections()
-    previous = connections.get(name, {})
+    previous = load_connections().get(name, {})
     password = str(data.get("password") or "")
     if not password or "•" in password:
         password = str(previous.get("password") or "")
@@ -164,7 +163,14 @@ def save_connection(data: dict[str, Any]) -> dict[str, Any]:
         conn["database"] = str(Path(conn["database"]).expanduser())
     elif not conn["user"]:
         raise DBError("A user name is required: Dcode gets exactly the rights of that database user.")
-    connections[name] = conn
+    return conn
+
+
+def save_connection(data: dict[str, Any]) -> dict[str, Any]:
+    """Create or update a saved connection."""
+    conn = build_connection(data)
+    connections = load_connections()
+    connections[conn["name"]] = conn
     _store(connections)
     return conn
 
@@ -850,6 +856,11 @@ def _table_line(table: dict[str, Any]) -> str:
     return f"{table['label']}{' (view)' if table['type'] == 'view' else ''} · {', '.join(facts)}"
 
 
+def table_lines(schema: dict[str, Any]) -> list[str]:
+    """One line per table: name, column count, estimated rows and size."""
+    return [_table_line(t) for t in schema["tables"]]
+
+
 def schema_text(schema: dict[str, Any], table: str = "", max_chars: int = 6000) -> str:
     """Compact schema for a small context: every column if it fits, else table names only."""
     if table:
@@ -1056,4 +1067,9 @@ def export_database(conn: dict[str, Any], schema: dict[str, Any], dest: Path, fo
 def export_name(conn_name: str, what: str, extension: str) -> Path:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     slug = re.sub(r"[^\w.-]+", "_", what).strip("_")[:60] or "query"
-    return exports_dir() / f"{conn_name}-{slug}-{stamp}.{extension}"
+    path = exports_dir() / f"{conn_name}-{slug}-{stamp}.{extension}"
+    count = 1
+    while path.exists():  # two exports in the same second must not overwrite each other
+        count += 1
+        path = exports_dir() / f"{conn_name}-{slug}-{stamp}-{count}.{extension}"
+    return path

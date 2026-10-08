@@ -378,6 +378,8 @@ class TerminalApp:
                 self._jobs()
             elif command == "/artifacts":
                 self._artifacts()
+            elif command == "/db":
+                self._db(arg.strip())
             elif command == "/clear":
                 session.new_thread()
                 self.last_outputs = []
@@ -579,6 +581,158 @@ class TerminalApp:
                 ui.console.print(f"{ui.PAD}  [{color}]{decision:<7}[/] {ui._escape(pattern)}")
         ui.console.print(f"{ui.PAD}[bold]Outside the project[/] [{MUTED}]{rules.get('outside_workspace', 'ask')}[/]")
         ui.console.print(f"{ui.PAD}[{MUTED}]Add: /rules deny \"rm -rf *\" · /rules file ask \"*.pem\" · the last match wins[/]")
+
+    # --- databases ------------------------------------------------------------------------------
+    def _db(self, arg: str) -> None:
+        """/db · /db add [name] [url] · /db rm|test <name> · /db <name> [table | SQL | summary | export <table|schema|all>]"""
+        from . import db
+
+        word, _, rest = arg.partition(" ")
+        rest = rest.strip()
+        try:
+            if not word:
+                self._db_list(db)
+            elif word == "add":
+                self._db_add(db, rest)
+            elif word in ("rm", "remove", "delete"):
+                done = db.delete_connection(rest)
+                ui.notice(f"Removed the connection {rest}." if done else f"No connection named {rest}.", "success" if done else "warning")
+            elif word == "open":
+                self._open_web("#db", "Databases")
+            elif word == "test":
+                conn = db.get_connection(rest)
+                with ui.console.status("Connecting…", spinner=ui.SPINNER, spinner_style=PRIMARY):
+                    result = db.test_connection(conn)
+                ui.notice(f"Connected to {db.describe(conn)} — {result['version']} · {result['ms']} ms"
+                          + (" · encrypted" if result["tls"] else ""), "success")
+            else:
+                self._db_use(db, db.get_connection(word), rest)
+        except db.DBError as exc:
+            ui.notice(str(exc), "error")
+
+    def _open_web(self, fragment: str, label: str) -> None:
+        if not self.ui_url:
+            ui.notice("The web UI is off (start dcode without --no-ui).", "warning")
+            return
+        url = self.ui_url.split("#")[0] + fragment
+        opened = ui.open_in_browser(url)
+        ui.console.print(f"{ui.PAD}[{MUTED}]{label}{' — opened in your browser' if opened else ''}[/]  {ui.link(url)}",
+                         soft_wrap=True)
+
+    def _db_list(self, db: Any) -> None:
+        connections = db.load_connections()
+        if not connections:
+            ui.notice("No database connections yet. Add one: /db add mydb postgres://user:password@host:5432/dbname "
+                      "(or /db add for questions, or the Databases screen in the web UI).")
+            return
+        ui.console.print(f"{ui.PAD}[bold]Databases[/]")
+        for conn in connections.values():
+            flag = f" [{MUTED}]· read-only[/]" if conn.get("read_only") else ""
+            ui.console.print(f"{ui.PAD}  [{ACCENT}]{conn['name']}[/]  [{MUTED}]{ui._escape(db.describe(conn))}[/]{flag}")
+        ui.console.print(f"{ui.PAD}[{MUTED}]/db <name> lists tables · /db <name> <table> · /db <name> SELECT … · "
+                         f"/db <name> summary · /db <name> export <table|schema|all>[/]")
+
+    def _db_add(self, db: Any, rest: str) -> None:
+        name, _, url = rest.partition(" ")
+        if "://" in name:
+            name, url = "", name
+        data: dict[str, Any] = db.parse_url(url.strip()) if url.strip() else {}
+        data["name"] = name or ui.prompt_input("Connection name", default=data.get("database") or "")
+        if not data.get("engine"):
+            labels = list(db.ENGINE_LABELS.values())
+            picked = ui.select_one("Kind of database", labels, labels[0])
+            data["engine"] = next(k for k, v in db.ENGINE_LABELS.items() if v == picked)
+            if data["engine"] == "sqlite":
+                data["database"] = ui.prompt_input("Database file")
+            else:
+                data["host"] = ui.prompt_input("Host", default="localhost")
+                data["port"] = ui.prompt_input("Port", default=str(db.ENGINES[data["engine"]]))
+                data["database"] = ui.prompt_input("Database")
+                data["user"] = ui.prompt_input("User (Dcode gets exactly this user's rights)")
+                data["password"] = ui.prompt_input("Password", password=True)
+        conn = db.save_connection(data)
+        try:
+            with ui.console.status("Connecting…", spinner=ui.SPINNER, spinner_style=PRIMARY):
+                result = db.test_connection(conn)
+            ui.notice(f"Saved {conn['name']} and connected — {result['version']}. Try /db {conn['name']}", "success")
+        except db.DBError as exc:
+            ui.notice(f"Saved {conn['name']}, but it doesn't connect yet: {exc}", "warning")
+
+    def _db_use(self, db: Any, conn: dict[str, Any], rest: str) -> None:
+        status = ui.console.status("Asking the database…", spinner=ui.SPINNER, spinner_style=PRIMARY)
+        action, _, target = rest.partition(" ")
+        if not rest or action in ("summary", "export") or (" " not in rest and db.classify(rest) == "write"):
+            with status:
+                schema = db.read_schema(conn)
+            if not rest:
+                ui.console.print(f"{ui.PAD}[bold]{ui._escape(schema['target'])}[/] [{MUTED}]{ui._escape(schema['version'])} · "
+                                 f"{db.human_size(schema['bytes'])}[/]")
+                for line in db.table_lines(schema)[:200]:
+                    ui.console.print(f"{ui.PAD}  {ui._escape(line)}")
+                if not schema["tables"]:
+                    ui.notice("This database user can't read any table here.", "warning")
+                return
+            if action == "summary":
+                facts = db.summarize(schema)
+                ui.console.print(f"{ui.PAD}[bold]{ui._escape(facts['target'])}[/] [{MUTED}]{ui._escape(facts['version'])}[/]")
+                ui.console.print(f"{ui.PAD}  {facts['size']} · {facts['tables']} tables · {facts['views']} views · "
+                                 f"~{db.human_count(facts['rows_estimate'])} rows · {facts['foreign_keys']} foreign keys")
+                for item in facts["largest"][:8]:
+                    ui.console.print(f"{ui.PAD}  [{MUTED}]{item['size']:>9}  ~{db.human_count(item['rows']):>7} rows[/]  {ui._escape(item['table'])}")
+                if facts["heavy"]:
+                    ui.notice("Heavy (above the export limits): " + ", ".join(facts["heavy"][:10]), "warning")
+                return
+            if action == "export":
+                return self._db_export(db, conn, schema, target.strip())
+            for line in db.schema_text(schema, rest).splitlines():  # one word that isn't SQL: a table
+                ui.console.print(f"{ui.PAD}  {ui._escape(line)}")
+            return
+        try:
+            with status:
+                result = db.run_query(conn, rest)
+        except db.NeedsConfirmation as ask:
+            ui.console.print(f"{ui.PAD}[{WARNING}]This changes {ui._escape(db.describe(conn))}:[/]")
+            for line in ask.statement.splitlines()[:20]:
+                ui.console.print(f"{ui.PAD}    {ui._escape(line)}")
+            if ui.select_one("Run this change?", ["Cancel", "Run it"], "Cancel") != "Run it":
+                ui.notice("Not run.")
+                return
+            with status:
+                result = db.run_query(conn, rest, confirmed=True)
+        if result["kind"] == "write":
+            ui.notice(db.result_text(result) + f" {result['elapsed']}s", "success")
+            return
+        ui.show_rows(result["columns"], result["rows"])
+        shown = min(len(result["rows"]), 40)
+        more = result["truncated"] or shown < len(result["rows"])
+        ui.console.print(f"{ui.PAD}  [{MUTED}]{shown} row{'s' if shown != 1 else ''}"
+                         + (" shown — there are more; add LIMIT/WHERE, or /db " + conn["name"] + " export" if more else "")
+                         + f" · {result['elapsed']}s[/]")
+
+    def _db_export(self, db: Any, conn: dict[str, Any], schema: dict[str, Any], what: str) -> None:
+        if not what:
+            ui.notice(f"Usage: /db {conn['name']} export <table> · export schema · export all")
+            return
+
+        def run(force: bool) -> dict[str, Any]:
+            with ui.console.status("Exporting…", spinner=ui.SPINNER, spinner_style=PRIMARY):
+                if what == "schema":
+                    return db.export_schema(schema, db.export_name(conn["name"], "schema", "md"))
+                if what == "all":
+                    return db.export_database(conn, schema, db.export_name(conn["name"], "all-tables", "zip"), force=force)
+                return db.export_table(conn, schema, what, db.export_name(conn["name"], what, "csv"), force=force)
+
+        try:
+            done = run(False)
+        except db.TooHeavy as heavy:
+            ui.notice(str(heavy), "warning")
+            if ui.select_one("Export anyway, cut at the limits?", ["Cancel", "Export what fits"], "Cancel") != "Export what fits":
+                return
+            done = run(True)
+        unit = "tables" if what == "schema" else "rows"
+        ui.notice(f"Exported {done['rows']:,} {unit} ({done['size']}) to {done['path']}"
+                  + (f" — incomplete: {done['stopped']}" if done["truncated"] else ""),
+                  "warning" if done["truncated"] else "success")
 
     def _list_helpers(self) -> None:
         specs = self.session.agent.specs

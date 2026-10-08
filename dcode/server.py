@@ -68,6 +68,8 @@ HUB_IDLE_GRACE = 6.0       # seconds with zero live sessions before the hub exit
 HUB_START_GRACE = 30.0     # max wait for the first session to register
 COOKIE = "dcode_token"
 SSE_PING = 15.0
+DB_SCHEMA_TTL = 120.0      # seconds the hub reuses a database schema while you browse
+DB_MAX_GRID_ROWS = 5000    # the most rows one query may send to the browser, whatever the page asks for
 
 
 # --- runtime files ------------------------------------------------------------------
@@ -360,6 +362,7 @@ class Hub:
         self.started = time.time()
         self._had_session = False
         self._idle_since: float | None = None
+        self._schemas: dict[str, tuple[float, dict[str, Any], str]] = {}  # database schemas, briefly cached
         outer = self
 
         class Handler(_Handler):
@@ -583,6 +586,8 @@ class Hub:
             cwd = query.get("cwd", [""])[0]
             workspace = Path(cwd) if cwd and any(e.get("cwd") == cwd for e in live_sessions()) else None
             return handler._json([spec.as_dict() for spec in load_specs(workspace).values()])
+        if path == "/api/db" or path.startswith("/api/db/"):
+            return self._db_get(handler, path, query)
         if path == "/api/artifacts":
             return handler._json(ArtifactStore().list())
         if path.startswith("/api/artifacts/"):
@@ -677,6 +682,8 @@ class Hub:
             if name:
                 (agents_dir() / f"{name}.md").unlink(missing_ok=True)
             return handler._json({"ok": True})
+        if path == "/api/db" or path.startswith("/api/db/"):
+            return self._db_mutate(handler, method, path, body)
         if path == "/api/artifacts" and method == "POST":
             meta = ArtifactStore().save(
                 str(body.get("title") or "Untitled"), str(body.get("content") or ""),
@@ -701,6 +708,98 @@ class Hub:
                 return handler._json(store.restore(artifact_id, int(body.get("version") or 0)))
             if method == "POST" and action == "duplicate":
                 return handler._json(store.duplicate(artifact_id))
+        return handler._json({"error": "not found"}, 404)
+
+    # --- databases --------------------------------------------------------------------------
+    def _db_schema(self, name: str, refresh: bool = False) -> dict[str, Any]:
+        """A connection's schema, kept for a couple of minutes so browsing doesn't re-read the catalog."""
+        from . import db
+
+        conn = db.get_connection(name)
+        cached = self._schemas.get(conn["name"])
+        if cached and not refresh and time.time() - cached[0] < DB_SCHEMA_TTL and cached[2] == db.describe(conn):
+            return cached[1]
+        schema = db.read_schema(conn)
+        self._schemas[conn["name"]] = (time.time(), schema, db.describe(conn))
+        return schema
+
+    def _db_get(self, handler: _Handler, path: str, query: dict[str, list[str]]) -> None:
+        from . import db
+
+        parts = [urllib.parse.unquote(p) for p in path[len("/api/db"):].strip("/").split("/") if p]
+        try:
+            if not parts:
+                return handler._json({"connections": [db.public(c) for c in db.load_connections().values()],
+                                      "drivers": db.drivers(), "limits": db.limits(),
+                                      "engines": db.ENGINE_LABELS, "ports": db.ENGINES})
+            if parts[0] == "exports":
+                if len(parts) == 1:
+                    files = sorted(db.exports_dir().iterdir(), key=lambda f: f.stat().st_mtime, reverse=True)
+                    return handler._json([{"file": f.name, "bytes": f.stat().st_size, "size": db.human_size(f.stat().st_size),
+                                           "modified": f.stat().st_mtime} for f in files if f.is_file()][:200])
+                return _send_file(handler, db.exports_dir() / Path(parts[1]).name)
+            if len(parts) == 2 and parts[1] == "schema":
+                return handler._json(self._db_schema(parts[0], refresh=bool(query.get("refresh"))))
+            if len(parts) == 2 and parts[1] == "summary":
+                return handler._json(db.summarize(self._db_schema(parts[0], refresh=bool(query.get("refresh")))))
+        except db.DBError as exc:
+            return handler._json({"error": str(exc)}, 400)
+        return handler._json({"error": "not found"}, 404)
+
+    def _db_mutate(self, handler: _Handler, method: str, path: str, body: dict[str, Any]) -> None:
+        from . import db
+
+        parts = [urllib.parse.unquote(p) for p in path[len("/api/db"):].strip("/").split("/") if p]
+        try:
+            if not parts and method == "POST":
+                conn = db.save_connection(body)
+                self._schemas.pop(conn["name"], None)
+                return handler._json(db.public(conn))
+            if parts == ["test"] and method == "POST":
+                # Test what is in the form before saving it (an untouched password = the saved one).
+                trial = db.build_connection({**body, "name": body.get("name") or "new"})
+                return handler._json(db.test_connection(trial))
+            if len(parts) == 2 and parts[0] == "exports" and method == "DELETE":
+                (db.exports_dir() / Path(parts[1]).name).unlink(missing_ok=True)
+                return handler._json({"ok": True})
+            if len(parts) == 1 and method == "DELETE":
+                self._schemas.pop(db.clean_name(parts[0]), None)
+                return handler._json({"ok": db.delete_connection(parts[0])})
+            if len(parts) == 2 and parts[1] == "query" and method == "POST":
+                conn = db.get_connection(parts[0])
+                try:
+                    limit = min(int(body.get("limit") or 0), DB_MAX_GRID_ROWS) or None
+                    result = db.run_query(conn, str(body.get("sql") or ""), row_limit=limit,
+                                          confirmed=body.get("confirmed") is True)
+                except db.NeedsConfirmation as ask:
+                    # Nothing ran. The page shows the statement and sends it again with confirmed=true.
+                    return handler._json({"needs_confirmation": True, "statement": ask.statement,
+                                          "target": db.describe(conn)})
+                if result["kind"] == "write":
+                    self._schemas.pop(conn["name"], None)
+                return handler._json(result)
+            if len(parts) == 2 and parts[1] == "export" and method == "POST":
+                conn = db.get_connection(parts[0])
+                what = str(body.get("what") or "table")
+                fmt = "jsonl" if str(body.get("format")) in ("json", "jsonl") else "csv"
+                try:
+                    if what == "schema":
+                        result = db.export_schema(self._db_schema(conn["name"]), db.export_name(conn["name"], "schema", "md"))
+                    elif what == "database":
+                        result = db.export_database(conn, self._db_schema(conn["name"]),
+                                                    db.export_name(conn["name"], "all-tables", "zip"), force=body.get("force") is True)
+                    elif what == "query":
+                        result = db.export_query(conn, str(body.get("sql") or ""), db.export_name(conn["name"], "query", fmt), fmt)
+                    else:
+                        table = str(body.get("table") or "")
+                        result = db.export_table(conn, self._db_schema(conn["name"]), table,
+                                                 db.export_name(conn["name"], table, fmt), fmt, force=body.get("force") is True)
+                except db.TooHeavy as heavy:
+                    return handler._json({"too_heavy": True, "message": str(heavy)})
+                result["url"] = "/api/db/exports/" + urllib.parse.quote(result["file"])
+                return handler._json(result)
+        except db.DBError as exc:
+            return handler._json({"error": str(exc)}, 400)
         return handler._json({"error": "not found"}, 404)
 
     def _broadcast(self, path: str) -> int:
@@ -775,6 +874,24 @@ def outer_download(handler: _Handler, record: dict[str, Any]) -> None:
     handler.send_header("Content-Length", str(len(data)))
     handler.end_headers()
     handler.wfile.write(data)
+
+
+def _send_file(handler: _Handler, path: Path) -> None:
+    """Stream a file as a download (exports can be hundreds of MB: never read it whole)."""
+    if not path.is_file():
+        return handler._json({"error": "not found"}, 404)
+    handler.send_response(200)
+    handler.send_header("Content-Type", "application/octet-stream")
+    handler.send_header("Content-Disposition", f'attachment; filename="{path.name}"')
+    handler.send_header("Content-Length", str(path.stat().st_size))
+    handler.send_header("X-Content-Type-Options", "nosniff")
+    handler.end_headers()
+    try:
+        with path.open("rb") as source:
+            while chunk := source.read(256 * 1024):
+                handler.wfile.write(chunk)
+    except (BrokenPipeError, ConnectionResetError):
+        pass
 
 
 def slugify_id(value: str) -> str:
