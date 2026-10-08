@@ -590,6 +590,11 @@ class Hub:
             data["api_key"] = _mask(str(data.get("api_key") or ""))
             data["reasoning_efforts"] = REASONING_EFFORTS
             return handler._json(data)
+        if path == "/api/stats":
+            from . import stats
+
+            days = query.get("days", ["30"])[0]
+            return handler._json(stats.summarize(int(days) if days.isdigit() else 30))
         if path == "/api/models":
             return handler._json(self._models())
         if path == "/api/memory":

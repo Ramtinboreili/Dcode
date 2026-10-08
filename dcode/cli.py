@@ -506,6 +506,15 @@ class TerminalApp:
             elif command == "/rename":
                 name = arg.strip() or ui.prompt_input("Thread name", default=session.thread_name)
                 session.rename(name)
+            elif command == "/stats":
+                from . import stats
+
+                days = int(arg) if arg.strip().isdigit() else 30
+                for line in stats.render_text(stats.summarize(days)).splitlines():
+                    bold = line and not line.startswith("    ") and ("usage" in line or line.strip() in (
+                        "By model", "By project", "Most used tools", "Last days"))
+                    ui.console.print(f"{ui.PAD}[bold]{ui._escape(line)}[/]" if bold else f"{ui.PAD}{ui._escape(line)}",
+                                     highlight=False)
             elif command == "/export":
                 self._export(arg.strip())
             elif command in ("/sessions", "/resume"):

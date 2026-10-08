@@ -420,3 +420,12 @@ def test_thread_export_and_import_endpoints(stack):
     status, error, _ = req(stack, "POST", "/api/threads/import", {"messages": []})
     assert status == 400 and "no messages" in error["error"]
     assert req(stack, "POST", "/api/threads/import", exported, csrf=False)[0] == 401
+
+
+def test_stats_endpoint(stack):
+    from dcode import stats
+
+    stats.record({"model": "m", "cwd": "/srv", "prompt": 10, "completion": 2, "elapsed": 1.5, "tools": {"read_file": 2}})
+    status, body, _ = req(stack, "GET", "/api/stats?days=7")
+    assert status == 200 and body["tasks"] == 1 and body["days"] == 7 and body["tools"][0]["name"] == "read_file"
+    assert req(stack, "GET", "/api/stats", cookie=False)[0] == 401

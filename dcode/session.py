@@ -156,6 +156,8 @@ class Session:
         self.allowed_kinds: set[str] = set()  # "allow for this session" choices
         self._approvals_lock = threading.Lock()
         self._attention: list[Callable[[], None]] = []
+        self._task_tools: collections.Counter[str] = collections.Counter()  # for the usage log (stats.py)
+        self._helper_tokens = {"prompt": 0, "completion": 0}
         self.bus.subscribe(self._on_event)
         self._worker = threading.Thread(target=self._work, name="dcode-worker", daemon=True)
         self._worker.start()
@@ -614,6 +616,25 @@ class Session:
                 pass
 
     def _on_event(self, event: dict[str, Any]) -> None:
+        kind = event["type"]
+        if kind == "tool_call" and event.get("by") != "user":
+            self._task_tools[str(event.get("name") or "")] += 1
+        elif kind == "usage" and event.get("agent", "main") != "main":
+            for key in self._helper_tokens:  # a helper's tokens count toward the task that asked for it
+                self._helper_tokens[key] += int(event.get(key) or 0)
+        elif kind == "usage":
+            from . import stats
+
+            stats.record({
+                "session": self.id, "chat": self.thread_name, "cwd": self.cwd, "model": str(event.get("model") or ""),
+                "prompt": int(event.get("prompt") or 0) + self._helper_tokens["prompt"],
+                "completion": int(event.get("completion") or 0) + self._helper_tokens["completion"],
+                "elapsed": float(event.get("elapsed") or 0.0), "files": len(event.get("files_changed") or []),
+                "commands": int(event.get("commands") or 0), "helpers": int(event.get("helpers") or 0),
+                "tools": dict(self._task_tools),
+            })
+            self._task_tools.clear()
+            self._helper_tokens = {"prompt": 0, "completion": 0}
         if event["type"] == "summary":
             self.last_summary = str(event.get("text") or "")
             try:

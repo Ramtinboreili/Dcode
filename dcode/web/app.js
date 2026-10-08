@@ -127,6 +127,7 @@
     database: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
     play: '<path d="M7 4.5v15l12-7.5z"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   };
   const svg = (name) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${P[name] || P.info}</svg>`;
   const icon = (name, cls = "i") => h("span", { class: cls, html: svg(name) });
@@ -1239,6 +1240,7 @@
   const TABS = [
     ["general", "General", "palette"], ["model", "Model", "cpu"], ["agents", "Helpers", "users"],
     ["memory", "Memory & context", "layers"], ["permissions", "Permissions", "shield"], ["skills", "Skills", "zap"], ["ui", "Web UI", "globe"],
+    ["usage", "Usage", "chart"],
   ];
   async function openSettings(tab) {
     if (tab) S.tab = tab;
@@ -1413,6 +1415,8 @@
             try { await api("POST", "/api/skills", { name: nName.value, description: nDesc.value, content: nBody.value }); toast("Skill added"); S.skills = await api("GET", "/api/skills"); renderSettings(); }
             catch (e) { toast(e.message, true); }
           } }, icon("plus"), "Add skill")));
+    } else if (S.tab === "usage") {
+      usageSection(body);
     } else if (S.tab === "ui") {
       body.append(section("Web UI", "Opens with your first dcode session and closes after the last one exits. Your chats and memory stay on disk.",
         setRow("Enable the web UI", "Or start dcode with --no-ui.", toggle(c.ui.enabled !== false, (v) => (c.ui.enabled = v))),
@@ -1424,6 +1428,40 @@
           setRow("When a long task ends or Dcode needs you", "Bell rings the terminal. Desktop also sends a notification where the terminal supports it.",
             seg(["off", "bell", "desktop"], c.ui.notify || "off", (v) => (c.ui.notify = v)))));
     }
+  }
+  const tokens = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e4 ? Math.round(n / 1e3) + "K" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n);
+  const spent = (s) => { s = Math.round(s); return s >= 3600 ? `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m` : s >= 60 ? `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s` : `${s}s`; };
+  async function usageSection(body) {
+    const days = S.usageDays ?? 30;
+    body.append(h("div", { class: "empty-state" }, h("span", { class: "spin" })));
+    let u;
+    try { u = await api("GET", "/api/stats?days=" + days); } catch (e) { return body.replaceChildren(h("div", { class: "empty-state" }, icon("alert"), e.message)); }
+    if (S.tab !== "usage") return;
+    const pick = seg(["7", "30", "90", "0"], String(days), (v) => { S.usageDays = Number(v); renderSettings(); });
+    pick.querySelectorAll("button").forEach((b) => { b.textContent = b.textContent === "0" ? "All" : b.textContent + " days"; });
+    const tile = (value, label) => h("div", { class: "stat-tile" }, h("b", {}, value), h("span", {}, label));
+    const bars = (rows, value, label) => {
+      const peak = Math.max(1, ...rows.map(value));
+      return h("div", { class: "bars" }, ...rows.map((r) => h("div", { class: "bar-row", title: r.name },
+        h("span", { class: "bar-name" }, base(r.name) || r.name), h("span", { class: "bar-track" }, h("i", { style: `width:${Math.max(2, 100 * value(r) / peak)}%` })),
+        h("span", { class: "bar-val" }, label(r)))));
+    };
+    const peakDay = Math.max(1, ...u.daily.map((d) => d.tasks));
+    body.replaceChildren(
+      section("Usage", "Counted on this machine from the tasks Dcode finished: numbers only, never prompts or file contents. Nothing is sent anywhere.",
+        h("div", { class: "set-row" }, h("div", { class: "t" }, u.since ? `Since ${u.since}` : "Period"), h("div", { class: "ctl" }, pick)),
+        u.tasks ? h("div", { class: "stat-tiles" },
+          tile(u.tasks.toLocaleString(), `task${u.tasks === 1 ? "" : "s"} in ${u.chats} chat${u.chats === 1 ? "" : "s"}`),
+          tile(u.tokens_in ? `${tokens(u.tokens_in)} / ${tokens(u.tokens_out)}` : "—", u.tokens_in ? "tokens in / out" : "tokens (not reported by the server)"),
+          tile(spent(u.seconds), "working time"),
+          tile(u.tool_calls.toLocaleString(), `tool calls · ${u.files_changed} files changed`))
+          : h("div", { class: "empty-state" }, icon("chart"), "No tasks recorded in this period yet.")),
+      u.tasks ? section("Last days", null, h("div", { class: "day-chart" }, ...u.daily.map((d) =>
+        h("div", { class: "day", title: `${d.name}: ${d.tasks} task${d.tasks === 1 ? "" : "s"}` },
+          h("i", { style: `height:${d.tasks ? Math.max(6, 100 * d.tasks / peakDay) : 0}%` }), h("span", {}, d.name.slice(8)))))) : "",
+      u.models.length ? section("By model", null, bars(u.models, (r) => r.tasks, (r) => `${r.tasks} · ${tokens(r.tokens_in)} in`)) : "",
+      u.projects.length ? section("By project", null, bars(u.projects, (r) => r.tasks, (r) => `${r.tasks} · ${spent(r.seconds)}`)) : "",
+      u.tools.length ? section("Most used tools", null, bars(u.tools, (r) => r.calls, (r) => String(r.calls))) : "");
   }
   function hooksSection(c) {
     c.hooks ||= [];

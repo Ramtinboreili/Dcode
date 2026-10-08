@@ -241,6 +241,19 @@ def ui_command() -> None:
         click.echo(f"  session {entry['id']}  {entry.get('cwd', '')}")
 
 
+@cli.command("stats")
+@click.option("--days", type=int, default=30, show_default=True, help="How far back (0 = everything)")
+@click.option("--json", "as_json", is_flag=True, help="Print the numbers as JSON")
+def stats_command(days: int, as_json: bool) -> None:
+    """Usage numbers: tasks, tokens, working time, tools, by model and project."""
+    import json
+
+    from . import stats
+
+    summary = stats.summarize(max(0, days))
+    click.echo(json.dumps(summary, indent=2) if as_json else stats.render_text(summary))
+
+
 @cli.command("export")
 @click.argument("chat", required=False)
 @click.option("-f", "--format", "fmt", default="md", type=click.Choice(["md", "html", "json"]), show_default=True)

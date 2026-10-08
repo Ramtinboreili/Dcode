@@ -100,6 +100,7 @@ COMMANDS: dict[str, str] = {
     "/model": "Switch model + reasoning effort",
     "/agents": "List helpers (use one with @name) · /agents settings",
     "/context": "Context window + usage",
+    "/stats": "Usage numbers: tasks, tokens, time, tools: /stats [days]",
     "/memory": "List saved memories",
     "/remember": "Save a memory: /remember <text>",
     "/permissions": "Tool permissions",

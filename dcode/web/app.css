@@ -737,3 +737,19 @@ a.sb-link { text-decoration: none; }
 .chat-menu { left: auto; right: 0; min-width: 290px; }
 .chat-menu a.menu-item { text-decoration: none; }
 .sb-search .icon-btn { width: 28px; height: 28px; flex: none; }
+
+/* Settings → Usage */
+.stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 12px; }
+.stat-tile { background: var(--surface-2); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.stat-tile b { font-size: 20px; font-weight: 650; }
+.stat-tile span { font-size: 12.5px; color: var(--muted); }
+.bars { display: flex; flex-direction: column; gap: 7px; }
+.bar-row { display: grid; grid-template-columns: minmax(90px, 190px) 1fr auto; align-items: center; gap: 12px; font-size: 13px; }
+.bar-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-track { height: 8px; border-radius: 6px; background: var(--surface-2); overflow: hidden; }
+.bar-track i { display: block; height: 100%; border-radius: 6px; background: var(--primary); }
+.bar-val { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+.day-chart { display: flex; align-items: flex-end; gap: 6px; height: 110px; }
+.day { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }
+.day i { width: 100%; max-width: 26px; border-radius: 6px 6px 2px 2px; background: var(--primary); display: block; }
+.day span { font-size: 11px; color: var(--muted); }
