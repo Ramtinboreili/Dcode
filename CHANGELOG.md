@@ -4,6 +4,9 @@
 
 The version number is the owner's decision.
 
+### Memory use
+- The background web UI process (the hub) uses about 22 MB instead of about 40 MB: it no longer loads the terminal libraries, and it fetches the model list without an HTTP client library.
+
 ### Small-model quality
 - **Checks after edits.** Right after a write or edit, Dcode checks the file and appends the errors to the tool result, so the model fixes them in its next step. Python, JSON and TOML are checked in-process; ruff (syntax and undefined names only), bash, node, gofmt, ruby and php run when installed. Formatting is optional and off by default. Custom per-extension checks and formatters go in the new `checks` config section.
 - **`@file` mentions** with fuzzy completion in the terminal and the web composer. Up to 3 files are attached as synthetic `read_file` results (folders as `list_files`), so they cost no tool call and compaction can shrink them.
@@ -19,7 +22,7 @@ The version number is the owner's decision.
 - **Questions** (`ask_user`): the model can ask a multiple-choice question, answered in the terminal or the web UI. If you skip it, the model decides and says what it assumed.
 
 ### Testing
-- 154 unit tests, up from 110. `docs/dev/terminal_e2e.py` has 31 real-terminal checks, up from 22, and `--verbose` prints the screen when a check fails.
+- 156 unit tests, up from 110. `docs/dev/terminal_e2e.py` has 31 real-terminal checks, up from 22, and `--verbose` prints the screen when a check fails.
 - The new tools add about 245 tokens per request (system prompt plus schemas, about 1.9K in total).
 
 ## 0.3.1

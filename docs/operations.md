@@ -53,7 +53,7 @@ dcode
 | Symptom | Cause / fix |
 |---|---|
 | Web UI shows `{"error": "not found"}` | An old hub lost its unpacked files (fixed after 0.3.1). Close all `dcode`s; the next start replaces it. Manual fix: `kill $(pgrep -f "dcode hub")`, then start `dcode` again. |
-| Model list empty in the web UI | Wrong URL or key, or TLS. The hub uses `httpx`, which has its own CA store. You can always type a model name. |
+| Model list empty in the web UI | Wrong URL or key, or TLS. The hub uses certifi's CA bundle, not the system store. You can always type a model name. |
 | Links not clickable | macOS Terminal has no OSC 8 support. Use `/ui` or `/guide`, which open the browser, or ⌘-double-click the link. |
 | `import dcode` fails outside the repo | The hidden `.pth` quirk above. Use `PYTHONPATH` or the built binary. |
 | Settings changed in the UI have no effect | An env var pins that field (the UI shows it as read-only). Change the env var. |

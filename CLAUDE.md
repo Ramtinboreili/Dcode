@@ -15,7 +15,7 @@ Dcode is a coding agent (terminal + per-user localhost web UI) for **local / air
 ## Commands
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/python -m pytest -q                 # ~154 tests, ~20 s
+.venv/bin/python -m pytest -q                 # ~156 tests, ~20 s
 .venv/bin/ruff check dcode tests              # must pass
 PYTHONPATH=. .venv/bin/dcode                  # run from source (see macOS .pth gotcha)
 python docs/dev/terminal_e2e.py [--binary /opt/homebrew/bin/dcode] [--verbose]   # 31 real-terminal checks
@@ -46,7 +46,8 @@ make deb                                      # Linux .deb (build on matching Li
 ## Gotchas (each one bit us)
 - **macOS hidden `.pth`:** repo is in iCloud-synced `~/Documents`; `.venv` editable `.pth` files get the `hidden` flag and Python 3.12.4 skips them → use `PYTHONPATH=<repo>` or the binary.
 - **PyInstaller one-file:** child processes inherit `_PYI_*`/`_MEIPASS` and reuse the parent's unpack dir — the hub must be spawned with `_clean_child_env()` or its web files vanish when the starting session exits.
-- **python.org macOS Python has no CA store** → outbound HTTPS via `httpx`, not `urllib`.
+- **python.org macOS Python has no CA store** → outbound HTTPS needs certifi's bundle: `httpx` in the session, `urllib` + `certifi` in the hub (`server._get_json`).
+- **The hub must stay light** (it outlives sessions): it starts through `__main__.main` → `server.hub_main`, never importing click/rich/prompt_toolkit/openai/httpx. A test guards this.
 - **`sudo` can't prompt from Claude Code's shell** → install to `/opt/homebrew/bin`.
 - **prompt_toolkit:** keys typed before raw mode turn Enter into `c-j` → both submit; `PROMPT_TOOLKIT_NO_CPR=1` in pty tests; use `interrupt_prompt()` (works for prompts and selectors) to close UI from other threads.
 - **rich:** `Text("x", style=S)` sets a *base* style that leaks into appended text; partial lines (`end=""`) break under `Live`/spinners — one print per line.

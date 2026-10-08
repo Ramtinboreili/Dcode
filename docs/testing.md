@@ -2,7 +2,7 @@
 
 Three layers. Run the first always, the second for any terminal or packaging change, and the third when layout or colors matter.
 
-## 1. Unit tests (`tests/`, about 154 tests, about 20 s)
+## 1. Unit tests (`tests/`, about 156 tests, about 20 s)
 
 ```bash
 .venv/bin/python -m pytest -q

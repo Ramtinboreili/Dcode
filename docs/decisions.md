@@ -6,7 +6,8 @@ Why Dcode is built the way it is. Each decision gives the choice and the reason;
 - **Standard-library HTTP, no web framework, no CDN, no web fonts.** The target machines have no internet. The web UI is plain HTML, CSS and JavaScript, and the guide uses system fonts (with Vazirmatn when installed for Persian).
 - **No embedding model for memory.** BM25 over Markdown works offline, costs nothing, and is good enough for a few hundred notes.
 - **PyInstaller one-file binary.** Python and all dependencies are bundled, so nothing needs to be installed on the target. The cost: each run unpacks itself (about 0.8 s), and any child process must be started with a **clean environment**. The hub once reused its parent's unpack folder, and the web UI broke when that session exited (see history §8).
-- **`httpx` for outbound HTTP.** python.org's macOS Python has no CA store; `httpx` ships its own via certifi.
+- **certifi's CA bundle for outbound HTTPS.** python.org's macOS Python has no CA store. Sessions use `httpx` (which uses certifi); the hub uses `urllib` with certifi's bundle, so it doesn't load a client library for one request.
+- **A lean hub process.** The hub lives as long as any session, so `dcode hub` skips the terminal app's imports. That cut it from about 40 MB to about 22 MB. A session is about 60–75 MB, of which the `openai` SDK is about 23 MB and prompt_toolkit about 13 MB.
 
 ## Architecture
 - **The engine has no I/O.** It reports through a `Host` (events and approvals). That's what lets the terminal and the web UI drive the *same* session, and what makes the engine testable with a fake LLM.
