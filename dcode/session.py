@@ -27,17 +27,18 @@ from .agents import DEFAULT_MODE, INIT_PROMPT, MODES
 from .checkpoints import CheckpointStore
 from .commands import expand, load_commands
 from .config import AppConfig, load_config, load_thread, run_dir, save_thread, thread_path, threads_dir
-from .context import ContextBudget
 from .engine import Agent, git_summary
 from .jobs import JobManager
 from .llm import Interrupted, LLMClient
 from .memory import MemoryStore
-from .tools import _truncate, configure_limits, workspace_root
+from .models import ROUTES, ModelPool, decide
+from .tools import _truncate, workspace_root
 from .transcripts import SHELL_NOTE, HelperLog, transcript_from_messages
 
 EVENT_BUFFER = 4000
 # Approvals that can't be granted "for this session": each one must be seen (database changes).
 ALWAYS_ASK_KINDS = {"db_write"}
+PLAN_GO = "The plan is approved. Implement it now, step by step."  # stays on the model that planned
 SHELL_PREVIEW_CHARS = 8000  # of that command's output sent to the terminal and the web UI
 TITLE_PROMPT = (
     "Write a short title (2-6 words) for a coding chat that starts with the user's message below. "
@@ -142,6 +143,9 @@ class Session:
         self.jobs = JobManager(run_dir() / "jobs", on_exit=self._job_exited)
         self.plan_pending = False
         self.mcp = self._start_mcp(config)  # external tool servers; None when there are none
+        self.models = ModelPool(config, self.llm)  # profiles: reasoning, utility and helper models
+        self.route = config.models.get("router", "auto")  # auto | off | always (this session; /models route)
+        self._reasoned = False  # the last task ran on the reasoning model (short follow-ups stay there)
         self.agent = Agent(config, self.llm, self, self.memory, git=self.git)
         self.thread_name = self._timestamp()
         self.thread_created_at = datetime.now(timezone.utc).isoformat()
@@ -320,7 +324,7 @@ class Session:
         self.emit("plan_resolved", decision=decision, by=source)
         if decision in ("accept_edits", "manual", "auto"):
             self.set_mode(decision, source)
-            self.submit("The plan is approved. Implement it now, step by step.", source=source)
+            self.submit(PLAN_GO, source=source)
 
     def init_project(self, source: str = "cli") -> str:
         """/init: have the agent write (or refresh) AGENTS.md. Returns the file it will write."""
@@ -374,7 +378,7 @@ class Session:
         if command.agent and command.agent in self.agent.specs and self.config.agents.get("enabled", True):
             self._run_helper(command.agent, prompt)
         else:
-            result = self.agent.run_turn(prompt)
+            result = self._run_task(prompt)
             self._fire_hooks("task_done", text=result.text[:4000], task=shown)
         if self.mode == "plan":
             self.plan_pending = True
@@ -428,7 +432,7 @@ class Session:
         prompt = ("Write a git commit message for these changes: a concise imperative subject line "
                   "(max 70 chars), optionally a blank line and 1-4 bullet points. Reply with the message only.")
         try:
-            text = self.llm.complete_text(
+            text = self.models.utility_llm().complete_text(
                 [{"role": "system", "content": prompt},
                  {"role": "user", "content": _truncate(f"{status}\n\n{diff}", int(self.config.context_window * 3.5 * 0.5))}],
                 max_tokens=200,
@@ -515,13 +519,16 @@ class Session:
                   items=transcript_from_messages(messages), helpers=self.helpers.summaries())
         return True
 
-    def set_model(self, model: str | None = None, reasoning_effort: str | None = None) -> None:
+    def set_model(self, model: str | None = None, reasoning_effort: str | None = None,
+                  route: str | None = None) -> None:
         if model:
             self.config.model = model
         if reasoning_effort:
             self.config.reasoning_effort = reasoning_effort
+        if route in ROUTES:
+            self.route = route
         self.agent.refresh_system_message()
-        self.emit("config", model=self.config.model, reasoning_effort=self.config.reasoning_effort)
+        self.emit("config", model=self.config.model, reasoning_effort=self.config.reasoning_effort, route=self.route)
 
     def apply_config(self, config: AppConfig) -> None:
         """Swap in a new config (e.g. edited from the web UI) without losing history."""
@@ -530,18 +537,16 @@ class Session:
             if self.mcp:
                 self.mcp.close()
             self.mcp = self._start_mcp(config)
-        ratio = self.agent.budget.counter.ratio
+        if config.models.get("router") != self.config.models.get("router"):
+            self.route = config.models.get("router", "auto")
         self.config = config
         self.llm = LLMClient(config) if endpoint_changed else self.llm
         self.llm.config = config
-        self.agent.config = config
-        self.agent.llm = self.llm
-        self.agent.budget = ContextBudget(config.context_window, config.max_output_tokens)
-        self.agent.budget.counter.ratio = ratio
-        configure_limits(config.context_window)
+        self.models = ModelPool(config, self.llm, self.models.factory)
+        self.agent.use(config, self.llm)
         self.agent.refresh_system_message()
         self.emit("config", model=config.model, reasoning_effort=config.reasoning_effort,
-                  context_window=config.context_window)
+                  context_window=config.context_window, route=self.route)
 
     def reload_config(self) -> bool:
         config = load_config()
@@ -557,6 +562,8 @@ class Session:
             "cwd": self.cwd,
             "model": self.config.model,
             "reasoning_effort": self.config.reasoning_effort,
+            "route": self.route,
+            "reasoning_model": self._reasoning_model(),
             "context_window": self.config.context_window,
             "context_used": self.agent.budget.usage(self.agent.messages, self.agent.tools()),
             "thread_name": self.thread_name,
@@ -682,7 +689,7 @@ class Session:
                     if helper:
                         self._run_helper(*helper)
                     else:
-                        result = self.agent.run_turn(payload)
+                        result = self._run_task(payload, routed=payload != PLAN_GO)
                         self._fire_hooks("task_done", text=result.text[:4000], task=payload[:2000])
                     if self.mode == "plan":
                         self.plan_pending = True
@@ -748,7 +755,7 @@ class Session:
 
         def refine() -> None:
             try:
-                text = self.llm.complete_text(
+                text = self.models.utility_llm().complete_text(
                     [{"role": "system", "content": TITLE_PROMPT}, {"role": "user", "content": first_message[:1500]}],
                     max_tokens=60,
                 )
@@ -759,6 +766,27 @@ class Session:
                 self._set_title(title)
 
         threading.Thread(target=refine, name="dcode-title", daemon=True).start()
+
+    def _reasoning_model(self) -> str:
+        target = self.models.role("reasoning")
+        return target[0].model if target else ""
+
+    def _run_task(self, text: str, routed: bool = True) -> Any:
+        """Run one task, on the reasoning model when the router says it needs one. Plans stay on the main model."""
+        target = None
+        if routed and self.mode != "plan":
+            hard, why = decide(self.models, text, self.route, self._reasoned)
+            target = self.models.role("reasoning") if hard else None
+            if target is not None:
+                self.emit("route", model=target[0].model, role="reasoning", reason=why)
+        self._reasoned = target is not None
+        if target is None:
+            return self.agent.run_turn(text)
+        self.agent.use(*target)
+        try:
+            return self.agent.run_turn(text)
+        finally:
+            self.agent.use(self.config, self.llm)  # read now: settings may have changed during the task
 
     def _repair_history(self) -> None:
         """Answer any tool calls left dangling by an interrupt so history stays valid."""

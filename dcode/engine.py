@@ -8,6 +8,7 @@ session be driven from either one.
 
 from __future__ import annotations
 
+import dataclasses
 import itertools
 import json
 import re
@@ -150,6 +151,15 @@ class Agent:
         self.rules = self._load_rules()
         self._load_db_names()
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": self.system_prompt()}]
+
+    def use(self, config: AppConfig, llm: Any) -> None:
+        """Run on another model: its client, window and reply budget (the history stays)."""
+        ratio = self.budget.counter.ratio
+        self.config = config
+        self.llm = llm
+        self.budget = ContextBudget(config.context_window, config.max_output_tokens)
+        self.budget.counter.ratio = ratio
+        configure_limits(config.context_window)
 
     # --- prompt & tools -------------------------------------------------------------
     @property
@@ -1040,11 +1050,15 @@ class Agent:
         return f"\n{note}" if note else ""
 
     # --- sub-agents ---------------------------------------------------------------------
-    def _llm_for(self, model: str) -> Any:
-        """The client a helper uses: the same server, optionally another model."""
-        if not model or model == self.config.model or not hasattr(self.llm, "with_model"):
-            return self.llm
-        return self.llm.with_model(model)
+    def _model_for(self, model: str) -> tuple[AppConfig, Any]:
+        """The config and client a helper runs with: a profile (maybe another server), a model name, or ours."""
+        pool = getattr(self.host, "models", None)
+        if pool is not None:
+            return pool.resolve(model) or (self.config, self.llm)
+        if not model or model == self.config.model:
+            return self.config, self.llm
+        config = dataclasses.replace(self.config, model=model)
+        return config, (self.llm.with_model(model) if hasattr(self.llm, "with_model") else self.llm)
 
     def _delegate(self, role: str, task: str) -> str:
         if not self.is_main:
@@ -1058,11 +1072,10 @@ class Agent:
         if not task.strip():
             return "delegate needs a non-empty task."
         agent_id = f"{role}-{next(_agent_counter)}"
-        model = spec.model or str(self.config.agents.get("helper_model") or "")
+        config, llm = self._model_for(spec.model or str(self.config.agents.get("helper_model") or ""))
         self.host.emit("agent_start", agent=agent_id, parent=self.agent_id, role=role, task=task,
-                       model=model or self.config.model)
-        sub = Agent(self.config, self._llm_for(model), self.host, self.memory, role=role, agent_id=agent_id,
-                    git=self.git, spec=spec)
+                       model=config.model)
+        sub = Agent(config, llm, self.host, self.memory, role=role, agent_id=agent_id, git=self.git, spec=spec)
         try:
             result = sub.run_turn(task, max_steps=spec.steps or None)
             report = result.text or "(sub-agent returned no report)"
@@ -1071,6 +1084,8 @@ class Agent:
             raise
         except Exception as exc:
             report = f"Sub-agent failed: {exc}"
+        finally:
+            configure_limits(self.config.context_window)  # a helper on a smaller model shrank the output caps
         # Cap what flows back into the (small) main context.
         report = _truncate(report, int(self.config.context_window * 3.5 * 0.08))
         self.host.emit("agent_end", agent=agent_id, role=role, ok=True, report=report)

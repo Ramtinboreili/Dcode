@@ -133,6 +133,9 @@ class AppConfig:
     hooks: list[dict[str, Any]] = field(default_factory=list)  # see dcode/hooks.py
     db: dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_DB))  # guards; connections live in db/
     mcp: dict[str, Any] = field(default_factory=lambda: {"servers": {}})  # external tool servers, see dcode/mcp.py
+    # more models: named profiles + which one reasons / does side jobs, see dcode/models.py
+    models: dict[str, Any] = field(default_factory=lambda: {"profiles": {}, "reasoning": "", "utility": "",
+                                                            "router": "auto"})
     enabled_skills: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -155,6 +158,7 @@ class AppConfig:
             "hooks": json.loads(json.dumps(self.hooks)),
             "db": dict(self.db),
             "mcp": json.loads(json.dumps(self.mcp)),
+            "models": json.loads(json.dumps(self.models)),
             "enabled_skills": list(self.enabled_skills),
         }
 
@@ -284,6 +288,12 @@ def clean_mcp(value: Any) -> dict[str, Any]:
     return {"servers": clean_servers(value.get("servers") if isinstance(value, dict) else None)}
 
 
+def clean_models(value: Any) -> dict[str, Any]:
+    from .models import clean_models as clean  # local import: models imports config
+
+    return clean(value)
+
+
 def config_from_dict(data: dict[str, Any]) -> AppConfig | None:
     base_url = data.get("base_url")
     api_key = data.get("api_key")
@@ -314,6 +324,7 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig | None:
         hooks=clean_hooks(data.get("hooks")),
         db=_merge_defaults(data.get("db"), DEFAULT_DB),
         mcp=clean_mcp(data.get("mcp")),
+        models=clean_models(data.get("models")),
         enabled_skills=[str(name) for name in enabled_skills],
     )
 

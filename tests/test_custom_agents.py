@@ -73,8 +73,9 @@ def test_helper_model_setting_and_with_model():
     clone = client.with_model("fast-3b")
     assert clone.model == "fast-3b" and client.model == "qwen2.5-coder" and clone.client is client.client
     agent = Agent(config, client, NullHost())
-    assert agent._llm_for("fast-3b").model == "fast-3b"
-    assert agent._llm_for("") is client
+    assert agent._model_for("fast-3b")[1].model == "fast-3b"
+    assert agent._model_for("") == (config, client)
+    assert agent._model_for("fast-3b")[0].model == "fast-3b" and config.model == "qwen2.5-coder"
 
 
 def test_plan_mode_blocks_custom_helpers_that_can_change_things(isolated):
