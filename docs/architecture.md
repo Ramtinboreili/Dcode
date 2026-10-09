@@ -27,6 +27,7 @@ dcode (terminal) ──┐                         ┌── browser (per OS use
 | `engine.py` | `Agent`: the loop, tool dispatch, approvals by mode, delegation, context compaction, follow-through checks, end-of-task report, activity tracking, artifact dedupe, checkpoints |
 | `agents.py` | prompts, roles, role tool sets, modes, extra tool schemas (delegate, memory, artifacts, skills, jobs) |
 | `llm.py` | `LLMClient`: streaming and non-streaming, learned server quirks, `<think>` stripping, text tool-call recovery, tool-name cleaning, `finish_reason` |
+| `models.py` | more than one model: named profiles (own server, window, key), `ModelPool` (profile → config + client, clients reused), the task router (`decide`, `heuristic_route`) |
 | `context.py` | `TokenCounter` (calibrated heuristic), `ContextBudget`, `compact()` (elide → summarize → drop) |
 | `tools.py` | sandboxed file/shell/git tools, terse schemas, output caps scaled by `configure_limits()` |
 | `memory.py` | Markdown memories (project/global) with BM25 search, `recall`, `index_text`, session summaries |
@@ -66,6 +67,14 @@ dcode (terminal) ──┐                         ┌── browser (per OS use
    - **Tool calls:** run them, with consecutive read-only `delegate` calls in parallel. Each result is recorded, tracked for the report, and large artifact/skill payloads are stubbed out of history.
 3. If the model never wrote an answer, run `_final_report()`: ask the model, or fall back to the activity log.
 4. Emit `assistant_message`, then `usage` (elapsed time, context, files changed, commands, helpers).
+
+## More than one model
+
+- **Profiles** live in `config.models.profiles`: a name → model, and optionally its own server URL, API key, context window, reply length and reasoning effort. A role names a profile, or a bare model name on the main server; empty means the main model.
+- **Roles:** `models.reasoning` (hard tasks), `models.utility` (titles, commit messages, the router's check), and for helpers `agents.helper_model` or a helper file's `model:`.
+- **Routing** happens in `Session._run_task`, once per task: `models.decide()` asks the utility model for one word (HARD or EASY) when one is set, else uses keywords, error traces and length. Short follow-ups keep the previous task's model. Plan mode and the "plan approved" task are never routed.
+- **The swap:** `Agent.use(config, llm)` switches the client, the context budget and the tool output caps for that task; the history stays. Afterwards the session switches back to its *current* main config. A `route` event tells both UIs.
+- **Helpers** resolve their model through `host.models` (the pool), so a helper gets the right window as well as the right server.
 
 ## Approvals and modes
 
@@ -113,7 +122,7 @@ All UI comes from events, which the web UI can replay from `seq=0`:
 | Helpers | `agent_start` (with `model`) · `agent_end` |
 | Phase 3 | `todos` · `mentions` · `check` |
 | Approvals | `approval_request` · `approval_resolved` · `approval_auto` |
-| Status | `status` · `usage` · `compaction` · `summary` · `notice` · `error` · `config` |
+| Status | `status` · `usage` · `compaction` · `summary` · `notice` · `error` · `config` · `route` (a task went to the reasoning model: `model`, `reason`) |
 | Chat | `thread` (new, resume, rename, title; a resume carries `items` and `helpers`) · `mode` · `plan_ready` · `plan_resolved` · `undo` · `redo` |
 | Stored items | `memory_saved` · `skill_saved` · `artifact_saved` (with `update`) |
 | Jobs | `job_started` · `job_exited` |

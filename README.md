@@ -140,6 +140,7 @@ Settings live in `~/.dcode/config.json` (mode `0600`). You can edit them with `/
 | --- | --- |
 | `/ui` | Show the web UI link |
 | `/model` | Switch model and reasoning effort |
+| `/models` | More models: a reasoning model for hard tasks, a model for helpers and one for small jobs |
 | `/agents` | List helpers (built-in and yours); `/agents settings` for parallelism, steps, helper model |
 | `/init` | Write `AGENTS.md`: commands, layout, conventions |
 | `/rules`, `/hooks` | Allow / ask / deny by pattern (`/rules deny "rm -rf *"`); list hooks |

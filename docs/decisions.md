@@ -32,6 +32,14 @@ Why Dcode is built the way it is. Each decision gives the choice and the reason;
 - **Linux binaries are built on an old glibc in a container** (AlmaLinux 8, glibc 2.28). A PyInstaller binary needs at least the build machine's glibc; the first Linux build (Ubuntu 22.04) could not run on RHEL 9.
 - **The VS Code extension is plain JavaScript with no build step and no dependencies**, packed by a Python script: the project has no node toolchain and targets machines without a registry.
 
+## More than one model
+- **A profile carries its own server URL.** One vLLM deployment serves one model, so "another model" usually means another URL; switching only the model name (the old helper model) could not reach it.
+- **Routing is per task, not per step.** Changing models mid-task would throw away the server's prompt cache at every step and mix two models' habits in one tool loop. The router runs once, before the task starts.
+- **The router is cheap by default.** Without a utility model it is keywords, error traces and length: no extra request, works offline, easy to predict. With a utility model it is one short request, and the keywords are the fallback when that fails.
+- **Plans stay on the main model** (the owner's choice), and so does carrying out an approved plan: the model that wrote the plan has it in context.
+- **The context budget follows the model that runs the task.** A 16K reasoning model given a 32K history must compact first, not fail at the server.
+- **No new tool and no prompt text.** The model never sees the routing, so it costs no context.
+
 ## Architecture
 - **The engine has no I/O.** It reports through a `Host` (events and approvals). That's what lets the terminal and the web UI drive the *same* session, and what makes the engine testable with a fake LLM.
 - **Approvals: the first answer wins.** Either surface can answer. The session raises an "attention" ping to close the terminal prompt only when the *web* answers. Pinging on the request itself closed the menu the terminal was about to open.

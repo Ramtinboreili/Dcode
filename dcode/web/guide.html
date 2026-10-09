@@ -255,6 +255,7 @@ dcode</pre></div>
       <tr><td><code>/help</code></td><td>List all commands</td></tr>
       <tr><td><code>/ui</code></td><td>Show the web UI link again</td></tr>
       <tr><td><code>/model</code></td><td>Switch model and reasoning effort</td></tr>
+      <tr><td><code>/models</code></td><td>More models: one for reasoning, one for helpers, one for small jobs</td></tr>
       <tr><td><code>/context</code></td><td>See context usage, change the window size</td></tr>
       <tr><td><code>/agents</code></td><td>List helpers (yours too); <code>/agents settings</code> turns them on or off, sets how many run at once and the helper model</td></tr>
       <tr><td><code>/init</code></td><td>Dcode looks around the project and writes <code>AGENTS.md</code>: commands, layout, conventions. It's read at the start of every session</td></tr>
@@ -342,7 +343,8 @@ Our conventions are in @CONTRIBUTING.md</pre></div>
   <p>Read-only helpers can work in parallel. Set how many in <code>/agents settings</code> or Settings → Helpers. Running more than one at a time needs a server that handles concurrent requests (vLLM, or <code>llama-server --parallel N</code>).</p>
   <ul>
     <li><strong>Use one yourself:</strong> start a message with <code>@name</code>, e.g. <code>@explore where is the login handled?</code>. Only its report comes back.</li>
-    <li><strong>A model for helpers:</strong> set <em>Helper model</em> in Settings → Helpers to run helpers on a smaller, faster model from the same server, while the main chat keeps the bigger one.</li>
+    <li><strong>A model for helpers:</strong> set <em>Helper model</em> in Settings → Helpers to run helpers on a smaller, faster model, while the main chat keeps the bigger one. It takes a model on the same server or the name of a model you added under <em>More models</em> (below).</li>
+    <li><strong>More models, each for its job:</strong> in Settings → Model → <em>More models</em> (or <code>/models</code>) add other models by name; each can be on its own server, with its own context window. Then pick a <em>reasoning model</em>: Dcode sends a task there when it needs careful thought (debugging an error, design, finding a root cause) and tells you with one line, “Reasoning model: …”. Everything else, and every plan, stays on the main model. <em>Send tasks to it</em> can be Auto, Off or Always. A model for <em>small jobs</em> writes chat titles and commit messages and helps sort tasks.</li>
     <li><strong>Make your own:</strong> add a Markdown file in <code>~/.dcode/agents/</code> or a project's <code>.dcode/agents/</code>, or use <em>New helper</em> in Settings → Helpers. A file named like a built-in (<code>explore.md</code>…) changes that helper.</li>
   </ul>
   <div class="code"><div class="bar"><span>.dcode/agents/ansible.md</span><button>Copy</button></div><pre>---
@@ -675,6 +677,7 @@ dcode</pre></div>
       <tr><td><code>/help</code></td><td>نمایش همهٔ دستورها</td></tr>
       <tr><td><code>/ui</code></td><td>نمایش دوبارهٔ لینک رابط وب</td></tr>
       <tr><td><code>/model</code></td><td>تغییر مدل و سطح استدلال</td></tr>
+      <tr><td><code>/models</code></td><td>مدل‌های بیشتر: یکی برای استدلال، یکی برای دستیارها، یکی برای کارهای کوچک</td></tr>
       <tr><td><code>/context</code></td><td>دیدن میزان مصرف زمینه و تغییر اندازهٔ پنجره</td></tr>
       <tr><td><code>/agents</code></td><td>فهرست دستیارها (از جمله دستیارهای خودتان)؛ <code>/agents settings</code> برای روشن/خاموش کردن، تعداد اجرای همزمان و مدلِ دستیارها</td></tr>
       <tr><td><code>/init</code></td><td>Dcode پروژه را بررسی می‌کند و فایل <code>AGENTS.md</code> را می‌نویسد: دستورها، ساختار و قراردادها. این فایل در شروع هر نشست خوانده می‌شود</td></tr>
@@ -763,7 +766,8 @@ Our conventions are in @CONTRIBUTING.md</pre></div>
   <p>دستیارهای فقط‌خواندنی می‌توانند همزمان کار کنند. تعدادشان را در <code>/agents settings</code> یا تنظیمات ← دستیارها تعیین کنید. اجرای همزمان بیش از یکی به سروری نیاز دارد که درخواست‌های همزمان را پشتیبانی کند (vLLM یا <code>llama-server --parallel N</code>).</p>
   <ul>
     <li><strong>استفادهٔ مستقیم:</strong> پیام را با <code>@name</code> شروع کنید، مثلاً <code>@explore where is the login handled?</code>. فقط گزارش آن برمی‌گردد.</li>
-    <li><strong>مدل جدا برای دستیارها:</strong> در تنظیمات ← دستیارها، <em>Helper model</em> را تنظیم کنید تا دستیارها روی مدلی کوچک‌تر و سریع‌تر از همان سرور اجرا شوند و گفتگوی اصلی همان مدل بزرگ را نگه دارد.</li>
+    <li><strong>مدل جدا برای دستیارها:</strong> در تنظیمات ← دستیارها، <em>Helper model</em> را تنظیم کنید تا دستیارها روی مدلی کوچک‌تر و سریع‌تر اجرا شوند و گفتگوی اصلی همان مدل بزرگ را نگه دارد. می‌توانید نام مدلی از همان سرور یا نام مدلی را که در <em>More models</em> اضافه کرده‌اید بدهید (پایین را ببینید).</li>
+    <li><strong>چند مدل، هر کدام برای کار خودش:</strong> در تنظیمات ← Model ← <em>More models</em> (یا با <code>/models</code>) مدل‌های دیگر را با یک نام اضافه کنید؛ هر مدل می‌تواند روی سرور خودش و با پنجرهٔ متن خودش باشد. سپس یک <em>مدل استدلال</em> انتخاب کنید: وقتی کاری به فکر دقیق نیاز دارد (رفع یک خطا، طراحی، پیدا کردن علت اصلی)، Dcode آن را به این مدل می‌فرستد و با یک خط «Reasoning model: …» خبر می‌دهد. بقیهٔ کارها و همهٔ برنامه‌ریزی‌ها روی مدل اصلی می‌مانند. گزینهٔ <em>Send tasks to it</em> سه حالت دارد: Auto، Off و Always. مدلِ <em>کارهای کوچک</em> عنوان گفتگو و پیام commit را می‌نویسد و در دسته‌بندی کارها کمک می‌کند.</li>
     <li><strong>دستیار خودتان را بسازید:</strong> یک فایل Markdown در <code>~/.dcode/agents/</code> یا پوشهٔ <code>.dcode/agents/</code> پروژه بگذارید، یا از <em>New helper</em> در تنظیمات ← دستیارها استفاده کنید. فایلی با نام یک دستیار پیش‌فرض (مثل <code>explore.md</code>) همان دستیار را تغییر می‌دهد.</li>
   </ul>
   <div class="code"><div class="bar"><span>.dcode/agents/ansible.md</span><button>Copy</button></div><pre>---

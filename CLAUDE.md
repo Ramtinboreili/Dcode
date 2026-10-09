@@ -15,10 +15,10 @@ Dcode is a coding agent (terminal + per-user localhost web UI) for **local / air
 ## Commands
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/python -m pytest -q                 # ~256 tests, ~45 s
+.venv/bin/python -m pytest -q                 # ~267 tests, ~45 s
 .venv/bin/ruff check dcode tests              # must pass
 PYTHONPATH=. .venv/bin/dcode                  # run from source (see macOS .pth gotcha)
-python docs/dev/terminal_e2e.py [--binary /opt/homebrew/bin/dcode] [--verbose]   # 59 real-terminal checks
+python docs/dev/terminal_e2e.py [--binary /opt/homebrew/bin/dcode] [--verbose]   # 64 real-terminal checks
 python docs/dev/screen.py --type "say hello" [--html out.html]       # rendered screen (needs pyte)
 make mac PYTHON=.venv/bin/python              # macOS binary → /opt/homebrew/bin/dcode (no sudo)
 make deb                                      # Linux .deb (build on matching Linux host)
@@ -31,6 +31,7 @@ make packages                                 # needs docker: portable binary (g
 - `cli.py` + `ui.py` — terminal: state-driven loop, event rendering, slash commands, live panel; widgets (bottom input box, selectors, approval menu).
 - `server.py` — per-session API + per-user hub (UI, settings, memory, skills, artifacts, proxy/SSE, lifecycle).
 - `llm.py` (server quirks, `<think>`, text tool-call recovery, name cleaning, `with_model`), `context.py` (budget/compaction), `tools.py` (sandboxed tools, file guard, outside-workspace allowance), `agents.py` (prompts, roles, modes, extra schemas, todo helpers), `memory.py`, `artifacts.py`, `skills.py` (+ `skills/*.md`, `parse_frontmatter`), `checkpoints.py`, `jobs.py`, `config.py`, `theme.py`.
+- More than one model: `models.py` (profiles with their own server, `ModelPool`, the per-task router). `Session._run_task` routes; `Agent.use` swaps client + budget for one task.
 - Databases: `db.py` (connections, `Link` = the only engine-specific code, schema, guarded `run_query`, exports). Scheduled jobs: `schedules.py` (cron parser, runs/logs, `Scheduler` thread in the hub) + `headless.py` (`dcode run`). Entry point: `__main__.py` (`hub` and `run` skip the terminal imports).
 - Phase 4: `transcripts.py` (chat → events, export md/html/json, import, `HelperLog`), `stats.py` (usage counts), `mcp.py` (stdio MCP client, names-only index), `attach.py` (`dcode attach`: `RemoteSession` + `AttachApp`), `acp.py` (`dcode acp` for editors), `openapi.py` (the hub API, one `ROUTES` table). `editors/vscode` is the extension; `packaging/` builds every package.
 - Phase 3: `checks.py` (post-edit checks), `mentions.py` (`@path`), `custom_agents.py` (`.dcode/agents`), `commands.py` (`.dcode/commands`), `rules.py` (allow/ask/deny), `hooks.py`.
@@ -50,6 +51,7 @@ make packages                                 # needs docker: portable binary (g
 - The model's reasoning is display-only (`thinking` event): never put it in `messages`.
 - An imported chat file is untrusted: keep only the message shapes Dcode writes.
 - Scheduled jobs come only from `~/.dcode/cron`; the model gets no tool to create one; unattended runs deny approvals.
+- Models: route once per task, never mid-task; plan mode and an approved plan stay on the main model; never return a profile's API key; the budget and output caps must follow the model that runs.
 - Keep the system prompt stable within a turn (local servers cache the prompt prefix): only refresh it at turn start and after compaction.
 
 ## Gotchas (each one bit us)

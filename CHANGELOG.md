@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### More than one model
+- **Model profiles:** add other models by name in Settings → Model → More models, or with `/models add <name> <model> [server-url] [context]`. Each can be on its own server (one vLLM deployment serves one model) with its own context window, API key and reasoning effort.
+- **A reasoning model and a router:** pick one profile as the reasoning model. Before each task Dcode decides whether it needs careful thought (an error to debug, design, a root cause, a long detailed request, or "think hard") and runs that task there, with that model's context budget. One line says so: "Reasoning model: …". A short follow-up ("yes, go on") stays on the model that was working. Plans, and carrying out an approved plan, stay on the main model. `/models route auto|off|always` changes it.
+- **A model for small jobs:** chat titles, commit messages and, when set, the check that sorts tasks (it overrules the keyword rules).
+- **Helpers** (`agents.helper_model` and a helper file's `model:`) can name a profile, so helpers can run on another server too.
+- `/models` shows which model does what.
+
 ## 0.5.0 — Phase 4 (the rest of the opencode comparison: Tier 3 and Tier 4)
 
 Linux packages are built from one portable binary (glibc 2.28): `.deb`, `.rpm` and `.tar.gz` in `builds/linux-amd64/`.

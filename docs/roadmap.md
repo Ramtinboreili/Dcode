@@ -6,7 +6,8 @@
 - **In 0.4.0, after 0.3.1:** the hub fix (clean environment, version and asset health check), these docs, and **Phase 3** (Tier 1 + 2 from the opencode comparison: post-edit checks, `@file` mentions, checklist, `/init`, helper model, custom helpers and commands, permission rules, hooks, questions). See CHANGELOG "Unreleased".
 - **Also in 0.4.0** (2026-10-08): a lean hub process, **databases** (connections, schema, guarded queries, summary, export; web UI, `/db`, model tools) and **scheduled jobs** (`/cron`, the Scheduled screen, `dcode run`).
 - **In 0.5.0: Phase 4**, the rest of the opencode comparison (Tier 3 and Tier 4): `!command`, `/editor`, `/thinking`, `/details`, `/notify`, `/redo`, `/sessions` with `--continue` / `--resume`, export and import, `dcode stats`, helper sessions in the web UI, MCP servers with a lazy tool index, `dcode attach`, the OpenAPI document, `dcode acp` for Zed, a VS Code extension, and `.rpm` / tarball / Docker packages from one portable binary.
-- **Quality bar:** 256 unit tests. `docs/dev/terminal_e2e.py` runs 59 real-terminal checks. All pass on Linux x86_64 (Ubuntu 22.04, Python 3.10) from source and against the one-file binary built in the AlmaLinux 8 container; the earlier 31 also passed on macOS arm64.
+- **After 0.5.0, unreleased (2026-10-09):** more than one model. Named model profiles (each may be on its own server), a reasoning model that hard tasks are routed to, a model for small jobs, `/models`.
+- **Quality bar:** 267 unit tests. `docs/dev/terminal_e2e.py` runs 64 real-terminal checks. All pass on Linux x86_64 (Ubuntu 22.04, Python 3.10) from source and against the one-file binary built in the AlmaLinux 8 container; the earlier 31 also passed on macOS arm64.
 - **Pending decision:** the user wanted **v1.0.0**; Claude recommended **1.0.0-rc.1** (see below). The user said "don't build it yet".
 
 ## Is it production-ready? Claude's honest assessment
@@ -30,6 +31,7 @@
 - [ ] **Editors:** run `dcode acp` inside a real Zed and the extension inside a real VS Code (so far: the official ACP schema and a node stand-in).
 - [ ] **MCP with real servers** the owner uses, and with a small model: does a 7B model reliably call `mcp_tools` before `mcp_call`?
 - [ ] **Local models:** run real tasks with Ollama, llama.cpp (`llama-server --parallel N`) and vLLM, using at least Qwen2.5-Coder 7B and 32B and a DeepSeek-style model, at 16K and 32K context. Record the failures.
+- [ ] **The router with real models:** does it send the right tasks to the reasoning model? Tune the keyword list and the utility prompt from real sessions; check a 16K reasoning model taking over a long 32K chat.
 - [ ] Tune from that data: compaction thresholds, `MAX_FOLLOW_UPS`, the `PROMISE` / `ARTIFACT_REQUEST` patterns, output caps, helper step limits.
 - [ ] Test terminals: iTerm2, GNOME Terminal, tmux and screen, an SSH session, a narrow 80-column terminal, and a light background.
 - [ ] Test multiple users on one Linux server: per-user hubs, ports and token isolation.

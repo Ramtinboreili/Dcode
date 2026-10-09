@@ -2,7 +2,7 @@
 
 Three layers. Run the first always, the second for any terminal or packaging change, and the third when layout or colors matter.
 
-## 1. Unit tests (`tests/`, about 256 tests, about 45 s)
+## 1. Unit tests (`tests/`, about 267 tests, about 45 s)
 
 ```bash
 .venv/bin/python -m pytest -q
@@ -38,6 +38,7 @@ Three layers. Run the first always, the second for any terminal or packaging cha
 | `test_transcripts.py` | export to Markdown / HTML / JSON, import validation, `dcode export` and `dcode import` |
 | `test_stats.py` | what a finished task records, summaries, the size cap, `dcode stats` |
 | `test_helper_sessions.py` | helper steps kept, capped, saved with the chat and restored |
+| `test_models.py` | model profiles, the router (keywords, the utility model's verdict, follow-ups, plan mode), the budget following the model, helpers on a profile, API keys never sent back, `/models` |
 | `test_mcp.py` | the MCP client against `tests/fixtures/fake_mcp_server.py`: handshake, paging, timeouts, crashes; the names-only index; `mcp_tools` / `mcp_call`; approvals and plan mode |
 | `test_openapi_attach.py` | every documented route exists; `dcode attach` follows and drives a session |
 | `test_acp.py` | `dcode acp` with a scripted editor: updates, diffs, plan, approvals, questions, modes, cancel; the `.vsix` packs |
@@ -45,7 +46,7 @@ Three layers. Run the first always, the second for any terminal or packaging cha
 
 ## 2. Real-terminal end-to-end (`docs/dev/terminal_e2e.py`)
 
-Drives the real `dcode` in a pseudo-terminal against **`docs/dev/mock_llm.py`**, a scripted OpenAI-compatible server. Its docstring lists the trigger words for each scenario. 59 checks, covering:
+Drives the real `dcode` in a pseudo-terminal against **`docs/dev/mock_llm.py`**, a scripted OpenAI-compatible server. Its docstring lists the trigger words for each scenario. 64 checks, covering:
 - the web UI link and hub, the bilingual guide
 - streaming and `<think>` stripping, tool calls, `/version`, Shift+Tab
 - approvals answered from the web and in the terminal
@@ -54,6 +55,7 @@ Drives the real `dcode` in a pseudo-terminal against **`docs/dev/mock_llm.py`**,
 - databases: `/db add` and queries on a SQLite file, the model's `db_query`, a change that asks even in auto mode and is not run when denied
 - scheduled jobs: `/cron add`, a run started by the hub with its log, `/cron rm`
 - Phase 4: `!command`, `/thinking`, `/details`, `/editor`, `/export`, a local MCP server (add, a call that asks, remove), `dcode attach` in a second pty (message, approval, detach), `dcode --continue` and `/sessions` in a second run
+- more than one model: `/models add` with a second mock server, a hard task answered by that server, an easy one by the main model
 - Phase 3: `@` completion and attach, the checklist, the question menu, the post-edit check, `/rules`, a custom `/command`, `@helper`
 
 `--verbose` prints the last screen when a check fails.

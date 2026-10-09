@@ -189,3 +189,13 @@ After 0.4.0 the owner said "going for phase 3". Phase 3 was already released, so
 - The MCP Python SDK had moved to 2.x (`FastMCP` → `MCPServer`) since Claude's training data; the client was checked against 2.3.0.
 
 **Checked with outside references:** the MCP client against the official SDK; every `dcode acp` message against the official ACP v1 JSON schema; packages in AlmaLinux 8/9, Debian 11/12 and Ubuntu 20.04 containers. **Not checked:** a real Zed, a real VS Code, a real local model.
+
+## 13. More than one model (unreleased, October 9, 2026)
+
+Work moved to the bastion host of the owner's GPU cluster (Ubuntu 24.04), where vLLM serves the models; the saved Claude memory was restored there. Before testing against the real model, the owner asked for "multi models for tasks, agents, reasoning and planning".
+
+- **What existed:** one helper model, on the same server only. No model for reasoning, and each vLLM deployment has its own URL.
+- **Asked what "reasoning" should mean,** the owner chose a router: Dcode decides per task and uses the better model when the task needs reasoning. Planning stays with the main model.
+- **Built:** `models.py` (profiles, `ModelPool`, the router), `Agent.use`, routing in `Session._run_task`, a utility model for titles and commit messages, `/models`, the More models section in Settings, a `route` event.
+- **Found along the way:** the first follow-up rule ("any short message continues the last task") kept a new short task such as "list the files in src" on the reasoning model; it now needs a reply word or a pronoun ("yes", "fix it"). `/models` lost `[server-url] [context]` to rich's bracket parsing, caught on the rendered screen.
+- 267 unit tests, 64 terminal checks (a second mock server proves a hard task reaches another server). **Not checked yet:** the real models on the cluster.
