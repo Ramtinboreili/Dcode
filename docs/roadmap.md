@@ -7,7 +7,7 @@
 - **Also in 0.4.0** (2026-10-08): a lean hub process, **databases** (connections, schema, guarded queries, summary, export; web UI, `/db`, model tools) and **scheduled jobs** (`/cron`, the Scheduled screen, `dcode run`).
 - **In 0.5.0: Phase 4**, the rest of the opencode comparison (Tier 3 and Tier 4): `!command`, `/editor`, `/thinking`, `/details`, `/notify`, `/redo`, `/sessions` with `--continue` / `--resume`, export and import, `dcode stats`, helper sessions in the web UI, MCP servers with a lazy tool index, `dcode attach`, the OpenAPI document, `dcode acp` for Zed, a VS Code extension, and `.rpm` / tarball / Docker packages from one portable binary.
 - **After 0.5.0, unreleased (2026-10-09):** more than one model. Named model profiles (each may be on its own server), a reasoning model that hard tasks are routed to, a model for small jobs, `/models`.
-- **Quality bar:** 267 unit tests. `docs/dev/terminal_e2e.py` runs 64 real-terminal checks. All pass on Linux x86_64 (Ubuntu 22.04, Python 3.10) from source and against the one-file binary built in the AlmaLinux 8 container; the earlier 31 also passed on macOS arm64.
+- **Quality bar:** 268 unit tests. `docs/dev/terminal_e2e.py` runs 64 real-terminal checks. All pass on Linux x86_64 (Ubuntu 22.04, Python 3.10) from source and against the one-file binary built in the AlmaLinux 8 container; the earlier 31 also passed on macOS arm64.
 - **Pending decision:** the user wanted **v1.0.0**; Claude recommended **1.0.0-rc.1** (see below). The user said "don't build it yet".
 
 ## Is it production-ready? Claude's honest assessment
@@ -30,6 +30,7 @@
 - [x] **Linux build (x86_64):** `make packages` builds a portable binary and every package; installed in distribution containers. Still open: arm64, and an install on a real machine with no network.
 - [ ] **Editors:** run `dcode acp` inside a real Zed and the extension inside a real VS Code (so far: the official ACP schema and a node stand-in).
 - [ ] **MCP with real servers** the owner uses, and with a small model: does a 7B model reliably call `mcp_tools` before `mcp_call`?
+- [x] **First real local models (2026-10-09):** vLLM with `gemma4:31b` (main) and `diffusiongemma-26B-A4B-it` (reasoning) at 16K: tool calls, edits, routing, plan mode and helpers work; one bug found and fixed (`edit_file` and the space after the line number).
 - [ ] **Local models:** run real tasks with Ollama, llama.cpp (`llama-server --parallel N`) and vLLM, using at least Qwen2.5-Coder 7B and 32B and a DeepSeek-style model, at 16K and 32K context. Record the failures.
 - [ ] **The router with real models:** does it send the right tasks to the reasoning model? Tune the keyword list and the utility prompt from real sessions; check a 16K reasoning model taking over a long 32K chat.
 - [ ] Tune from that data: compaction thresholds, `MAX_FOLLOW_UPS`, the `PROMISE` / `ARTIFACT_REQUEST` patterns, output caps, helper step limits.

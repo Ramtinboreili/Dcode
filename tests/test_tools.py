@@ -42,6 +42,23 @@ def test_edit_file_tolerates_pasted_line_numbers(isolated):
     assert (isolated / "c.py").read_text() == "def f():\n    return 2\n"
 
 
+def test_edit_file_tolerates_the_space_after_the_line_number(isolated):
+    """Seen with a real model (diffusiongemma on vLLM): it copied "9|         x" as 9 spaces, not 8."""
+    source = "class A:\n    def __init__(self):\n        self._lock = threading.Lock()\n\n    def f(self):\n        pass\n"
+    (isolated / "c.py").write_text(source)
+    out = tools.execute_tool("edit_file", {"path": "c.py", "old_text": "         self._lock = threading.Lock()",
+                                           "new_text": "         self._lock = threading.RLock()"})
+    assert "Edited" in out
+    assert (isolated / "c.py").read_text() == source.replace("Lock()", "RLock()")  # the indentation is the file's
+    # Several lines, a blank one among them.
+    out = tools.execute_tool("edit_file", {"path": "c.py", "old_text": "     def f(self):\n         pass",
+                                           "new_text": "     def f(self):\n\n         return 1"})
+    assert "Edited" in out and "    def f(self):\n\n        return 1\n" in (isolated / "c.py").read_text()
+    # Text that is simply not there is still refused, and an exact match is never shifted.
+    assert "not found" in tools.execute_tool("edit_file", {"path": "c.py", "old_text": "  nope", "new_text": "x"})
+    assert "not found" in tools.execute_tool("edit_file", {"path": "c.py", "old_text": " class A:\nzzz", "new_text": "x"})
+
+
 def test_sandbox_blocks_absolute_escape():
     assert tools.execute_tool("read_file", {"path": "/etc/hosts"}).startswith("Blocked:")
 

@@ -294,6 +294,14 @@ def _read_file(arguments: dict[str, Any]) -> str:
     return body
 
 
+def _unshift(text: str) -> str | None:
+    """Drop one leading space from every line; None unless each non-blank line has one."""
+    lines = text.split("\n")
+    if any(line.strip() and not line.startswith(" ") for line in lines):
+        return None
+    return "\n".join(line[1:] if line.startswith(" ") else line for line in lines)
+
+
 def _edit_file(arguments: dict[str, Any]) -> str:
     path = _safe_path(arguments["path"])
     if not path.exists():
@@ -309,6 +317,12 @@ def _edit_file(arguments: dict[str, Any]) -> str:
         stripped_old = _LINE_PREFIX.sub("", old)
         if stripped_old != old and text.count(stripped_old):
             old, new = stripped_old, _LINE_PREFIX.sub("", new)
+            count = text.count(old)
+    if count == 0 and old.startswith(" "):
+        # ...or copy the space after "N|" as if it were indentation: every line has one space too many.
+        shifted_old = _unshift(old)
+        if shifted_old is not None and text.count(shifted_old):
+            old, new = shifted_old, _unshift(new) or new
             count = text.count(old)
     if count == 0:
         return "old_text not found. Re-read the file and copy the exact text (whitespace matters)."

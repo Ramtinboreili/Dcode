@@ -7,7 +7,10 @@
 - **A reasoning model and a router:** pick one profile as the reasoning model. Before each task Dcode decides whether it needs careful thought (an error to debug, design, a root cause, a long detailed request, or "think hard") and runs that task there, with that model's context budget. One line says so: "Reasoning model: …". A short follow-up ("yes, go on") stays on the model that was working. Plans, and carrying out an approved plan, stay on the main model. `/models route auto|off|always` changes it.
 - **A model for small jobs:** chat titles, commit messages and, when set, the check that sorts tasks (it overrules the keyword rules).
 - **Helpers** (`agents.helper_model` and a helper file's `model:`) can name a profile, so helpers can run on another server too.
-- `/models` shows which model does what.
+- `/models` shows which model does what. `dcode run` prints which model ran the task.
+
+### Fixed
+- `edit_file` failed with "old_text not found" when a model copied the space after the line number (`9| text`) as indentation, so every line had one space too many. Seen on the first run with a real local model; the edit now goes through with the file's own indentation.
 
 ## 0.5.0 — Phase 4 (the rest of the opencode comparison: Tier 3 and Tier 4)
 

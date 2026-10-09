@@ -15,7 +15,7 @@ Dcode is a coding agent (terminal + per-user localhost web UI) for **local / air
 ## Commands
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/python -m pytest -q                 # ~267 tests, ~45 s
+.venv/bin/python -m pytest -q                 # ~268 tests, ~45 s
 .venv/bin/ruff check dcode tests              # must pass
 PYTHONPATH=. .venv/bin/dcode                  # run from source (see macOS .pth gotcha)
 python docs/dev/terminal_e2e.py [--binary /opt/homebrew/bin/dcode] [--verbose]   # 64 real-terminal checks

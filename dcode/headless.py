@@ -89,9 +89,12 @@ def main(argv: list[str]) -> int:
             _say(f"! {event.get('text')}")
         elif kind == "notice" and event.get("level") in ("warning", "error"):
             _say(f"! {event.get('text')}")
+        elif kind == "route":
+            _say(f"# reasoning model: {event.get('model')} · {event.get('reason')}")
         elif kind == "usage" and agent == "main":
             changed = ", ".join(event.get("files_changed") or []) or "none"
-            _say(f"# done in {event.get('elapsed')}s · files changed: {changed} · commands: {event.get('commands', 0)}")
+            _say(f"# done in {event.get('elapsed')}s · {event.get('model')} · files changed: {changed} · "
+                 f"commands: {event.get('commands', 0)}")
 
     session.bus.subscribe(on_event)
     _say(f"# dcode run · mode {mode} · {session.cwd} · {config.model}")

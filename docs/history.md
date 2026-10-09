@@ -198,4 +198,9 @@ Work moved to the bastion host of the owner's GPU cluster (Ubuntu 24.04), where 
 - **Asked what "reasoning" should mean,** the owner chose a router: Dcode decides per task and uses the better model when the task needs reasoning. Planning stays with the main model.
 - **Built:** `models.py` (profiles, `ModelPool`, the router), `Agent.use`, routing in `Session._run_task`, a utility model for titles and commit messages, `/models`, the More models section in Settings, a `route` event.
 - **Found along the way:** the first follow-up rule ("any short message continues the last task") kept a new short task such as "list the files in src" on the reasoning model; it now needs a reply word or a pronoun ("yes", "fix it"). `/models` lost `[server-url] [context]` to rich's bracket parsing, caught on the rendered screen.
-- 267 unit tests, 64 terminal checks (a second mock server proves a hard task reaches another server). **Not checked yet:** the real models on the cluster.
+- 268 unit tests, 64 terminal checks (a second mock server proves a hard task reaches another server).
+
+**First run with real local models** (the same day): `gemma4:31b` as the main model and `diffusiongemma-26B-A4B-it` as the reasoning model, both on vLLM with a 16K window. A project with two real bugs (a lock taken twice, a `KeyError`) was fixed in 12–15 s; an easy task stayed on the main model, a hard one was routed, a six-turn chat moved between the two models with the history intact, plan mode stayed on the main model, and helpers ran on the reasoning model.
+- **Found:** the reasoning model's first `edit_file` calls failed ("old_text not found") in every run: it copied the space after `N|` in `read_file` output as indentation. `edit_file` now accepts text whose every line has one space too many. Regression test: `test_edit_file_tolerates_the_space_after_the_line_number`.
+- **Measured:** on that cluster gemma4 wrote about 7 tokens a second and diffusiongemma about 240, so turns on the main model took 20–160 s. That is the servers, not Dcode.
+- **Still open:** a long session that compacts, 32K, Ollama and llama.cpp, a small utility model for the router.
