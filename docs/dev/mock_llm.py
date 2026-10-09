@@ -7,6 +7,7 @@ without a GPU. Replies are chosen from the *last message* by trigger words,
 so each scenario is reproducible.
 
     python docs/dev/mock_llm.py 18080
+    python docs/dev/mock_llm.py 18081 thinker    # a second server: its text replies start with "[thinker] "
     DCODE_BASE_URL=http://127.0.0.1:18080/v1 DCODE_API_KEY=x DCODE_MODEL=mock dcode
 
 Trigger words (in the user's message unless noted):
@@ -107,6 +108,9 @@ def choose_reply(messages: list[dict]) -> dict:
     return {"content": "<think>hidden reasoning</think>Echo: " + text[:60]}
 
 
+NAME = ""  # set from the command line
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args) -> None:
         pass
@@ -125,6 +129,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # /v1/chat/completions
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         reply = choose_reply(body["messages"])
+        if NAME and reply.get("content"):  # a second server in a test: show which one answered
+            reply["content"] = reply["content"].replace("Echo: ", f"[{NAME}] Echo: ")
         usage = {"prompt_tokens": 500, "completion_tokens": 20, "total_tokens": 520}
         if not body.get("stream"):
             message = {"role": "assistant", "content": reply.get("content")}
@@ -166,5 +172,6 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 18080
+    NAME = sys.argv[2] if len(sys.argv) > 2 else ""
     print(f"mock model on http://127.0.0.1:{port}/v1", flush=True)
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()

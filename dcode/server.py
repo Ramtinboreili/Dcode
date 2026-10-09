@@ -287,7 +287,8 @@ class SessionServer:
             return {"ok": session.resume(str(body.get("thread_id") or ""), source=source)}
         if path == "/model":
             effort = body.get("reasoning_effort")
-            session.set_model(body.get("model") or None, effort if effort in REASONING_EFFORTS else None)
+            session.set_model(body.get("model") or None, effort if effort in REASONING_EFFORTS else None,
+                              route=str(body.get("route") or "") or None)
             return None
         if path == "/reload":
             return {"ok": session.reload_config()}
@@ -616,6 +617,9 @@ class Hub:
             data["api_key"] = _mask(str(data.get("api_key") or ""))
             for spec in ((data.get("mcp") or {}).get("servers") or {}).values():
                 spec["env"] = {k: _mask(v) for k, v in spec.get("env", {}).items()}  # often tokens: never sent back
+            for spec in ((data.get("models") or {}).get("profiles") or {}).values():
+                if spec.get("api_key"):
+                    spec["api_key"] = _mask(spec["api_key"])
             data["reasoning_efforts"] = REASONING_EFFORTS
             return handler._json(data)
         if path == "/api/stats":
@@ -705,6 +709,17 @@ class Hub:
                     kept = old.get(name, {}).get("env", {})
                     spec["env"] = {k: (kept.get(k, "") if "•" in v else v) for k, v in spec["env"].items()}
                 raw["mcp"] = {"servers": new}
+            if isinstance(body.get("models"), dict):  # replaced whole, so removing a profile works
+                from .models import clean_models
+
+                old_profiles = clean_models(raw.get("models"))["profiles"]
+                new_models = clean_models(body["models"])
+                for name, spec in new_models["profiles"].items():  # a masked key means "unchanged"
+                    if "•" in spec.get("api_key", ""):
+                        spec.pop("api_key")
+                        if old_profiles.get(name, {}).get("api_key"):
+                            spec["api_key"] = old_profiles[name]["api_key"]
+                raw["models"] = new_models
             if isinstance(body.get("enabled_skills"), list):
                 raw["enabled_skills"] = [str(s) for s in body["enabled_skills"]]
             if config_from_dict(apply_env_overrides(dict(raw))) is None:

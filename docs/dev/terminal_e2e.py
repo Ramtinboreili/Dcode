@@ -97,6 +97,8 @@ def main() -> int:
     editor.chmod(0o755)
     port = free_port()
     mock = subprocess.Popen([sys.executable, str(MOCK), str(port)], stdout=subprocess.DEVNULL)
+    port2 = free_port()  # a second model server, for the reasoning model
+    mock2 = subprocess.Popen([sys.executable, str(MOCK), str(port2), "thinker"], stdout=subprocess.DEVNULL)
     time.sleep(0.5)
     env = dict(os.environ, DCODE_HOME=str(tmp / "home"), DCODE_BASE_URL=f"http://127.0.0.1:{port}/v1",
                DCODE_API_KEY="local", DCODE_MODEL="mock-coder-7b", DCODE_CONTEXT_WINDOW="16384",
@@ -272,6 +274,19 @@ def main() -> int:
         term.send("say still here\r")
         check("the session goes on after a detach", term.expect(r"Echo: say still here"))
         term.expect(r"Echo: say still here[\s\S]*Done in")
+        term.send(f"/models add thinker mock-thinker-32b http://127.0.0.1:{port2}/v1 16384\r")
+        check("/models add saves a model on another server", term.expect(r"Saved the model profile thinker"))
+        term.send("/models reasoning thinker\r")
+        check("/models shows which model does what", term.expect(r"reasoning\s+mock-thinker-32b @ http://127\.0\.0\.1"))
+        term.send("why does the deploy crash, investigate the root cause\r")
+        check("a hard task goes to the reasoning model", term.expect(r"Reasoning model: mock-thinker-32b")
+              and term.expect(r"\[thinker\] Echo: why does the deploy"))
+        term.expect(r"\[thinker\] Echo[\s\S]*Done in")
+        term.send("say back on main\r")
+        check("an easy task stays on the main model", term.expect(r"(?<!\] )Echo: say back on main"))
+        term.expect(r"Echo: say back on main[\s\S]*Done in")
+        term.send("/models rm thinker\r")
+        check("/models rm", term.expect(r"Removed thinker"))
         term.send('/cron add "0 0 1 1 *" echo hello-from-cron\r')
         check("/cron add schedules a job", term.expect(r"Scheduled echo-hello-from-cron: every year on January 1[\s\S]{0,40}next\s+run\s+\d{4}-01-01"))
         term.send("/cron run echo-hello-from-cron\r")
@@ -336,6 +351,7 @@ def main() -> int:
         except OSError:
             pass
         mock.terminate()
+        mock2.terminate()
         shutil.rmtree(tmp, ignore_errors=True)
     print(f"\n{'all checks passed' if not failures else f'{failures} check(s) failed'}")
     return failures

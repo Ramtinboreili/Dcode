@@ -21,6 +21,8 @@ from . import __version__, ui
 from .agents import MODE_LABELS, MODE_SHORT, MODES
 from .config import REASONING_EFFORTS, list_skill_files, list_threads, save_config
 from .engine import git_summary
+from .models import ROUTES as MODEL_ROUTES
+from .models import clean_models
 from .session import ALWAYS_ASK_KINDS, Session
 from .theme import ACCENT, DANGER, MUTED, PRIMARY, SUCCESS, WARNING
 
@@ -407,6 +409,8 @@ class TerminalApp:
             ui.notice(event.get("text", ""), "error")
         elif kind == "config":
             ui.notice(f"Model: {event.get('model')} · reasoning: {event.get('reasoning_effort')}", "info")
+        elif kind == "route":
+            ui.notice(f"Reasoning model: {event.get('model')} · {event.get('reason')}", "info")
         elif kind == "thread" and event.get("action") == "resume":
             if not self._mine(event, "by"):  # the terminal's own /sessions prints its line and a recap
                 ui.notice(f"Continuing “{event.get('name')}” (picked in {SURFACES.get(event.get('by'), 'the web UI')})", "info")
@@ -544,6 +548,8 @@ class TerminalApp:
                 self._await_start()
             elif command == "/model":
                 self._switch_model()
+            elif command == "/models":
+                self._models(arg.strip())
             elif command == "/setup":
                 main = import_module("dcode.main")
                 new = main.run_setup(model=cfg.model)
@@ -1230,6 +1236,66 @@ class TerminalApp:
     def _save(self) -> None:
         save_config(self.session.config)
         self.session.apply_config(self.session.config)
+
+    def _models(self, arg: str) -> None:
+        """/models: which model does what, and the routing between them."""
+        session, cfg = self.session, self.session.config
+        words = arg.split()
+        action = words[0].lower() if words else ""
+        settings = cfg.models
+        if action == "route" and len(words) == 2 and words[1] in MODEL_ROUTES:
+            session.set_model(route=words[1])
+            settings["router"] = words[1]
+            save_config(cfg)
+            return
+        if action == "add" and len(words) >= 3:
+            profile: dict[str, Any] = {"model": words[2]}
+            if len(words) > 3:
+                profile["base_url"] = words[3]
+            if len(words) > 4 and words[4].isdigit():
+                profile["context_window"] = max(2048, int(words[4]))
+            settings["profiles"][words[1]] = profile
+            cfg.models = clean_models(settings)
+            if words[1] not in cfg.models["profiles"]:
+                ui.notice("That name can't be used (\"main\" always means the main model).", "warning")
+                return
+            self._save()
+            ui.notice(f"Saved the model profile {words[1]}. Give it a job: /models reasoning {words[1]}", "success")
+            return
+        if action in ("rm", "remove") and len(words) == 2:
+            if settings["profiles"].pop(words[1], None) is None:
+                ui.notice(f"No profile named {words[1]}.", "warning")
+                return
+            for job in ("reasoning", "utility"):
+                if settings[job] == words[1]:
+                    settings[job] = ""
+            if cfg.agents.get("helper_model") == words[1]:
+                cfg.agents["helper_model"] = ""
+            self._save()
+            ui.notice(f"Removed {words[1]}.", "success")
+            return
+        if action in ("reasoning", "utility", "helpers") and len(words) == 2:
+            value = "" if words[1].lower() in ("none", "main", "off") else words[1]
+            if action == "helpers":
+                cfg.agents["helper_model"] = value
+            else:
+                settings[action] = value
+            self._save()
+            action = ""
+        if action:
+            ui.notice("Usage: /models · /models add <name> <model> [server-url] [context] · /models rm <name> · "
+                      "/models reasoning|utility|helpers <name|none> · /models route auto|off|always", "warning")
+            return
+        ui.console.print(f"{ui.PAD}[bold]Models[/]")
+        for job, what in session.models.describe():
+            ui.console.print(f"{ui.PAD}  {job:<10} {ui._escape(what)}", highlight=False)
+        routes = {"auto": "auto: hard tasks go to the reasoning model", "off": "off: everything on the main model",
+                  "always": "always: every task on the reasoning model"}
+        ui.console.print(f"{ui.PAD}  {'routing':<10} {routes[session.route]}", highlight=False)
+        if settings["profiles"]:
+            ui.console.print(f"{ui.PAD}[{MUTED}]Profiles: {ui._escape(', '.join(settings['profiles']))}[/]")
+        hint = ui._escape("Add one: /models add <name> <model> [server-url] [context]. API keys: Settings in the web UI.")
+        ui.console.print(f"{ui.PAD}[{MUTED}]{hint}[/]")
 
     def _switch_model(self) -> None:
         cfg = self.session.config

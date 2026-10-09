@@ -992,6 +992,9 @@
       case "error":
         eventLine("error", "alert", ev.text);
         break;
+      case "route":
+        eventLine("info", "info", `Reasoning model for this task: ${ev.model} (${ev.reason})`);
+        break;
       case "config":
         if (S.info) { Object.assign(S.info, { model: ev.model, reasoning_effort: ev.reasoning_effort }); if (ev.context_window) S.info.context_window = ev.context_window; renderHeader(); }
         S.models = null;
@@ -1370,14 +1373,15 @@
               help("In tokens. Match your server, e.g. 32768.")),
             field("Max reply length", lockable("max_output_tokens", textInput(c.max_output_tokens, (v) => (c.max_output_tokens = v), { type: "number", min: 256, step: 256 })),
               help("Tokens reserved for each answer."))),
-          setRow("Stream replies", "Show words as they arrive.", toggle(c.stream !== false, (v) => (c.stream = v)))));
+          setRow("Stream replies", "Show words as they arrive.", toggle(c.stream !== false, (v) => (c.stream = v)))),
+        modelsSection(c));
     } else if (S.tab === "agents") {
       body.append(section("Helpers", "Dcode can hand focused jobs to helpers that start with a clean slate. Only their short report comes back, which keeps small-context models sharp.",
         setRow("Use helpers", "Explorer, Coder, Reviewer and Tester.", toggle(c.agents.enabled !== false, (v) => (c.agents.enabled = v))),
         setRow("Helpers working at once", "Read-only helpers can run in parallel if your server handles concurrent requests.", seg([1, 2, 3, 4], c.agents.max_parallel ?? 2, (v) => (c.agents.max_parallel = v))),
         setRow("Steps per helper", "How long a helper may work before reporting back.", textInput(c.agents.max_steps ?? 16, (v) => (c.agents.max_steps = v), { type: "number", min: 2, max: 100, style: "width:90px" })),
         field("Helper model", textInput(c.agents.helper_model || "", (v) => (c.agents.helper_model = v.trim()), { placeholder: `Same as the main model (${c.model})` }),
-          help("Run helpers on another model on the same server, e.g. a small fast one for searching code."))));
+          help("Run helpers on another model, e.g. a small fast one for searching code: a model on the same server, or a name from Settings → Model → More models."))));
       const list = h("div");
       for (const a of S.helpers || []) {
         const tags = [a.scope === "builtin" ? h("span", { class: "tag blue" }, "built-in") : h("span", { class: "tag" }, a.scope),
@@ -1535,6 +1539,57 @@
       u.models.length ? section("By model", null, bars(u.models, (r) => r.tasks, (r) => `${r.tasks} · ${tokens(r.tokens_in)} in`)) : "",
       u.projects.length ? section("By project", null, bars(u.projects, (r) => r.tasks, (r) => `${r.tasks} · ${spent(r.seconds)}`)) : "",
       u.tools.length ? section("Most used tools", null, bars(u.tools, (r) => r.calls, (r) => String(r.calls))) : "");
+  }
+  function modelsSection(c) {
+    c.models ||= {};
+    c.models.profiles ||= {};
+    const profiles = c.models.profiles;
+    const rows = h("div", { class: "mcp-rows" });
+    const jobs = h("div");
+    const picker = (key) => {
+      const el = h("select", { class: "select", style: "max-width:260px" },
+        h("option", { value: "" }, `Main model (${c.model})`),
+        ...Object.entries(profiles).map(([name, p]) => h("option", { value: name }, `${name} · ${p.model}`)));
+      if (c.models[key] && !profiles[c.models[key]]) el.append(h("option", { value: c.models[key] }, c.models[key]));
+      el.value = c.models[key] || "";
+      el.addEventListener("change", () => (c.models[key] = el.value));
+      return el;
+    };
+    const draw = () => {
+      rows.replaceChildren(...Object.entries(profiles).map(([name, p]) => h("div", { class: "mcp-row" },
+        h("div", { class: "mcp-head" }, h("b", {}, name), h("span", { class: "grow" }),
+          h("button", { class: "btn sm ghost", title: "Remove", "aria-label": "Remove", onclick: () => {
+            delete profiles[name];
+            for (const key of ["reasoning", "utility"]) if (c.models[key] === name) c.models[key] = "";
+            draw();
+          } }, icon("x"))),
+        h("div", { class: "grid2" },
+          field("Model name", textInput(p.model, (v) => (p.model = v.trim()))),
+          field("Server URL", textInput(p.base_url || "", (v) => (p.base_url = v.trim()), { placeholder: `Same server (${c.base_url})` }))),
+        h("div", { class: "grid2" },
+          field("Context window", textInput(p.context_window || "", (v) => (p.context_window = v || undefined), { type: "number", min: 2048, step: 1024, placeholder: String(c.context_window) })),
+          field("API key", textInput("", (v) => (p.api_key = v), { type: "password", placeholder: p.api_key ? `${p.api_key} (saved)` : "Same as the main key" }))))));
+      if (!Object.keys(profiles).length) rows.append(h("div", { class: "skill-desc" }, "No other models yet."));
+      jobs.replaceChildren(
+        setRow("Reasoning model", "A stronger model for tasks that need careful thought. Plans are always made by the main model.", picker("reasoning")),
+        setRow("Send tasks to it", "Auto: Dcode decides for each task. Off: never. Always: every task.", seg(["auto", "off", "always"], c.models.router || "auto", (v) => (c.models.router = v))),
+        setRow("Small jobs", "Chat titles, commit messages and the check that sorts tasks. A small fast model fits.", picker("utility")));
+    };
+    draw();
+    const name = textInput("", () => {}, { placeholder: "name, e.g. thinker", style: "max-width:170px" });
+    const model = textInput("", () => {}, { placeholder: "model name on its server, e.g. qwen2.5-coder:32b" });
+    return section("More models",
+      "Give each job the model that suits it. A model can live on its own server (one vLLM deployment serves one model). " +
+      "Helpers have their own setting under Helpers; it accepts these names too.",
+      rows,
+      h("div", { class: "with-btn", style: "margin:10px 0 14px" }, name, model,
+        h("button", { class: "btn sm", type: "button", onclick: () => {
+          const key = name.value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+          if (!key || key === "main" || !model.value.trim()) return toast("Give the model a short name (not “main”) and its model name", true);
+          profiles[key] = { model: model.value.trim() };
+          name.value = ""; model.value = ""; draw();
+        } }, icon("plus"), "Add")),
+      jobs);
   }
   function mcpSection(c) {
     c.mcp ||= { servers: {} };
