@@ -54,7 +54,8 @@ Why Dcode is built the way it is. Each decision gives the choice and the reason;
   - strip `<think>`
   - clean leaked markup from tool names
   - make reused tool-call ids unique
-  - break identical-call loops
+  - break identical-call loops: warn at the third identical call; if it is ignored, take the tools away and ask for a report (a warning alone did not stop a real model)
+  - accept an edit whose every line has one space too many (models copy the space after `N|`), and name the closest line when an edit fails
   - nudge empty replies
 - **Follow-through check.** Models announce "Building the artifact now." and stop. Dcode reminds them, at most twice so it can't loop. It also continues replies that hit the output limit.
 - **History stubs must be unmistakable.** A vague `[N chars — saved]` made the model think its save failed and loop. Stubs now say the content was delivered and stored, and tool results confirm the size and a preview.

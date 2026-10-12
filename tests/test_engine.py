@@ -90,6 +90,35 @@ def test_delegation_disabled_hides_tool():
     assert "delegate" not in agent.system_prompt()
 
 
+def test_a_model_stuck_on_one_failing_edit_is_stopped(isolated):
+    """Reported from real use (gemma4 editing a YAML file): two "old_text not found", then the same
+    call again and again under "You called edit_file with identical arguments 3 times" until Ctrl+C."""
+    (isolated / "deploy.yaml").write_text("spec:\n  replicas: 1\n")
+    asked: list[bool] = []
+
+    def router(messages, tools):
+        asked.append(bool(tools))
+        if not tools:
+            return AssistantTurn(content="I could not find that text in deploy.yaml.")
+        return AssistantTurn(tool_calls=[call("edit_file", json.dumps(
+            {"path": "deploy.yaml", "old_text": "replicas: 7", "new_text": "replicas: 2"}), f"c{len(asked)}")])
+
+    host = NullHost()
+    agent, _ = _agent(router, host=host)
+    result = agent.run_turn("set replicas to 2")
+    assert asked == [True, True, True, True, False]  # the 4th identical call is the last; then no tools
+    assert result.text == "I could not find that text in deploy.yaml."
+    assert "Stop using tools" in agent.messages[-2]["content"]
+    assert [e["text"] for e in host.events if e["type"] == "notice" and e.get("level") == "warning"] == \
+        ["Stopped: the model kept repeating the same step"]
+    assert (isolated / "deploy.yaml").read_text() == "spec:\n  replicas: 1\n"
+    # Every tool call still has its answer, so the history stays valid for the next message.
+    calls = [c["id"] for m in agent.messages if m["role"] == "assistant" for c in m.get("tool_calls") or []]
+    assert calls == [m["tool_call_id"] for m in agent.messages if m["role"] == "tool"]
+    agent.run_turn("try again")  # a new task starts with a clean count
+    assert asked[5] is True
+
+
 def test_repeat_guard_breaks_loops(isolated):
     (isolated / "a.txt").write_text("x")
     same = AssistantTurn(tool_calls=[call("read_file", '{"path": "a.txt"}')])

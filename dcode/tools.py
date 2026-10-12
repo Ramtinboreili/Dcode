@@ -302,6 +302,25 @@ def _unshift(text: str) -> str | None:
     return "\n".join(line[1:] if line.startswith(" ") else line for line in lines)
 
 
+def _closest_line(text: str, old: str) -> str:
+    """A hint for a failed edit: the file line that old_text's first line most likely meant."""
+    wanted = next((line.strip() for line in old.split("\n") if line.strip()), "")
+    lines = text.split("\n")
+    if not wanted or not lines:
+        return ""
+    same = [n for n, line in enumerate(lines, 1) if line.strip() == wanted]
+    if same:
+        n = same[0]
+        return f" Line {n} has those words with other spacing: {json.dumps(lines[n - 1][:160])}."
+    import difflib
+
+    near = difflib.get_close_matches(wanted, [line.strip() for line in lines], n=1, cutoff=0.6)
+    if near:
+        n = next(i for i, line in enumerate(lines, 1) if line.strip() == near[0])
+        return f" The closest is line {n}: {json.dumps(lines[n - 1][:160])}."
+    return ""
+
+
 def _edit_file(arguments: dict[str, Any]) -> str:
     path = _safe_path(arguments["path"])
     if not path.exists():
@@ -325,7 +344,8 @@ def _edit_file(arguments: dict[str, Any]) -> str:
             old, new = shifted_old, _unshift(new) or new
             count = text.count(old)
     if count == 0:
-        return "old_text not found. Re-read the file and copy the exact text (whitespace matters)."
+        return ("old_text not found." + _closest_line(text, old) +
+                " Copy the text exactly, without the 'N| ' line numbers (whitespace matters).")
     if count > 1 and not arguments.get("replace_all"):
         return f"old_text matches {count} places. Add surrounding lines to make it unique, or set replace_all."
     updated = text.replace(old, new) if arguments.get("replace_all") else text.replace(old, new, 1)

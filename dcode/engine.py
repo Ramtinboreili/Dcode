@@ -47,6 +47,7 @@ from .tools import (
 PROJECT_INSTRUCTION_FILES = ("DCODE.md", "AGENTS.md", "CLAUDE.md")
 MAIN_MAX_STEPS = 60
 REPEAT_LIMIT = 3
+STUCK_LIMIT = 2  # the repeat warning was ignored this many times: take the tools away and ask for a report
 PREVIEW_CHARS = 4000
 THINKING_CHARS = 6000   # of the model's reasoning kept for display (it never enters the context)
 MAX_FOLLOW_UPS = 2
@@ -332,6 +333,7 @@ class Agent:
         max_steps = max_steps or (MAIN_MAX_STEPS if self.is_main else int(self.config.agents.get("max_steps", 16)))
         self.current_task = user_text
         self._repeat = []
+        self._stuck = 0
         self._activity = {"files": [], "commands": 0, "commands_failed": 0, "helpers": 0, "artifacts": []}
         self._artifact_saves: dict[str, int] = {}
         if self.is_main and self.checkpoints is not None:
@@ -361,6 +363,16 @@ class Agent:
                 self.messages.append(
                     {"role": "user", "content": "Step limit reached. Stop using tools and report progress now."}
                 )
+                tools = []
+            elif self._stuck >= STUCK_LIMIT:
+                # The model keeps making the same call although told it won't help: end the task, don't loop.
+                if self._stuck == STUCK_LIMIT:
+                    self.host.emit("notice", agent=self.agent_id, level="warning",
+                                   text="Stopped: the model kept repeating the same step")
+                self._stuck += 1
+                self.messages.append({"role": "user", "content": (
+                    "You keep repeating the same call and it keeps failing. Stop using tools. Tell the user "
+                    "what you tried, why it failed, and what you need from them.")})
                 tools = []
             self._maybe_compact(tools)
             turn = self.llm.chat(
@@ -708,6 +720,7 @@ class Agent:
         signature = f"{name}:{json.dumps(args, sort_keys=True)}"
         self._repeat = (self._repeat + [signature])[-REPEAT_LIMIT:]
         if len(self._repeat) == REPEAT_LIMIT and len(set(self._repeat)) == 1 and name not in ("run_command",):
+            self._stuck += 1
             return (
                 f"You called {name} with identical arguments {REPEAT_LIMIT} times; the result will not change. "
                 "Use the information you have or try a different approach."

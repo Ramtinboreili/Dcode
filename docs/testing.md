@@ -2,7 +2,7 @@
 
 Three layers. Run the first always, the second for any terminal or packaging change, and the third when layout or colors matter.
 
-## 1. Unit tests (`tests/`, about 268 tests, about 45 s)
+## 1. Unit tests (`tests/`, about 271 tests, about 45 s)
 
 ```bash
 .venv/bin/python -m pytest -q
@@ -20,6 +20,7 @@ Three layers. Run the first always, the second for any terminal or packaging cha
   - `test_leaked_markup_is_stripped_from_tool_calls`
   - `test_hub_child_env_does_not_reuse_parent_unpack_dir`
   - `test_edit_file_tolerates_the_space_after_the_line_number` (the first bug a real local model found)
+  - `test_a_model_stuck_on_one_failing_edit_is_stopped`
 
 | File | Covers |
 |---|---|

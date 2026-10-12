@@ -11,6 +11,8 @@
 
 ### Fixed
 - `edit_file` failed with "old_text not found" when a model copied the space after the line number (`9| text`) as indentation, so every line had one space too many. Seen on the first run with a real local model; the edit now goes through with the file's own indentation.
+- A model stuck on one failing call no longer loops until you press Ctrl+C. After the "identical arguments" warning is ignored once more, Dcode takes the tools away and asks the model to say what it tried and what it needs ("Stopped: the model kept repeating the same step").
+- A failed `edit_file` now names the line it probably meant ("Line 33 has those words with other spacing: …"), so the model can correct itself instead of guessing.
 
 ## 0.5.0 — Phase 4 (the rest of the opencode comparison: Tier 3 and Tier 4)
 

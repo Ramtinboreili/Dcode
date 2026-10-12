@@ -59,6 +59,28 @@ def test_edit_file_tolerates_the_space_after_the_line_number(isolated):
     assert "not found" in tools.execute_tool("edit_file", {"path": "c.py", "old_text": " class A:\nzzz", "new_text": "x"})
 
 
+def test_a_failed_edit_says_which_line_it_probably_meant(isolated):
+    (isolated / "d.yaml").write_text("args:\n\t- --ctx-size\n\t- \"16384\"\nports:\n  - containerPort: 8010\n")
+    out = tools.execute_tool("edit_file", {"path": "d.yaml", "old_text": "    - --ctx-size", "new_text": "x"})
+    assert out.startswith("old_text not found. Line 2 has those words with other spacing: \"\\t- --ctx-size\".")
+    out = tools.execute_tool("edit_file", {"path": "d.yaml", "old_text": "- containerPort: 8011", "new_text": "x"})
+    assert "The closest is line 5: \"  - containerPort: 8010\"." in out and "without the 'N| ' line numbers" in out
+    out = tools.execute_tool("edit_file", {"path": "d.yaml", "old_text": "nothing like it", "new_text": "x"})
+    assert out.startswith("old_text not found. Copy the text exactly")
+
+
+def test_edit_file_yaml_block_copied_one_space_too_deep(isolated):
+    """The exact call gemma4 made on a Kubernetes manifest: 13 spaces where the file has 12."""
+    block = '            - --ctx-size\n            - "16384"\n            - --parallel\n            - "2"\n'
+    (isolated / "d.yaml").write_text("      containers:\n          args:\n" + block)
+    shift = lambda text: "\n".join(" " + line for line in text.rstrip("\n").split("\n"))  # noqa: E731
+    out = tools.execute_tool("edit_file", {"path": "d.yaml", "old_text": shift(block),
+                                           "new_text": shift(block.replace("16384", "32768").replace('"2"', '"4"'))})
+    assert "Edited" in out
+    assert (isolated / "d.yaml").read_text() == ("      containers:\n          args:\n"
+                                                + block.replace("16384", "32768").replace('"2"', '"4"'))
+
+
 def test_sandbox_blocks_absolute_escape():
     assert tools.execute_tool("read_file", {"path": "/etc/hosts"}).startswith("Blocked:")
 

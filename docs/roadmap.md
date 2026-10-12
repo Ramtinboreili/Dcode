@@ -7,7 +7,7 @@
 - **Also in 0.4.0** (2026-10-08): a lean hub process, **databases** (connections, schema, guarded queries, summary, export; web UI, `/db`, model tools) and **scheduled jobs** (`/cron`, the Scheduled screen, `dcode run`).
 - **In 0.5.0: Phase 4**, the rest of the opencode comparison (Tier 3 and Tier 4): `!command`, `/editor`, `/thinking`, `/details`, `/notify`, `/redo`, `/sessions` with `--continue` / `--resume`, export and import, `dcode stats`, helper sessions in the web UI, MCP servers with a lazy tool index, `dcode attach`, the OpenAPI document, `dcode acp` for Zed, a VS Code extension, and `.rpm` / tarball / Docker packages from one portable binary.
 - **After 0.5.0, unreleased (2026-10-09):** more than one model. Named model profiles (each may be on its own server), a reasoning model that hard tasks are routed to, a model for small jobs, `/models`.
-- **Quality bar:** 268 unit tests. `docs/dev/terminal_e2e.py` runs 64 real-terminal checks. All pass on Linux x86_64 (Ubuntu 22.04, Python 3.10) from source and against the one-file binary built in the AlmaLinux 8 container; the earlier 31 also passed on macOS arm64.
+- **Quality bar:** 271 unit tests. `docs/dev/terminal_e2e.py` runs 64 real-terminal checks. All pass on Linux x86_64 (Ubuntu 22.04, Python 3.10) from source and against the one-file binary built in the AlmaLinux 8 container; the earlier 31 also passed on macOS arm64.
 - **Pending decision:** the user wanted **v1.0.0**; Claude recommended **1.0.0-rc.1** (see below). The user said "don't build it yet".
 
 ## Is it production-ready? Claude's honest assessment
