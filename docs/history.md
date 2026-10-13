@@ -190,7 +190,7 @@ After 0.4.0 the owner said "going for phase 3". Phase 3 was already released, so
 
 **Checked with outside references:** the MCP client against the official SDK; every `dcode acp` message against the official ACP v1 JSON schema; packages in AlmaLinux 8/9, Debian 11/12 and Ubuntu 20.04 containers. **Not checked:** a real Zed, a real VS Code, a real local model.
 
-## 13. More than one model (unreleased, October 9, 2026)
+## 13. More than one model — 0.6.0 (October 9–13, 2026)
 
 Work moved to the bastion host of the owner's GPU cluster (Ubuntu 24.04), where vLLM serves the models; the saved Claude memory was restored there. Before testing against the real model, the owner asked for "multi models for tasks, agents, reasoning and planning".
 

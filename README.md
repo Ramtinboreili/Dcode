@@ -184,10 +184,10 @@ make mac PYTHON=.venv/bin/python   # local macOS build, installs to /opt/homebre
 Copy the `.deb` (or the raw binary) and `packaging/install-airgap.sh` to the server:
 
 ```bash
-sudo ./install-airgap.sh dcode_0.5.0_amd64.deb       # Debian/Ubuntu
-sudo ./install-airgap.sh dcode-0.5.0-1.x86_64.rpm    # RHEL/Rocky/Alma/Fedora/SUSE
+sudo ./install-airgap.sh dcode_0.6.0_amd64.deb       # Debian/Ubuntu
+sudo ./install-airgap.sh dcode-0.6.0-1.x86_64.rpm    # RHEL/Rocky/Alma/Fedora/SUSE
 sudo ./install-airgap.sh ./dcode                     # any Linux/macOS
-tar -xzf dcode-0.5.0-linux-x86_64.tar.gz && ./dcode-0.5.0-linux-x86_64/install.sh   # no root needed
+tar -xzf dcode-0.6.0-linux-x86_64.tar.gz && ./dcode-0.6.0-linux-x86_64/install.sh   # no root needed
 ```
 
 For fully offline builds, prepare a wheelhouse and run `PIP_ARGS="--no-index --find-links ./wheels" make binary`.

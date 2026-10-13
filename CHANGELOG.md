@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 — more than one model, and the first fixes from real local models
+
+Tested with real local models for the first time (vLLM: `gemma4:31b` and `diffusiongemma-26B-A4B-it`, 16K context). Linux packages are in `builds/linux-amd64/`.
 
 ### More than one model
 - **Model profiles:** add other models by name in Settings → Model → More models, or with `/models add <name> <model> [server-url] [context]`. Each can be on its own server (one vLLM deployment serves one model) with its own context window, API key and reasoning effort.
