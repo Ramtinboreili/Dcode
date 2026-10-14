@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dcode — presentation</title>
-<meta name="description" content="Dcode: the coding agent for air-gapped teams and local LLMs. Feature presentation.">
+<meta name="description" content="Dcode 0.6: the coding agent for air-gapped teams and local LLMs. Feature presentation.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M11 14H53L62 23V41L53 50H11L2 41V23Z' fill='%232563EB'/%3E%3Cg fill='none' stroke='%23fff' stroke-width='3.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 24H19.5C25 24 28 27.6 28 32C28 36.4 25 40 19.5 40H14Z'/%3E%3Cpath d='M33 26L39 32L33 38'/%3E%3C/g%3E%3Crect x='42' y='37' width='8' height='3.6' rx='1.8' fill='%23BFDBFE'/%3E%3C/svg%3E">
 <style>
 /* Dcode palette (from dcode/theme.py) */
@@ -135,6 +135,29 @@ code.k { font-size: .85em; background: var(--surface-2); padding: 2px 7px; borde
 .tl .d { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 800; margin-bottom: 14px; position: relative; z-index: 1; font-size: 14px; }
 .tl h3 { font-size: 18px; } .tl p { margin: 4px 0 0; font-size: 14.5px; line-height: 1.5; color: var(--text-2); }
 
+/* Results table */
+.tbl { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 16px; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.tbl th { text-align: left; background: var(--surface-2); color: var(--text-2); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; padding: 10px 16px; }
+.tbl td { padding: 10px 16px; border-top: 1px solid var(--border); color: var(--text-2); line-height: 1.4; }
+.tbl td:first-child { font-weight: 600; color: var(--text); width: 40%; }
+
+/* Router flow */
+.flow { display: flex; align-items: center; gap: 12px; }
+.fnode { border-radius: 14px; padding: 12px 16px; border: 1.5px solid var(--border-strong); background: #fff; font-weight: 700; font-size: 16px; }
+.fnode.blue { border-color: var(--primary); background: var(--primary-soft); flex: 1; }
+.fnode b { display: block; } .fnode span { display: block; font-weight: 400; color: var(--muted); font-size: 13.5px; margin-top: 2px; line-height: 1.4; }
+.farrow { color: var(--muted); font-size: 22px; }
+
+/* Denser card grid */
+.grid3.tight { gap: 14px; }
+.grid3.tight .card { padding: 15px 18px; }
+.grid3.tight .card p { font-size: 14.5px; }
+.grid3.tight h3 { font-size: 18px; }
+
+/* Five-step timeline */
+.timeline.t5 { grid-template-columns: repeat(5, 1fr); }
+.timeline.t5::before { background: linear-gradient(90deg, var(--success) 0 58%, var(--primary) 58% 78%, var(--border-strong) 78%); }
+
 /* Chrome: progress, counter, help */
 #progress { position: fixed; left: 0; top: 0; height: 3px; background: var(--primary); transition: width .3s ease; z-index: 10; }
 #hud { position: fixed; right: 18px; bottom: 14px; display: flex; gap: 8px; align-items: center; z-index: 10; font-size: 13px; color: #8B95A8; }
@@ -169,25 +192,25 @@ body.overview .slide.active { outline-color: var(--primary); }
 
 <div id="stage">
 
-<!-- 1 · Title -->
+<!-- 1 · Dcode -->
 <section class="slide" data-title="Dcode">
   <div class="title-bg"></div>
-  <div class="row" style="align-items:center; flex:1; gap:60px">
-    <div style="flex:1.2">
+  <div class="row" style="align-items:center; flex:1; gap:56px">
+    <div style="flex:1.05">
       <svg class="mark" viewBox="0 0 64 40" style="width:150px;height:94px;margin-bottom:26px"><path class="frame" d="M11 2H53L62 11V29L53 38H11L2 29V11Z"/><path class="sweep" pathLength="200" d="M11 2H53L62 11V29L53 38H11L2 29V11Z"/><path class="glyph" d="M14 12H19.5C25 12 28 15.6 28 20C28 24.4 25 28 19.5 28H14Z"/><path class="glyph" d="M33 14L39 20L33 26"/><rect class="cursor" x="42" y="25" width="8" height="3.4" rx="1.7"/></svg>
       <h1>Dcode</h1>
       <p class="lead" style="font-size:26px">The coding agent for <strong class="blue">air-gapped teams</strong> and <strong class="blue">local LLMs</strong> — built for open-source models with small context windows.</p>
       <div class="row" style="gap:10px; flex-wrap:wrap">
-        <span class="pill">v0.3.1</span><span class="pill gray">Terminal + Web UI</span><span class="pill gray">Any OpenAI-compatible server</span><span class="pill gray">100% offline</span>
+        <span class="pill">v0.6.0</span><span class="pill gray">Terminal · Web UI · Editors</span><span class="pill gray">Any OpenAI-compatible server</span><span class="pill gray">Tested on vLLM</span><span class="pill gray">100% offline</span>
       </div>
     </div>
-    <div style="flex:.8">
-      <div class="shot term"><img src="{{IMG:cli_session}}" alt="A Dcode terminal session"></div>
+    <div style="flex:.95">
+      <div class="shot term"><img src="{{IMG:cli-route}}" alt="A Dcode terminal session: a hard task sent to the reasoning model"></div>
     </div>
   </div>
 </section>
 
-<!-- 2 · Problem -->
+<!-- 2 · The problem -->
 <section class="slide soft" data-title="The problem">
   <div class="kicker">The problem</div>
   <h2>AI coding tools assume the cloud.<br>Many teams can't use the cloud.</h2>
@@ -202,40 +225,91 @@ body.overview .slide.active { outline-color: var(--primary); }
 <!-- 3 · Meet Dcode -->
 <section class="slide" data-title="Meet Dcode">
   <div class="kicker">Meet Dcode</div>
-  <h2>One binary. Your model. Your network.</h2>
-  <p class="lead">Ask in plain language — <em>"fix the failing test"</em>, <em>"add a health endpoint"</em>, <em>"explain this repo"</em>. Dcode reads your code, edits files, runs commands and checks git, showing every step and asking before anything risky.</p>
+  <h2>One binary. Your models. Your network.</h2>
+  <p class="lead">Ask in plain language — <em>"fix the failing test"</em>, <em>"why does this deploy crash?"</em>, <em>"explain this repo"</em>. Dcode reads your code, edits files, runs commands, queries databases and checks git, showing every step and asking before anything risky.</p>
   <div class="grid4">
-    <div class="card"><div class="ico">⌨️</div><h3>Terminal agent</h3><p>Fast, keyboard-first CLI with modes, approvals and a live activity panel.</p></div>
-    <div class="card"><div class="ico">🖥️</div><h3>Web UI</h3><p>A private localhost UI per user, controlling the <em>same</em> live sessions.</p></div>
-    <div class="card"><div class="ico">🔌</div><h3>Any server</h3><p>Ollama, vLLM, llama.cpp, LM Studio, TGI — anything OpenAI-compatible.</p></div>
-    <div class="card"><div class="ico">📦</div><h3>Air-gap ready</h3><p>Single self-contained binary or <code class="k">.deb</code>. No internet, no pip, no system Python.</p></div>
+    <div class="card"><div class="ico">⌨️</div><h3>Terminal agent</h3><p>Keyboard-first CLI with modes, approvals and a live activity panel.</p></div>
+    <div class="card"><div class="ico">🖥️</div><h3>Web UI</h3><p>A private localhost UI per user, driving the <em>same</em> live sessions.</p></div>
+    <div class="card"><div class="ico">🧠</div><h3>Several models</h3><p>A main model, a stronger one for hard tasks, a small one for side jobs — each on its own server.</p></div>
+    <div class="card"><div class="ico">📦</div><h3>Air-gap ready</h3><p>One self-contained binary as <code class="k">.deb</code>, <code class="k">.rpm</code>, tarball or Docker image. No internet, no pip.</p></div>
   </div>
+  <p class="muted" style="margin-top:22px; font-size:16px">Also: databases, scheduled jobs, local MCP tools, VS Code and Zed, and <code class="k">dcode attach</code> from another terminal.</p>
 </section>
 
-<!-- 4 · Architecture -->
+<!-- 4 · How it works -->
 <section class="slide" data-title="How it works">
   <div class="kicker">How it works</div>
-  <h2>Terminal and browser drive the same session</h2>
+  <h2>Every surface drives the same session</h2>
   <div class="arch">
     <svg>
-      <line x1="230" y1="110" x2="415" y2="188"/>
-      <line x1="1030" y1="88" x2="1030" y2="128"/>
-      <line x1="860" y1="190" x2="785" y2="196"/>
-      <line x1="600" y1="250" x2="600" y2="302"/>
-      <line x1="740" y1="345" x2="875" y2="345"/>
-      <line x1="600" y1="390" x2="600" y2="438"/>
+      <line x1="232" y1="62" x2="415" y2="168"/>
+      <line x1="232" y1="160" x2="415" y2="200"/>
+      <line x1="1030" y1="88" x2="1030" y2="122"/>
+      <line x1="860" y1="185" x2="787" y2="196"/>
+      <line x1="600" y1="252" x2="600" y2="296"/>
+      <line x1="742" y1="338" x2="875" y2="338"/>
+      <line x1="458" y1="338" x2="236" y2="338"/>
+      <line x1="560" y1="384" x2="400" y2="430"/>
+      <line x1="640" y1="384" x2="800" y2="430"/>
     </svg>
-    <div class="node ink" style="left:20px; top:40px; width:210px"><b>⌨️ dcode</b><span>terminal, one per project</span></div>
+    <div class="node ink" style="left:20px; top:22px; width:212px"><b>⌨️ dcode</b><span>terminal, one per project</span></div>
+    <div class="node ink" style="left:20px; top:118px; width:212px"><b>🧩 Editors · attach</b><span>VS Code · Zed (ACP) · dcode attach</span></div>
     <div class="node ink" style="left:930px; top:18px; width:200px"><b>🌐 Browser</b><span>http://127.0.0.1:7301</span></div>
-    <div class="node" style="left:862px; top:130px; width:300px; border-style:dashed"><b>Per-user hub</b><span>web UI · settings · memory · skills · artifacts · proxies to live sessions · token-protected</span></div>
-    <div class="node blue" style="left:420px; top:150px; width:362px"><b>Session</b><span>event bus · task queue · approvals (first answer wins) · modes · checkpoints · jobs · chat history</span></div>
-    <div class="node" style="left:460px; top:302px; width:280px"><b>Agent</b><span>loop · tools · compaction · follow-through · reports</span></div>
-    <div class="node" style="left:877px; top:302px; width:285px"><b>Helpers</b><span>explore · code · review · test — fresh context each</span></div>
-    <div class="node ink" style="left:430px; top:438px; width:340px"><b>Your model</b><span>Ollama · vLLM · llama.cpp · LM Studio · TGI</span></div>
+    <div class="node" style="left:862px; top:124px; width:300px; border-style:dashed"><b>Per-user hub</b><span>web UI · settings · memory · artifacts · databases · scheduled jobs · token-protected</span></div>
+    <div class="node blue" style="left:420px; top:148px; width:366px"><b>Session</b><span>event bus · task queue · approvals (first answer wins) · modes · checkpoints · <strong>model router</strong></span></div>
+    <div class="node" style="left:460px; top:296px; width:282px"><b>Agent</b><span>loop · tools · compaction · follow-through · reports</span></div>
+    <div class="node" style="left:877px; top:296px; width:285px"><b>Helpers</b><span>explore · code · review · test · your own — fresh context each</span></div>
+    <div class="node" style="left:20px; top:296px; width:216px"><b>🔌 MCP servers</b><span>local tools over stdio, listed by name only</span></div>
+    <div class="node ink" style="left:220px; top:430px; width:340px"><b>Main model</b><span>everyday tasks and every plan</span></div>
+    <div class="node ink" style="left:640px; top:430px; width:340px; border-color:#2563EB"><b>Reasoning model</b><span>tasks that need careful thought — can be another server</span></div>
   </div>
 </section>
 
-<!-- 5 · Small context -->
+<!-- 5 · More than one model -->
+<section class="slide soft" data-title="More than one model">
+  <div class="kicker">New in 0.6 · more than one model</div>
+  <h2>Hard tasks go to the model that reasons best</h2>
+  <div class="row" style="gap:34px; margin-top:8px; flex:1; min-height:0">
+    <div style="flex:.95" class="col">
+      <div class="flow">
+        <div class="fnode">Your task</div><div class="farrow">→</div>
+        <div class="fnode blue"><b>Router</b><span>once per task: error traces, words like <em>why · root cause · design</em>, length — or a small model's one-word verdict</span></div>
+      </div>
+      <div class="row" style="gap:14px; margin:14px 0 18px">
+        <div class="card" style="flex:1"><h3>Main model</h3><p>Everyday tasks, quick questions, and <strong>every plan</strong>.</p></div>
+        <div class="card" style="flex:1; border-color:#2563EB"><h3>Reasoning model</h3><p>Debugging, design, root causes. One line says so: <em>"Reasoning model: …"</em></p></div>
+      </div>
+      <ul class="ticks" style="gap:9px">
+        <li style="font-size:16px"><strong>Profiles</strong>: each model on its own server, with its own window, key and effort</li>
+        <li style="font-size:16px">The context budget follows the model that runs the task</li>
+        <li style="font-size:16px">Helpers can use a profile; a small model writes titles and commit messages</li>
+        <li style="font-size:16px"><code class="k">/models</code> · Settings → Model · routing <em>auto · off · always</em></li>
+      </ul>
+    </div>
+    <div style="flex:1.05"><div class="shot"><img src="{{IMG:web-models}}" alt="Settings: More models"></div><div class="caption">Settings → Model → More models</div></div>
+  </div>
+</section>
+
+<!-- 6 · Tested on real models -->
+<section class="slide" data-title="Tested on real models">
+  <div class="kicker">First run on real local models</div>
+  <h2>vLLM on a GPU cluster, 16K context</h2>
+  <p class="lead" style="font-size:19px; margin-bottom:18px">Main: <code class="k">gemma4:31b</code> · Reasoning: <code class="k">diffusiongemma-26B-A4B-it</code>, each its own vLLM deployment. A small project with two real bugs: a lock taken twice, and a <code class="k">KeyError</code>.</p>
+  <table class="tbl">
+    <tr><th>Test</th><th>What happened</th></tr>
+    <tr><td>Easy question</td><td>Stayed on the main model · 7 s</td></tr>
+    <tr><td>"Why does reserve() hang? Find the root cause and fix it"</td><td>Routed to the reasoning model · found the double lock, fixed both bugs · 3/3 tests pass · 12–15 s</td></tr>
+    <tr><td>Six-turn chat</td><td>Moved between both models with the history intact</td></tr>
+    <tr><td>Plan mode</td><td>Stayed on the main model</td></tr>
+    <tr><td>Helpers set to the reasoning model</td><td>Ran there, on its own server</td></tr>
+  </table>
+  <div class="row" style="gap:16px; margin-top:20px">
+    <div class="card" style="flex:1"><h3>🐞 Found and fixed</h3><p>Models copied the space after <code class="k">N|</code> as indentation, so edits failed; a model ignored the repeat warning and looped. Both fixed, with regression tests.</p></div>
+    <div class="card" style="flex:1"><h3>⏱ Measured</h3><p>About 7 tokens/s (gemma4) vs. 240 (diffusiongemma) on that cluster: the servers, not Dcode, set the pace.</p></div>
+  </div>
+</section>
+
+<!-- 7 · Built for small models -->
 <section class="slide soft" data-title="Built for small models">
   <div class="kicker">Built for small context windows</div>
   <h2>Every token of a 32K window counts</h2>
@@ -246,7 +320,7 @@ body.overview .slide.active { outline-color: var(--primary); }
         <li><strong>Edit, don't rewrite</strong> — exact-match <code class="k">edit_file</code> instead of re-sending whole files.</li>
         <li><strong>Output caps scale with the window</strong> — about 12% per tool result; long command output keeps head and tail.</li>
         <li><strong>Helpers explore elsewhere</strong> — only a short report returns to the main conversation.</li>
-        <li><strong>Index, don't inline</strong> — skills and memories appear as one-liners; full text loads on demand.</li>
+        <li><strong>Index, don't inline</strong> — skills, memories and MCP tools appear as names; details load on demand.</li>
         <li><strong>Automatic compaction</strong> at ~75%: trim old tool output first, then summarize older turns.</li>
       </ul>
     </div>
@@ -265,7 +339,7 @@ body.overview .slide.active { outline-color: var(--primary); }
   </div>
 </section>
 
-<!-- 6 · Robust -->
+<!-- 8 · Robust with open models -->
 <section class="slide" data-title="Robust with open models">
   <div class="kicker">Robust with real open models</div>
   <h2>Small models make mistakes. Dcode absorbs them.</h2>
@@ -273,45 +347,37 @@ body.overview .slide.active { outline-color: var(--primary); }
     <div class="card"><h3>🔁 Follow-through</h3><p>"Building the artifact now." — and it stops? Dcode reminds the model to actually do it (capped, never loops).</p></div>
     <div class="card"><h3>🧾 Text tool calls</h3><p>Recovers calls written as <code class="k">&lt;tool_call&gt;</code> or fenced JSON when the server doesn't parse them.</p></div>
     <div class="card"><h3>🧹 Leaked markup</h3><p>Cleans tags models leak into tool names (e.g. DeepSeek <code class="k">｜DSML｜</code>) and salvages arguments.</p></div>
-    <div class="card"><h3>💭 Hidden reasoning</h3><p>Strips <code class="k">&lt;think&gt;</code> blocks so reasoning never refills the context.</p></div>
+    <div class="card"><h3>✏️ Forgiving edits</h3><p>Accepts pasted line numbers and blocks copied one space too deep; a failed edit names the line it probably meant.</p></div>
     <div class="card"><h3>✂️ Cut-off replies</h3><p>Hits the output limit? Dcode asks it to continue; big artifacts can be built in parts.</p></div>
-    <div class="card"><h3>🛡️ Guard rails</h3><p>Refuses empty writes that would erase a file, breaks repeated-call loops, nudges silent stops, caps re-saves.</p></div>
+    <div class="card"><h3>🛡️ Guard rails</h3><p>Refuses empty writes that would erase a file; stops a model stuck repeating one call; nudges silent stops.</p></div>
   </div>
-  <p class="muted" style="margin-top:22px; font-size:16px">It learns server quirks too — which optional parameters a backend rejects — and stops sending them.</p>
+  <p class="muted" style="margin-top:22px; font-size:16px">Reasoning (<code class="k">&lt;think&gt;</code> or the server's own field) is shown on request with <code class="k">/thinking</code> and never refills the context. Dcode also learns which optional parameters a server rejects.</p>
 </section>
 
-<!-- 7 · Helpers -->
+<!-- 9 · Helpers -->
 <section class="slide dark" data-title="Helpers">
   <div class="kicker">Multi-agent</div>
   <h2>Helpers do the legwork — in their own context</h2>
-  <div class="row" style="gap:36px; margin-top:16px">
-    <div style="flex:1">
+  <div class="row" style="gap:32px; margin-top:12px">
+    <div style="flex:.95">
       <div class="grid2">
         <div class="card"><h3>🧭 Explorer</h3><p>Finds and reads code; reports facts with file:line references. Read-only.</p></div>
         <div class="card"><h3>💻 Coder</h3><p>Makes one well-defined change with minimal edits.</p></div>
         <div class="card"><h3>👁 Reviewer</h3><p>Reviews code or a diff for real bugs and security issues. Read-only.</p></div>
         <div class="card"><h3>🧪 Tester</h3><p>Writes and runs focused tests; reports pass/fail.</p></div>
       </div>
-      <p class="lead" style="font-size:18px; margin-top:22px">Read-only helpers run <strong style="color:#E8ECF4">in parallel</strong>. Only a capped report reaches the main conversation — exploration that would burn 20K tokens costs ~500.</p>
+      <ul class="ticks" style="margin-top:20px; gap:9px">
+        <li style="font-size:16px">Read-only helpers run <strong style="color:#E8ECF4">in parallel</strong>; only a capped report comes back</li>
+        <li style="font-size:16px">Your own helpers in <code class="k">.dcode/agents/*.md</code> · call one with <code class="k">@name</code></li>
+        <li style="font-size:16px">Each can run on its own model — even another server</li>
+        <li style="font-size:16px">Open a helper's own session in the web UI: every step it took</li>
+      </ul>
     </div>
-    <div style="flex:.95">
-      <div class="card mono" style="font-size:14px; line-height:1.8; background:#0B0E14">
-        <div><span style="color:#E8ECF4;font-weight:700">❯ map the auth and db layers</span></div>
-        <div>&nbsp;&nbsp;<span style="color:#38BDF8">◇</span> <b style="color:#E8ECF4">delegate</b> <span style="color:#8B95A8">explore: find auth code</span></div>
-        <div>&nbsp;&nbsp;<span style="color:#38BDF8">◇</span> <b style="color:#E8ECF4">delegate</b> <span style="color:#8B95A8">explore: find db code</span></div>
-        <div style="color:#6AA1FF">&nbsp;❯❯❯ <span style="color:#E8ECF4">Waiting for helpers…</span> <span style="color:#8B95A8">4.2s</span></div>
-        <div>&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#38BDF8">◆ explore-1</span> <span style="color:#8B95A8">read_file auth/jwt.py · 3.1s</span></div>
-        <div>&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#38BDF8">◆ explore-2</span> <span style="color:#8B95A8">search_in_files "Session(" · 2.4s</span></div>
-        <div>&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#FBBF24">⚙ job #1</span> <span style="color:#8B95A8">npm run dev · running 2m</span></div>
-        <div>&nbsp;&nbsp;<span style="color:#34D399">◆ explore-1 finished</span> <span style="color:#8B95A8">· 5.8s</span></div>
-        <div>&nbsp;&nbsp;<span style="color:#34D399">✓</span> <span style="color:#8B95A8">Done in 9.4s · 2 helpers</span></div>
-      </div>
-      <div class="caption">The live panel shows every running helper and background job, with timers.</div>
-    </div>
+    <div style="flex:1.05"><div class="shot term"><img src="{{IMG:cli-helper}}" alt="A helper running on the reasoning model"></div></div>
   </div>
 </section>
 
-<!-- 8 · Modes -->
+<!-- 10 · Modes -->
 <section class="slide soft" data-title="Modes">
   <div class="kicker">You stay in control</div>
   <h2>Four modes — <kbd>Shift</kbd>+<kbd>Tab</kbd> to switch</h2>
@@ -323,48 +389,48 @@ body.overview .slide.active { outline-color: var(--primary); }
   </div>
   <div class="row" style="margin-top:30px; gap:26px; align-items:stretch">
     <div class="card" style="flex:1"><h3>Approvals, your way</h3><p><strong>Allow</strong> · <strong>Allow for this session</strong> · <strong>Deny</strong> — from the terminal menu (<kbd>y</kbd> <kbd>a</kbd> <kbd>n</kbd>) or a card in the web UI. Whichever answers first wins; the menu then shrinks to a single line.</p></div>
-    <div class="card" style="flex:1"><h3>Undo anything Dcode changed</h3><p>Every task saves a checkpoint. <code class="k">/undo</code> restores the files — even outside git — and tells the model it was undone.</p></div>
+    <div class="card" style="flex:1"><h3>Undo anything Dcode changed</h3><p>Every task saves a checkpoint. <code class="k">/undo</code> restores the files — even outside git — and <code class="k">/redo</code> brings them back. The model is told either way.</p></div>
   </div>
 </section>
 
-<!-- 9 · Terminal -->
+<!-- 11 · The terminal -->
 <section class="slide dark" data-title="The terminal">
   <div class="kicker">The terminal</div>
   <h2>Keyboard-first, calm, and informative</h2>
   <div class="row" style="gap:30px; margin-top:6px; flex:1; min-height:0">
-    <div style="flex:1.25"><div class="shot term"><img src="{{IMG:cli_colors}}" alt="Dcode terminal session"></div></div>
-    <div style="flex:.75">
-      <ul class="ticks">
-        <li>Input pinned to the bottom with a labeled <span class="mono" style="color:#E8ECF4">── ❯ dcode ── ◆ mode ──</span> rule</li>
-        <li>White text; blue only for structure — answers get a blue gutter</li>
-        <li><code class="k">/</code> suggestions below the input · <kbd>Ctrl</kbd>+<kbd>O</kbd> expands output</li>
-        <li>Every task ends with a report: files changed, commands run</li>
-        <li>Inline red/green diffs for edits</li>
-        <li><kbd>Ctrl</kbd>+<kbd>C</kbd> stops a task · twice exits</li>
+    <div style="flex:1.2"><div class="shot term"><img src="{{IMG:cli-models}}" alt="Dcode terminal: scheduled jobs, an MCP tool and /models"></div></div>
+    <div style="flex:.8">
+      <ul class="ticks" style="gap:10px">
+        <li style="font-size:17px">Input pinned to the bottom; white text, blue only for structure</li>
+        <li style="font-size:17px"><code class="k">@file</code> attaches a file · <code class="k">!command</code> runs your own shell command</li>
+        <li style="font-size:17px"><code class="k">/thinking</code> · <code class="k">/details</code> · <code class="k">/notify</code> · <code class="k">/editor</code> for long messages</li>
+        <li style="font-size:17px"><code class="k">/sessions</code>, <code class="k">dcode --continue</code> · <code class="k">/export</code> md · html · json</li>
+        <li style="font-size:17px">Every task ends with a report; inline diffs for edits</li>
+        <li style="font-size:17px"><kbd>Ctrl</kbd>+<kbd>O</kbd> expands output · <kbd>Ctrl</kbd>+<kbd>C</kbd> stops · twice exits</li>
       </ul>
     </div>
   </div>
 </section>
 
-<!-- 10 · Web UI -->
+<!-- 12 · The web UI -->
 <section class="slide" data-title="The web UI">
   <div class="kicker">The web UI</div>
   <h2>A private, ChatGPT-style UI for every user</h2>
   <div class="row" style="gap:30px; flex:1; min-height:0; margin-top:6px">
-    <div style="flex:1.45"><div class="shot"><img src="{{IMG:web-light}}" alt="Dcode web UI"></div></div>
+    <div style="flex:1.45"><div class="shot"><img src="{{IMG:web-approval}}" alt="Dcode web UI: a routed task waiting for approval"></div></div>
     <div style="flex:.55">
       <ul class="ticks">
         <li>Opens with your first <code class="k">dcode</code>; closes after the last one</li>
-        <li>All live sessions and past chats, dated and searchable</li>
+        <li>Live sessions and past chats; export or import a chat</li>
         <li>Send tasks, approve commands, stop work — in the same session as the terminal</li>
-        <li>Pick the model and mode; edit every setting</li>
+        <li>Databases, scheduled jobs, artifacts, memory, usage</li>
         <li>Token-protected, localhost-only</li>
       </ul>
     </div>
   </div>
 </section>
 
-<!-- 11 · Dark & bilingual -->
+<!-- 13 · Dark mode & bilingual -->
 <section class="slide soft" data-title="Dark mode & bilingual">
   <div class="kicker">For everyone</div>
   <h2>Light, dark, and English / فارسی</h2>
@@ -374,7 +440,7 @@ body.overview .slide.active { outline-color: var(--primary); }
   </div>
 </section>
 
-<!-- 12 · Artifacts -->
+<!-- 14 · Artifacts -->
 <section class="slide" data-title="Artifacts">
   <div class="kicker">Artifacts</div>
   <h2>Pages, diagrams and reports — saved, versioned, linked</h2>
@@ -392,7 +458,7 @@ body.overview .slide.active { outline-color: var(--primary); }
   </div>
 </section>
 
-<!-- 13 · Memory & skills -->
+<!-- 15 · Memory & skills -->
 <section class="slide soft" data-title="Memory & skills">
   <div class="kicker">Memory & skills</div>
   <h2>It remembers your project — and follows your playbooks</h2>
@@ -405,97 +471,185 @@ body.overview .slide.active { outline-color: var(--primary); }
   </div>
 </section>
 
-<!-- 14 · Workflow -->
+<!-- 16 · Project-aware -->
+<section class="slide" data-title="Project-aware">
+  <div class="kicker">Works the way your project does</div>
+  <h2>Checks its own edits, follows your conventions</h2>
+  <div class="grid3" style="margin-top:22px">
+    <div class="card"><h3>✅ Checks after every edit</h3><p>Python, JSON, TOML, shell, JS, Go and more — plus your own commands. Errors go straight back to the model.</p></div>
+    <div class="card"><h3>📎 <code class="k">@file</code> mentions</h3><p>Fuzzy completion; the file is attached as if the model had read it — no tool call spent.</p></div>
+    <div class="card"><h3>☑️ A checklist</h3><p>Multi-step work gets a visible checklist that the model keeps up to date.</p></div>
+    <div class="card"><h3>📄 <code class="k">/init</code></h3><p>Writes <code class="k">AGENTS.md</code>: build and test commands, layout and conventions, read on every task.</p></div>
+    <div class="card"><h3>❓ Questions</h3><p>When something is unclear, Dcode asks you with a short menu instead of guessing.</p></div>
+    <div class="card"><h3>⚡ Your commands</h3><p><code class="k">.dcode/commands/*.md</code> become slash commands, with arguments and shell snippets.</p></div>
+  </div>
+</section>
+
+<!-- 17 · Databases -->
+<section class="slide soft" data-title="Databases">
+  <div class="kicker">Databases</div>
+  <h2>Look at your data like an admin would</h2>
+  <div class="row" style="gap:30px; flex:1; min-height:0; margin-top:6px">
+    <div style="flex:1.3"><div class="shot"><img src="{{IMG:web-db}}" alt="Databases: a table's data"></div></div>
+    <div style="flex:.7">
+      <ul class="ticks" style="gap:10px">
+        <li style="font-size:17px">PostgreSQL, MySQL / MariaDB and SQLite — drivers bundled</li>
+        <li style="font-size:17px">Schema, data, a summary, and exports with size guards</li>
+        <li style="font-size:17px">Reads run in a <strong>read-only session</strong> with a timeout</li>
+        <li style="font-size:17px">Every change asks first — in every mode, never "for the session"</li>
+        <li style="font-size:17px">The model can query too: <code class="k">db_schema</code>, <code class="k">db_query</code></li>
+        <li style="font-size:17px">Web UI or <code class="k">/db</code>; passwords are never sent back</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 18 · Scheduled jobs -->
+<section class="slide" data-title="Scheduled jobs">
+  <div class="kicker">Scheduled jobs</div>
+  <h2>Cron jobs with logs — commands or Dcode tasks</h2>
+  <div class="row" style="gap:30px; flex:1; min-height:0; margin-top:6px">
+    <div style="flex:1.3"><div class="shot"><img src="{{IMG:web-cron}}" alt="Scheduled jobs with a run's log"></div></div>
+    <div style="flex:.7">
+      <ul class="ticks" style="gap:10px">
+        <li style="font-size:17px">Standard cron expressions, read back in plain words</li>
+        <li style="font-size:17px">A shell command, or a prompt for <code class="k">dcode run</code></li>
+        <li style="font-size:17px">Every run's output kept, with exit code and time limit</li>
+        <li style="font-size:17px">Unattended runs deny approvals: the job's mode says what it may do</li>
+        <li style="font-size:17px">No cron daemon needed · <code class="k">/cron</code> or the Scheduled screen</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 19 · Extend it -->
+<section class="slide soft" data-title="Extend it">
+  <div class="kicker">Extend it</div>
+  <h2>Your tools, your rules</h2>
+  <div class="row" style="gap:30px; flex:1; min-height:0; margin-top:6px">
+    <div style="flex:1.15"><div class="shot"><img src="{{IMG:web-mcp}}" alt="External tools: a local MCP server"></div><div class="caption">A local MCP server: ready, 6 tools</div></div>
+    <div style="flex:.85" class="col">
+      <div class="card" style="margin-bottom:12px"><h3>🔌 MCP servers</h3><p>Local programs give Dcode extra tools. Only their names enter the prompt — 46 tools cost under 400 characters. Every call asks unless you allow it.</p></div>
+      <div class="card" style="margin-bottom:12px"><h3>🚦 Rules</h3><p>Allow, ask or deny commands and files by pattern. <code class="k">.env</code> is denied by default; projects can only tighten.</p></div>
+      <div class="card"><h3>🪝 Hooks</h3><p>Your shell commands before or after tools, when a task ends, or when Dcode needs you.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 20 · Work from anywhere -->
+<section class="slide" data-title="Work from anywhere">
+  <div class="kicker">Work from anywhere</div>
+  <h2>Your editor, another terminal, a script</h2>
+  <div class="grid4" style="margin-top:24px">
+    <div class="card"><div class="ico">🔗</div><h3>dcode attach</h3><p>Join a running session from another terminal — or over an SSH tunnel. Follow, send, approve, detach.</p></div>
+    <div class="card"><div class="ico">🧩</div><h3>VS Code</h3><p>An extension to start, continue or attach, and send the selection or file. No build step, no registry.</p></div>
+    <div class="card"><div class="ico">⚡</div><h3>Zed · ACP</h3><p><code class="k">dcode acp</code> speaks the Agent Client Protocol: messages, diffs, plans, approvals.</p></div>
+    <div class="card"><div class="ico">🤖</div><h3>dcode run</h3><p>One task, unattended, plain-text output — for scripts and scheduled jobs.</p></div>
+  </div>
+  <div class="grid3" style="margin-top:18px">
+    <div class="card"><h3>📜 OpenAPI</h3><p>The hub's whole API at <code class="k">/api/openapi.json</code>; a test calls every route.</p></div>
+    <div class="card"><h3>💾 Export · import</h3><p>A chat as Markdown, one script-free HTML page, or JSON — and back.</p></div>
+    <div class="card"><h3>📊 dcode stats</h3><p>Tasks, tokens, time and tools by model and project. Counts only, kept on this machine.</p></div>
+  </div>
+</section>
+
+<!-- 21 · Everyday workflow -->
 <section class="slide" data-title="Everyday workflow">
   <div class="kicker">Everyday workflow</div>
   <h2>Git-aware, and honest about what it did</h2>
   <div class="grid3" style="margin-top:22px">
     <div class="card"><h3><code class="k">/diff</code> · <code class="k">/commit</code></h3><p>See uncommitted changes in color; commit with a message Dcode writes from the diff — after you confirm.</p></div>
-    <div class="card"><h3><code class="k">/undo</code></h3><p>Roll back the files Dcode changed in the last task, git or not.</p></div>
+    <div class="card"><h3><code class="k">/undo</code> · <code class="k">/redo</code></h3><p>Roll back the files Dcode changed in the last task, git or not — and bring them back.</p></div>
     <div class="card"><h3><code class="k">/compact</code></h3><p>Summarize a long session into a short memory and free the context window.</p></div>
     <div class="card"><h3>⚙ Background jobs</h3><p>Servers and watchers run in the background; <code class="k">/jobs</code> shows output or stops them.</p></div>
     <div class="card"><h3>📋 Task reports</h3><p>Every task ends with what changed, which commands ran, and what's left.</p></div>
-    <div class="card"><h3>🏷️ Named chats</h3><p>Chats are titled from your first message; <code class="k">/resume</code> or the web UI brings them back.</p></div>
+    <div class="card"><h3>🏷️ Named chats</h3><p>Titled from your first message; <code class="k">/sessions</code>, <code class="k">--continue</code> or the web UI bring them back.</p></div>
   </div>
 </section>
 
-<!-- 15 · Security -->
+<!-- 22 · Safe by default -->
 <section class="slide dark" data-title="Safe by default">
   <div class="kicker">Safe by default</div>
   <h2>An agent that runs model output needs guard rails</h2>
-  <div class="grid3" style="margin-top:22px">
-    <div class="card"><div class="ico">📁</div><h3>Workspace sandbox</h3><p>File tools can't escape the project folder (absolute paths and <code class="k">../</code> are blocked).</p></div>
-    <div class="card"><div class="ico">✋</div><h3>Approvals</h3><p>Commands, deletions and commits ask first; empty writes that would erase files are refused.</p></div>
-    <div class="card"><div class="ico">🔑</div><h3>Private web UI</h3><p>127.0.0.1 only, per-user secret token, CSRF and DNS-rebinding protection. Other users on a shared server can't see your sessions.</p></div>
-    <div class="card"><div class="ico">🧱</div><h3>Sandboxed artifacts</h3><p>Rendered in isolated iframes with no network access (CSP <code class="k">default-src 'none'</code>).</p></div>
-    <div class="card"><div class="ico">🗝️</div><h3>Secrets</h3><p><code class="k">~/.dcode</code> is owner-only (0700/0600); the UI never shows your API key.</p></div>
-    <div class="card"><div class="ico">↩️</div><h3>Reversible</h3><p>Checkpoints for every task; nothing is pushed or committed without you.</p></div>
+  <div class="grid3 tight" style="margin-top:20px">
+    <div class="card"><h3>📁 Workspace sandbox</h3><p>File tools stay in the project; paths outside it ask first.</p></div>
+    <div class="card"><h3>✋ Approvals</h3><p>Commands, deletions and commits ask; empty writes that would erase a file are refused.</p></div>
+    <div class="card"><h3>🚦 Rules</h3><p>Allow · ask · deny by pattern. <code class="k">.env</code> denied by default; projects can only tighten.</p></div>
+    <div class="card"><h3>🗄️ Database changes</h3><p>Reads are read-only sessions. Every change asks — even in auto mode.</p></div>
+    <div class="card"><h3>🔌 External tools</h3><p>MCP servers and hooks come only from your own config, never from a project.</p></div>
+    <div class="card"><h3>🔑 Private web UI</h3><p>127.0.0.1 only, per-user token, CSRF and DNS-rebinding protection.</p></div>
+    <div class="card"><h3>🧱 Sandboxed artifacts</h3><p>Isolated iframes with no network (CSP <code class="k">default-src 'none'</code>).</p></div>
+    <div class="card"><h3>🗝️ Secrets</h3><p><code class="k">~/.dcode</code> is owner-only; API keys and passwords are never sent back to the UI.</p></div>
+    <div class="card"><h3>↩️ Reversible</h3><p>Checkpoints for every task; nothing is pushed or committed without you.</p></div>
   </div>
 </section>
 
-<!-- 16 · Deploy -->
+<!-- 23 · Deploy air-gapped -->
 <section class="slide dark" data-title="Deploy air-gapped">
   <div class="kicker">Deploy</div>
   <h2>From build machine to air-gapped server in four steps</h2>
   <div class="steps" style="margin-top:34px">
-    <div class="step"><h3>Build</h3><p>On a connected machine with the same OS/CPU:</p><pre>make deb</pre></div>
-    <div class="step"><h3>Copy</h3><p>USB or internal mirror:</p><pre>dcode_0.3.1_amd64.deb
+    <div class="step"><h3>Build</h3><p>One portable binary (glibc 2.28) and every package:</p><pre>make packages</pre></div>
+    <div class="step"><h3>Copy</h3><p>USB or internal mirror — one package, plus the installer:</p><pre>.deb · .rpm · .tar.gz
+or a Docker image
 install-airgap.sh</pre></div>
     <div class="step"><h3>Install</h3><p>No internet, no pip:</p><pre>sudo ./install-airgap.sh \
-  dcode_0.3.1_amd64.deb</pre></div>
+  dcode_0.6.0_amd64.deb</pre></div>
     <div class="step"><h3>Point &amp; run</h3><p>At your local model:</p><pre>export DCODE_BASE_URL=\
   http://gpu:8000/v1
 export DCODE_MODEL=\
   qwen2.5-coder
 dcode</pre></div>
   </div>
-  <p class="lead" style="margin-top:34px; font-size:19px">Configuration lives in <code class="k">~/.dcode/config.json</code> or environment variables (env wins — handy for shared servers). Old <code class="k">CODE_ONE_*</code> settings still work.</p>
+  <p class="lead" style="margin-top:30px; font-size:19px">Runs on RHEL 8+, Debian 10+ and Ubuntu 20.04+. Configuration lives in <code class="k">~/.dcode/config.json</code> or environment variables (env wins — handy for shared servers).</p>
 </section>
 
-<!-- 17 · Numbers -->
+<!-- 24 · By the numbers -->
 <section class="slide soft" data-title="By the numbers">
   <div class="kicker">By the numbers</div>
   <h2>Small, tested, dependency-light</h2>
   <div class="grid4" style="margin-top:34px; row-gap:40px">
     <div class="stat"><div class="n">0</div><div class="l">internet needed at runtime — stdlib HTTP, no CDNs</div></div>
-    <div class="stat"><div class="n">110</div><div class="l">automated tests, incl. replays of real bugs</div></div>
-    <div class="stat"><div class="n">22</div><div class="l">real-terminal end-to-end checks against the binary</div></div>
+    <div class="stat"><div class="n">271</div><div class="l">automated tests, incl. replays of real bugs</div></div>
+    <div class="stat"><div class="n">64</div><div class="l">real-terminal end-to-end checks against the binary</div></div>
     <div class="stat"><div class="n">≤32K</div><div class="l">context windows it's designed for</div></div>
-    <div class="stat"><div class="n">4</div><div class="l">helper roles, read-only ones in parallel</div></div>
-    <div class="stat"><div class="n">4</div><div class="l">permission modes, switched with Shift+Tab</div></div>
-    <div class="stat"><div class="n">9</div><div class="l">built-in skills, plus your own</div></div>
+    <div class="stat"><div class="n">41</div><div class="l">slash commands, plus your own</div></div>
+    <div class="stat"><div class="n">74</div><div class="l">documented API operations (OpenAPI 3.1)</div></div>
+    <div class="stat"><div class="n">5</div><div class="l">packages: .deb · .rpm · tarball · Docker · VS Code</div></div>
     <div class="stat"><div class="n">2</div><div class="l">languages in the user guide — English & فارسی</div></div>
   </div>
 </section>
 
-<!-- 18 · Roadmap -->
+<!-- 25 · Roadmap -->
 <section class="slide" data-title="Roadmap">
   <div class="kicker">Roadmap</div>
   <h2>Where we are — and the honest path to 1.0</h2>
-  <div class="timeline" style="margin-top:40px">
-    <div class="tl"><div class="d" style="background:var(--success)">✓</div><h3>Phase 1 · 0.2</h3><p>Dcode core: small-context engine, helpers, memory, web UI, modes, undo, reports.</p></div>
-    <div class="tl"><div class="d" style="background:var(--success)">✓</div><h3>Phase 2 · 0.3</h3><p>Artifacts: library, versions, links; follow-through; background jobs; live panel.</p></div>
-    <div class="tl"><div class="d" style="background:var(--primary)">→</div><h3>1.0 RC · validation</h3><p>Linux <code class="k">.deb</code> on a real air-gapped box; Ollama, vLLM, llama.cpp with 7B–32B models; CI; tuning.</p></div>
+  <div class="timeline t5" style="margin-top:40px">
+    <div class="tl"><div class="d" style="background:var(--success)">✓</div><h3>0.2 – 0.3</h3><p>Core engine, helpers, memory, web UI, modes, undo; artifacts.</p></div>
+    <div class="tl"><div class="d" style="background:var(--success)">✓</div><h3>0.4 – 0.5</h3><p>Project-aware tools, rules, hooks; databases, scheduled jobs; MCP, attach, editors, packages.</p></div>
+    <div class="tl"><div class="d" style="background:var(--success)">✓</div><h3>0.6</h3><p>More than one model; first run on real local models (vLLM).</p></div>
+    <div class="tl"><div class="d" style="background:var(--primary)">→</div><h3>Validation</h3><p>Ollama, llama.cpp, 32K, long sessions; real Zed and VS Code; an offline install; CI; tuning.</p></div>
     <div class="tl"><div class="d" style="background:#94A3B8">1.0</div><h3>1.0 · stable</h3><p>Frozen config and commands, fixes from validation, then the stable release.</p></div>
   </div>
-  <div class="card" style="margin-top:44px; background:var(--soft)"><p><strong>Honest status:</strong> feature-complete beta, well tested on macOS against mock and hosted models. Not yet validated on the real target — air-gapped Linux with local models — which is what 1.0 will prove.</p></div>
+  <div class="card" style="margin-top:44px; background:var(--soft)"><p><strong>Honest status:</strong> a well-tested beta. It now works with real local models on vLLM, and that first run already found two bugs. Not yet proven on a fully offline machine, on other servers, or in long sessions — that is what 1.0 will prove.</p></div>
 </section>
 
-<!-- 19 · Get started -->
+<!-- 26 · Get started -->
 <section class="slide dark" data-title="Get started">
   <div class="row" style="flex:1; align-items:center; gap:60px">
     <div style="flex:1">
       <div class="kicker">Get started</div>
-      <h1 style="font-size:58px">Your code. Your model.<br><span style="color:#6AA1FF">Your network.</span></h1>
-      <p class="lead">Install the binary, point it at your local model, and open the link it prints.</p>
+      <h1 style="font-size:56px">Your code.<br>Your models.<br><span style="color:#6AA1FF">Your network.</span></h1>
+      <p class="lead">Install the package, point it at your local model, and open the link it prints.</p>
     </div>
     <div style="flex:1">
-      <div class="card mono" style="font-size:16px; line-height:1.9; background:#0B0E14">
+      <div class="card mono" style="font-size:15.5px; line-height:1.85; background:#0B0E14">
         <div style="color:#8B95A8"># point at your local model</div>
         <div><span style="color:#6AA1FF">$</span> export DCODE_BASE_URL=http://127.0.0.1:11434/v1</div>
         <div><span style="color:#6AA1FF">$</span> export DCODE_MODEL=qwen2.5-coder:7b</div>
         <div><span style="color:#6AA1FF">$</span> dcode</div>
         <div style="color:#8B95A8; margin-top:10px"># inside Dcode</div>
+        <div><span style="color:#6AA1FF">❯</span> /models <span style="color:#8B95A8">&nbsp;add a reasoning model</span></div>
         <div><span style="color:#6AA1FF">❯</span> /ui &nbsp;&nbsp;<span style="color:#8B95A8">open the web UI</span></div>
         <div><span style="color:#6AA1FF">❯</span> /guide <span style="color:#8B95A8">English / فارسی user guide</span></div>
         <div><span style="color:#6AA1FF">❯</span> /help &nbsp;<span style="color:#8B95A8">every command</span></div>
