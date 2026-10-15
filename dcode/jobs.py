@@ -16,6 +16,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import shell
+
 TAIL_LINES = 40
 
 
@@ -46,7 +48,7 @@ class Job:
             data = self.log_path.read_bytes()[-64_000:].decode("utf-8", errors="replace")
         except OSError:
             return ""
-        return "\n".join(data.splitlines()[-lines:])
+        return "\n".join(shell.strip_ansi(data).splitlines()[-lines:])
 
     def state(self) -> str:
         if self.running:
@@ -75,7 +77,8 @@ class JobManager:
             self._next += 1
         log_path = self.log_dir / f"job-{os.getpid()}-{job_id}.log"
         log = open(log_path, "wb")
-        kwargs: dict = {"shell": True, "cwd": cwd, "stdout": log, "stderr": subprocess.STDOUT, "stdin": subprocess.DEVNULL}
+        kwargs: dict = {"shell": True, "cwd": cwd, "stdout": log, "stderr": subprocess.STDOUT, "stdin": subprocess.DEVNULL,
+                        "executable": shell.bash(), "env": shell.environment()}
         if os.name == "posix":
             kwargs["start_new_session"] = True  # own process group, so stop() kills its children too
         process = subprocess.Popen(command, **kwargs)

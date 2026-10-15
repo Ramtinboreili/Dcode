@@ -40,6 +40,7 @@ from .tools import (
     allowed_tool_names,
     configure_limits,
     execute_tool,
+    normalize_call,
     parse_arguments,
     workspace_root,
 )
@@ -79,6 +80,11 @@ COMPACT_ARG_TOOLS = {"artifact_save", "skill_save"}
 # Tools whose "path" argument the file rules (and the outside-workspace rule) apply to.
 FILE_ARG_TOOLS = {"read_file", "edit_file", "write_file", "delete_file", "create_directory", "list_files",
                   "search_in_files", "git_diff"}
+
+
+def _failed(output: str) -> bool:
+    """A command result that says it went wrong (a refusal, a timeout or a non-zero exit)."""
+    return "(return code:" in output or output.startswith(("Not run:", "Command timed out")) or "(stopped after" in output
 
 
 class Host(Protocol):
@@ -144,6 +150,7 @@ class Agent:
         self.current_task = ""
         self._artifact_saves: dict[str, int] = {}
         self._repeat: list[str] = []
+        self._command_outputs: list[str] = []  # the last outputs of the command being repeated
         self.todos: list[dict[str, str]] = []
         self._db_names: dict[str, str] = {}  # saved connections (name -> engine), refreshed at turn start
         self._db_schemas: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -335,6 +342,7 @@ class Agent:
         max_steps = max_steps or (MAIN_MAX_STEPS if self.is_main else int(self.config.agents.get("max_steps", 16)))
         self.current_task = user_text
         self._repeat = []
+        self._command_outputs = []
         self._stuck = 0
         self._activity = {"files": [], "commands": 0, "commands_failed": 0, "helpers": 0, "artifacts": []}
         self._artifact_saves: dict[str, int] = {}
@@ -391,6 +399,8 @@ class Agent:
             if not tools:
                 turn.tool_calls = []  # never store calls we won't answer — breaks history
             self._dedupe_call_ids(turn.tool_calls)
+            for call in turn.tool_calls:
+                normalize_call(call)  # other agents' argument names, a command sent as a list…
             keep = getattr(self.llm, "keep_reasoning", None)
             if keep and turn.tool_calls:
                 keep(turn.tool_calls, str(getattr(turn, "reasoning", "") or ""))  # some APIs want it back
@@ -718,6 +728,8 @@ class Agent:
                           session=self._session_id(), **hooks.tool_payload(parse_arguments(function.get("arguments"))))
             except Exception:
                 pass  # a broken hook must never break the agent
+        if name == "run_command":
+            self._command_outputs = (self._command_outputs + [output])[-REPEAT_LIMIT:]
         self.messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "name": name, "content": output})
         self.host.emit(
             "tool_result", agent=self.agent_id, id=call.get("id", ""), name=name, output=output[:PREVIEW_CHARS]
@@ -732,7 +744,15 @@ class Agent:
             return "Invalid JSON arguments. Call the tool again with valid JSON."
         signature = f"{name}:{json.dumps(args, sort_keys=True)}"
         self._repeat = (self._repeat + [signature])[-REPEAT_LIMIT:]
-        if len(self._repeat) == REPEAT_LIMIT and len(set(self._repeat)) == 1 and name not in ("run_command",):
+        same = len(self._repeat) == REPEAT_LIMIT and len(set(self._repeat)) == 1
+        if same and name == "run_command":
+            # Running a command again is normal (tests after a fix); the same failure each time is not.
+            outputs = self._command_outputs[-(REPEAT_LIMIT - 1):]
+            if len(outputs) == REPEAT_LIMIT - 1 and len(set(outputs)) == 1 and _failed(outputs[0]):
+                self._stuck += 1
+                return (f"You ran this command {REPEAT_LIMIT - 1} times in a row and it failed the same way each "
+                        "time. Running it again won't help: read the error, change something, or ask the user.")
+        elif same:
             self._stuck += 1
             return (
                 f"You called {name} with identical arguments {REPEAT_LIMIT} times; the result will not change. "

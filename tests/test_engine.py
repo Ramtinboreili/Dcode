@@ -227,6 +227,37 @@ def test_activity_counts_commands_and_failures(isolated):
     assert usage["commands"] == 2 and usage["commands_failed"] == 1
 
 
+def test_a_command_failing_the_same_way_again_and_again_is_stopped(isolated):
+    """Re-running a command is normal; the same failure three times in a row means the model is stuck."""
+    ran: list[str] = []
+
+    def router(messages, tools):
+        if not tools:
+            return AssistantTurn(content="The build keeps failing on a missing header.")
+        ran.append("x")
+        return AssistantTurn(tool_calls=[call("run_command", '{"command": "echo missing.h; exit 2"}', f"r{len(ran)}")])
+
+    host = NullHost(approve=True)
+    agent, _ = _agent(router, host=host)
+    result = agent.run_turn("build it")
+    outputs = [m["content"] for m in agent.messages if m["role"] == "tool"]
+    assert outputs[0] == outputs[1] == "missing.h\n(return code: 2)"
+    assert "failed the same way" in outputs[2]
+    assert result.text == "The build keeps failing on a missing header."
+
+
+def test_a_command_rerun_after_a_change_is_not_blocked(isolated):
+    outputs = iter(["fail", "fail", "ok"])
+
+    def router(messages, tools):
+        if messages[-1]["role"] == "tool" and messages[-1]["content"].strip() == "ok":
+            return AssistantTurn(content="Tests pass.")
+        return AssistantTurn(tool_calls=[call("run_command", json.dumps({"command": f"echo {next(outputs)}"}))])
+
+    agent, _ = _agent(router, host=NullHost(approve=True))
+    assert agent.run_turn("run the tests").text == "Tests pass."
+
+
 def test_a_reply_that_was_all_thinking_gets_told_to_act(isolated):
     agent, llm = _agent(scripted(
         AssistantTurn(content="", finish_reason="length", reasoning="hmm " * 50),
@@ -235,3 +266,17 @@ def test_a_reply_that_was_all_thinking_gets_told_to_act(isolated):
     assert agent.run_turn("check the config").text == "Done: nothing to change."
     assert "whole reply on thinking" in llm.calls[1][-1]["content"]
 
+
+def test_the_clients_notes_reach_the_screen_and_calls_arrive_cleaned(isolated):
+    (isolated / "a.txt").write_text("hello")
+    host = NullHost()
+    agent, _ = _agent(scripted(
+        AssistantTurn(tool_calls=[call("read_file", '{"file_path": "a.txt"}')],
+                      notes=["The model thought in circles; asking again with no thinking"]),
+        AssistantTurn(content="It says hello."),
+    ), host=host)
+    agent.run_turn("read a.txt")
+    assert "The model thought in circles; asking again with no thinking" in \
+        [e["text"] for e in host.events if e["type"] == "notice"]
+    assert [e["args"] for e in host.events if e["type"] == "tool_call"] == [{"path": "a.txt"}]
+    assert agent.messages[2]["tool_calls"][0]["function"]["arguments"] == '{"path": "a.txt"}'

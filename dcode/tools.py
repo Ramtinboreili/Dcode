@@ -12,6 +12,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from . import shell
+
 # --- Safety limits -----------------------------------------------------------
 # Cap outputs handed back to the model so a single tool call cannot blow up the
 # context window. ``configure_limits`` rescales these to the model's window.
@@ -192,8 +194,9 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "delete_file": _fn("delete_file", "Delete a file or empty directory.", {"path": _S}, ["path"]),
     "run_command": _fn(
         "run_command",
-        "Run a shell command in the workspace root. Output is truncated. "
-        "background=true starts a long-running process (server, watcher) and returns at once.",
+        "Run a bash command. Each call starts in the workspace root (cd doesn't carry over); there is no "
+        "terminal or input. Output is truncated. background=true starts a long-running process (server, "
+        "watcher) and returns at once.",
         {"command": _S, "background": {"type": "boolean"}},
         ["command"],
     ),
@@ -456,18 +459,18 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
             return _search(arguments)
 
         if name == "run_command":
-            result = subprocess.run(
-                str(arguments["command"]),
-                shell=True,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=COMMAND_TIMEOUT,
-                cwd=str(workspace_root()),
-            )
-            output = (result.stdout or "") + (result.stderr or "")
-            if result.returncode != 0:
-                output += f"\n(return code: {result.returncode})"
+            command = str(arguments["command"])
+            refused = shell.refusal(command)
+            if refused:
+                return refused
+            timeout = int(arguments.get("timeout") or COMMAND_TIMEOUT)
+            output, code = shell.run(command, workspace_root(), timeout)
+            output = output.strip()
+            if code is None:
+                output += (f"\n(stopped after {timeout}s. A server or watcher needs background=true; "
+                           "otherwise bound it, e.g. tail -n, ping -c, --tail=200.)")
+            elif code != 0:
+                output += f"\n(return code: {code})"
             # Keep the tail too: errors usually appear at the end of build/test output.
             output = output.strip()
             if len(output) > MAX_OUTPUT_CHARS:
@@ -505,6 +508,56 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
         return f"Command timed out after {COMMAND_TIMEOUT}s."
     except Exception as exc:
         return "".join(traceback.format_exception_only(type(exc), exc)).strip()
+
+
+# Other agents' names for these arguments; a model trained on them keeps using them.
+_ARG_ALIASES = {
+    "path": ("file_path", "filepath", "file", "filename", "target_file", "path_to_file", "absolute_path",
+             "relative_path", "dir_path", "directory", "dir", "folder", "target_directory", "relative_workspace_path"),
+    "content": ("contents", "text", "file_text", "data", "body", "code", "file_content", "new_content"),
+    "old_text": ("old_string", "old_str", "search", "find", "original", "old", "old_content", "search_text"),
+    "new_text": ("new_string", "new_str", "replace", "replacement", "new", "new_content", "replace_text"),
+    "replace_all": ("all", "global", "replace_every"),
+    "pattern": ("query", "regex", "search", "text", "search_term", "keyword", "term"),
+    "glob": ("include", "file_pattern", "glob_pattern", "includes", "file_glob"),
+    "start_line": ("offset", "line_start", "from_line", "start", "begin_line"),
+    "end_line": ("line_end", "to_line", "end", "stop_line"),
+    "max_depth": ("depth", "levels", "recursion_depth"),
+    "message": ("commit_message", "msg"),
+}
+
+
+def normalize_call(call: dict[str, Any]) -> None:
+    """Rewrite a built-in tool call into Dcode's argument names, in place (the history keeps the clean form)."""
+    function = call.get("function") or {}
+    name = function.get("name", "")
+    schema = TOOL_SCHEMAS.get(name)
+    if schema is None:
+        return
+    args = parse_arguments(function.get("arguments"))
+    if not args:
+        return
+    before = json.dumps(args, sort_keys=True)
+    if name == "run_command":
+        args = shell.clean_command(args)
+    props = schema["function"]["parameters"]["properties"]
+    for key, aliases in _ARG_ALIASES.items():
+        if key in props and key not in args:
+            alias = next((a for a in aliases if a in args and a not in props), None)
+            if alias:
+                args[key] = args.pop(alias)
+    if name == "read_file":
+        view = args.pop("view_range", None) or args.pop("lines", None)
+        if isinstance(view, list) and len(view) == 2:
+            args.setdefault("start_line", view[0])
+            if view[1] not in (-1, None):
+                args.setdefault("end_line", view[1])
+        limit = _to_int(args.pop("limit", None))
+        start = _to_int(args.get("start_line"))
+        if limit and "end_line" not in args:
+            args["end_line"] = (start or 1) + limit - 1
+    if json.dumps(args, sort_keys=True) != before:
+        function["arguments"] = json.dumps(args, ensure_ascii=False)
 
 
 def parse_arguments(raw: Any) -> dict[str, Any]:
