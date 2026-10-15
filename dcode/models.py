@@ -18,11 +18,12 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from .config import REASONING_EFFORTS, AppConfig
+from . import families
+from .config import REASONING_EFFORTS, AppConfig, clean_family
 
 ROUTES = ("auto", "off", "always")  # auto: the router decides · off: always main · always: always reasoning
 
-PROFILE_KEYS = ("base_url", "api_key", "model", "context_window", "max_output_tokens", "reasoning_effort")
+PROFILE_KEYS = ("base_url", "api_key", "model", "context_window", "max_output_tokens", "reasoning_effort", "family")
 
 ROUTER_PROMPT = (
     "You route tasks for a coding agent. Reply with one word. HARD: the task needs careful multi-step "
@@ -68,6 +69,8 @@ def clean_models(value: Any) -> dict[str, Any]:
                 pass
         if spec.get("reasoning_effort") in REASONING_EFFORTS:
             profile["reasoning_effort"] = spec["reasoning_effort"]
+        if spec.get("family") and clean_family(spec["family"]) != "auto":
+            profile["family"] = clean_family(spec["family"])
         profiles[name] = profile
     route = str(data.get("router") or "auto")
     return {
@@ -125,6 +128,7 @@ class ModelPool:
             context_window=spec.get("context_window") or self.config.context_window,
             max_output_tokens=spec.get("max_output_tokens") or self.config.max_output_tokens,
             reasoning_effort=spec.get("reasoning_effort") or self.config.reasoning_effort,
+            family=spec.get("family") or "auto",  # another model: the main model's family doesn't carry over
         )
 
     def resolve(self, name: str) -> tuple[AppConfig, Any] | None:
@@ -163,9 +167,10 @@ class ModelPool:
         def label(name: str) -> str:
             cfg = self.profile_config(name)
             if cfg is None:
-                return f"{self.config.model} (main)"
+                family = families.detect(self.config.model, self.config.base_url, self.config.family)
+                return f"{self.config.model} (main) · {family.label}"
             where = "" if cfg.base_url == self.config.base_url else f" @ {cfg.base_url}"
-            return f"{cfg.model}{where} · {cfg.context_window:,} tokens"
+            return f"{cfg.model}{where} · {cfg.context_window:,} tokens · {families.detect(cfg.model, cfg.base_url, cfg.family).label}"
 
         helper = str(self.config.agents.get("helper_model") or "")
         return [("main", label("")), ("reasoning", label(self.settings["reasoning"]) if self.settings["reasoning"]

@@ -13,6 +13,7 @@ those differences so the engine sees one clean interface:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import uuid
@@ -20,6 +21,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import families, toolcalls
 from .config import AppConfig
 
 
@@ -34,7 +36,8 @@ class AssistantTurn:
     usage: dict[str, int] = field(default_factory=lambda: {"prompt": 0, "completion": 0, "total": 0})
     recovered_tool_calls: bool = False
     finish_reason: str = ""  # "stop", "tool_calls", "length" (hit the output limit), …
-    reasoning: str = ""      # the model's thinking: shown on request, never sent back
+    reasoning: str = ""      # the model's thinking: shown on request, never stored in the history
+    notes: list[str] = field(default_factory=list)  # what the client did about the model's quirks, for the UI
 
     def as_message(self) -> dict[str, Any]:
         message: dict[str, Any] = {"role": "assistant", "content": self.content or ""}
@@ -45,27 +48,49 @@ class AssistantTurn:
 
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
 _THINK_BODY_RE = re.compile(r"<think>(.*?)(?:</think>|\Z)", re.DOTALL | re.IGNORECASE)
-_TOOL_TAG_RE = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL | re.IGNORECASE)
-_FENCE_RE = re.compile(r"```(?:json|tool_call|tool)?\s*(\{.*?\})\s*```", re.DOTALL)
+# gpt-oss on a server without its parser: "<|channel|>analysis<|message|>…<|end|>…<|channel|>final<|message|>answer"
+_HARMONY_THOUGHT_RE = re.compile(r"<\|channel\|>\s*analysis\s*<\|message\|>(.*?)(?:<\|end\|>|\Z)", re.DOTALL)
+_HARMONY_FINAL = "<|channel|>final<|message|>"
+_HARMONY_TOKEN_RE = re.compile(r"<\|(start|end|return|channel|message|constrain)\|>")
 
-
-_TOOL_NAME_RE = re.compile(r"[A-Za-z_][\w.-]*")
+_TOOL_NAME_RE = re.compile(r"[A-Za-z_][\w.:-]*")
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+# Names models trained on other agents use for Dcode's tools. Used only when the name isn't a real tool.
+TOOL_ALIASES = {
+    "run_command": ("bash", "shell", "sh", "terminal", "exec", "execute", "execute_command", "execute_bash",
+                    "run_shell_command", "run_shell", "shell_command", "run_terminal_cmd", "run_terminal_command",
+                    "exec_command", "container.exec", "run", "cmd", "run_bash", "bash_command", "command"),
+    "read_file": ("read", "cat", "open_file", "view_file", "view", "file_read", "read_text_file", "get_file_contents"),
+    "write_file": ("write", "create_file", "file_write", "save_file", "write_to_file"),
+    "edit_file": ("edit", "str_replace", "replace_in_file", "apply_edit", "file_edit", "search_replace",
+                  "modify_file", "edit_existing_file"),
+    "list_files": ("ls", "list_dir", "list_directory", "dir", "find_files", "list_files_in_directory"),
+    "search_in_files": ("grep", "search", "grep_search", "find_in_files", "search_files", "ripgrep", "rg",
+                        "search_code", "codebase_search"),
+    "delete_file": ("rm", "remove_file", "delete"),
+    "create_directory": ("mkdir", "make_directory", "create_dir", "create_folder"),
+}
+_ALIAS = {alias: tool for tool, aliases in TOOL_ALIASES.items() for alias in aliases}
 
 
 def clean_tool_name(name: str, known: Iterable[str]) -> str:
-    """Strip markup some models leak into tool names (e.g. ``git_diff</｜DSML｜ parameter>``)."""
+    """The real tool behind a messy name: leaked markup (``git_diff</｜DSML｜ parameter>``), a namespace
+    (``functions.read_file:0``, ``default_api.read_file``) or another agent's name (``bash``, ``str_replace``)."""
     known = list(known)
     raw = (name or "").strip()
     if raw in known:
         return raw
     match = _TOOL_NAME_RE.match(raw)
-    candidate = match.group(0) if match else raw
+    candidate = toolcalls.short_name(match.group(0) if match else raw, known)
     if candidate in known:
         return candidate
     for tool in sorted(known, key=len, reverse=True):
         if raw.startswith(tool):
             return tool
+    for key in (candidate.lower(), candidate.lower().rsplit(".", 1)[-1].split(":", 1)[0]):
+        if _ALIAS.get(key) in known:
+            return _ALIAS[key]
     return candidate
 
 
@@ -87,23 +112,98 @@ def clean_arguments(arguments: str) -> str:
     return text
 
 
+_TRUE, _FALSE = {"true", "yes", "1", "on"}, {"false", "no", "0", "off", ""}
+
+
+def coerce_arguments(arguments: str, schema: dict[str, Any] | None) -> str:
+    """Give each argument its schema type: models send ``"true"``, ``"20"`` or a JSON string for an object,
+    and ``bool("false")`` is True. Arguments that don't parse are left for the tool to report."""
+    props = (schema or {}).get("properties") or {}
+    try:
+        args = json.loads(arguments)
+    except (json.JSONDecodeError, TypeError):
+        return arguments
+    if not props or not isinstance(args, dict):
+        return arguments
+    changed = False
+    for key, value in list(args.items()):
+        kind = (props.get(key) or {}).get("type")
+        new = value
+        if kind == "boolean" and not isinstance(value, bool):
+            text = str(value).strip().lower()
+            new = True if text in _TRUE else False if text in _FALSE else value
+        elif kind in ("integer", "number") and isinstance(value, str):
+            try:
+                new = int(value.strip()) if kind == "integer" else float(value.strip())
+            except ValueError:
+                pass
+        elif kind == "integer" and isinstance(value, float) and value.is_integer():
+            new = int(value)
+        elif kind == "string" and isinstance(value, (bool, int, float)):
+            new = json.dumps(value) if isinstance(value, bool) else str(value)
+        elif kind in ("object", "array") and isinstance(value, str) and value.strip()[:1] in "{[":
+            try:
+                new = json.loads(value)
+            except json.JSONDecodeError:
+                pass
+        if new is not value:
+            args[key], changed = new, True
+    return json.dumps(args, ensure_ascii=False) if changed else arguments
+
+
 def thinking_text(text: str) -> str:
-    """What the model wrote inside ``<think>`` blocks (an unclosed block counts to the end)."""
-    parts = [m.strip() for m in _THINK_BODY_RE.findall(text or "")]
+    """The reasoning written into the answer: ``<think>`` blocks (an unclosed one runs to the end), the text
+    before a lone ``</think>`` (templates that open the block in the prompt), gpt-oss analysis."""
+    text = text or ""
+    parts = [m.strip() for m in _THINK_BODY_RE.findall(text)]
+    rest = _THINK_RE.sub("", text)
+    if "</think>" in rest and "<think>" not in rest.lower():
+        parts.insert(0, rest.rsplit("</think>", 1)[0].replace("</think>", "").strip())
+    parts += [m.strip() for m in _HARMONY_THOUGHT_RE.findall(text)]
     return "\n\n".join(p for p in parts if p)
 
 
 def strip_thinking(text: str) -> str:
-    text = _THINK_RE.sub("", text or "")
+    text = text or ""
+    if _HARMONY_FINAL in text:
+        text = text.rsplit(_HARMONY_FINAL, 1)[1]
+    elif "<|channel|>" in text:
+        text = _HARMONY_THOUGHT_RE.sub("", text)
+    text = _HARMONY_TOKEN_RE.sub("", text) if "<|" in text else text
+    text = _THINK_RE.sub("", text)
     # An unclosed <think> at the start means the whole thing was reasoning.
     if text.lstrip().lower().startswith("<think>"):
         return ""
-    return text.replace("</think>", "").strip()
+    if "</think>" in text:  # the opening tag was in the prompt: everything before the close is reasoning
+        text = text.rsplit("</think>", 1)[1]
+    return text.strip()
+
+
+class _VisibleText:
+    """Streams only the answer: text inside ``<think>`` (even half-received) is held back."""
+
+    def __init__(self) -> None:
+        self.full = ""
+        self.sent = 0
+
+    def feed(self, delta: str) -> str:
+        self.full += delta
+        visible = _THINK_RE.sub("", self.full)
+        cut = visible.lower().find("<think>")
+        if cut >= 0:
+            visible = visible[:cut]
+        for size in range(min(len("<think>") - 1, len(visible)), 0, -1):  # a tag still arriving
+            if "<think>".startswith(visible[-size:].lower()):
+                visible = visible[:-size]
+                break
+        new = visible[self.sent:] if len(visible) > self.sent else ""
+        self.sent = max(self.sent, len(visible))
+        return new
 
 
 def _make_call(name: str, arguments: Any) -> dict[str, Any]:
     if not isinstance(arguments, str):
-        arguments = json.dumps(arguments if arguments is not None else {})
+        arguments = json.dumps(arguments if arguments is not None else {}, ensure_ascii=False)
     return {
         "id": f"call_{uuid.uuid4().hex[:12]}",
         "type": "function",
@@ -111,50 +211,125 @@ def _make_call(name: str, arguments: Any) -> dict[str, Any]:
     }
 
 
-def _call_from_obj(obj: Any, known: Iterable[str]) -> dict[str, Any] | None:
-    if not isinstance(obj, dict):
-        return None
-    if isinstance(obj.get("function"), dict):  # {"function": {"name":..., "arguments":...}}
-        obj = obj["function"]
-    name = obj.get("name") or obj.get("tool") or obj.get("function")
-    if not isinstance(name, str) or name not in set(known):
-        return None
-    args = next((obj[k] for k in ("arguments", "parameters", "args", "input") if k in obj), {})
-    return _make_call(name, args)
-
-
 def parse_text_tool_calls(content: str, known: Iterable[str]) -> tuple[str, list[dict[str, Any]]]:
-    """Extract tool calls embedded in assistant text. Returns (remaining_text, calls)."""
-    known = list(known)
-    if not content or not known:
-        return content, []
-    calls: list[dict[str, Any]] = []
+    """Extract tool calls embedded in assistant text, in any family's format. Returns (remaining_text, calls)."""
+    remaining, found = toolcalls.parse(content, known)
+    return remaining, [_make_call(name, args) for name, args in found]
 
-    def _try(raw: str) -> bool:
-        try:
-            obj = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return False
-        items = obj if isinstance(obj, list) else [obj]
-        parsed = [_call_from_obj(item, known) for item in items]
-        if parsed and all(parsed):
-            calls.extend(parsed)  # type: ignore[arg-type]
-            return True
-        return False
 
-    remaining = content
-    for match in _TOOL_TAG_RE.finditer(content):
-        if _try(match.group(1)):
-            remaining = remaining.replace(match.group(0), "")
-    if not calls:
-        for match in _FENCE_RE.finditer(content):
-            if _try(match.group(1)):
-                remaining = remaining.replace(match.group(0), "")
-    if not calls:
-        stripped = content.strip()
-        if stripped.startswith(("{", "[")) and _try(stripped):
-            remaining = ""
-    return remaining.strip(), calls
+THINK_SHARE = 0.75        # a reply whose reasoning passes this share of the output cap is cut and asked again
+THINK_RETRIES = 2         # at most this many asks again with less thinking
+LOOP_CHECK_EVERY = 2000   # chars of reasoning between checks for a thought going in circles
+ECHO_CHARS = 8000         # of reasoning sent back to the families whose API asks for it
+_EFFORT_ORDER = ["none", "low", "medium", "high"]
+
+_CONTEXT_ERROR_RE = re.compile(r"context (length|window)|maximum context|too many tokens|prompt is too long|"
+                               r"reduce the length|input is too long|exceeds the (max|context)", re.IGNORECASE)
+_MISSING_MODEL_RE = re.compile(r"model\b.*\b(not found|does not exist|not exist)|no such model|unknown model",
+                               re.IGNORECASE)
+_NO_TOOLS_RE = re.compile(r"does not support (tools|function)|tools? (is|are) not supported|"
+                          r"(tool|function)[ _]?(use|calling|calls?|choice)\W+(is |are )?not (supported|enabled)|"
+                          r"enable-auto-tool-choice|tool-call-parser|function calling is not", re.IGNORECASE)
+_SYSTEM_ROLE_RE = re.compile(r"system (role|message|prompt)s? (is |are )?not (supported|allowed)|"
+                             r"only (user|assistant) and (user|assistant) roles", re.IGNORECASE)
+_ROLE_ORDER_RE = re.compile(r"must alternate|unexpected role|roles must|role .* after role|"
+                            r"expected (an? )?(user|assistant) (message|role)", re.IGNORECASE)
+_FIELD_WORDS = ("reasoning_effort", "chat_template_kwargs", "enable_thinking", "thinking", "think", "reasoning",
+                "stream_options")
+_SKIP_SIGNATURE = {"google": {"thought_signature": "skip_thought_signature_validator"}}
+
+TEXT_TOOLS_PROMPT = (
+    "\n\n# Tools\nTo use a tool, reply with one block per call and nothing after it:\n"
+    '<tool_call>{"name": "TOOL", "arguments": {...}}</tool_call>\n'
+    "Results come back in the next message. Tools (? = optional):\n"
+)
+
+
+class _Overthinking(Exception):
+    """The reasoning ran too long, or in circles, before any answer."""
+
+    def __init__(self, reason: str, turn: AssistantTurn) -> None:
+        super().__init__(reason)
+        self.reason, self.turn = reason, turn
+
+
+def _looping(thought: str) -> bool:
+    """The same passage, three times over: the model is thinking in circles."""
+    tail = thought[-160:].strip()
+    return len(tail) >= 80 and thought.count(tail) >= 3
+
+
+def _short_id(call_id: str) -> str:
+    """Mistral wants tool call ids of exactly 9 letters or digits; map ours the same way every time."""
+    if re.fullmatch(r"[A-Za-z0-9]{9}", call_id or ""):
+        return call_id
+    return hashlib.sha1((call_id or "").encode()).hexdigest()[:9]
+
+
+def _tool_line(tool: dict[str, Any]) -> str:
+    function = tool.get("function") or {}
+    params = (function.get("parameters") or {}).get("properties") or {}
+    required = set((function.get("parameters") or {}).get("required") or [])
+    args = ", ".join(name + ("" if name in required else "?") for name in params)
+    return f"- {function.get('name', '')}({args}): {function.get('description', '')}"
+
+
+def _as_text_tools(messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """For a server that takes no tool definitions: tools described in the prompt, calls and results as text."""
+    listing = TEXT_TOOLS_PROMPT + "\n".join(_tool_line(t) for t in tools)
+    out: list[dict[str, Any]] = []
+    for message in messages:
+        role = message.get("role")
+        if role == "assistant" and message.get("tool_calls"):
+            blocks = []
+            for call in message["tool_calls"]:
+                function = call.get("function") or {}
+                try:
+                    args = json.loads(function.get("arguments") or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                blocks.append("<tool_call>" + json.dumps({"name": function.get("name", ""), "arguments": args},
+                                                         ensure_ascii=False) + "</tool_call>")
+            text = "\n".join(p for p in (str(message.get("content") or "").strip(), *blocks) if p)
+            out.append({"role": "assistant", "content": text})
+        elif role == "tool":
+            out.append({"role": "user", "content": f"[result of {message.get('name') or 'the tool'}]\n"
+                                                   f"{message.get('content') or ''}"})
+        else:
+            out.append(dict(message))
+    if out and out[0].get("role") == "system":
+        out[0]["content"] = str(out[0].get("content") or "") + listing
+    else:
+        out.insert(0, {"role": "system", "content": listing.strip()})
+    return out
+
+
+def _merge_system(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """For a template without a system role: the instructions open the first user message."""
+    system = "\n\n".join(str(m.get("content") or "") for m in messages if m.get("role") == "system")
+    rest = [dict(m) for m in messages if m.get("role") != "system"]
+    if not system:
+        return rest
+    for message in rest:
+        if message.get("role") == "user":
+            message["content"] = f"{system}\n\n---\n\n{message.get('content') or ''}"
+            return rest
+    return [{"role": "user", "content": system}, *rest]
+
+
+def _alternate(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """For a strict template: user and assistant take turns, so join neighbours and bridge tool → user."""
+    out: list[dict[str, Any]] = []
+    for message in messages:
+        role = message.get("role")
+        last = out[-1] if out else None
+        if last and role == last.get("role") == "user":
+            last["content"] = f"{last.get('content') or ''}\n\n{message.get('content') or ''}"
+            continue
+        if last and role == "user" and last.get("role") == "tool":
+            out.append({"role": "assistant", "content": "OK."})
+        out.append(dict(message))
+    return out
 
 
 class LLMClient:
@@ -163,14 +338,24 @@ class LLMClient:
 
         self.config = config
         self.client = OpenAI(base_url=config.base_url, api_key=config.api_key, timeout=600.0, max_retries=1)
-        # None = unknown yet, True/False = learned from the server.
-        self._effort_ok: bool | None = None
-        self._usage_opt_ok: bool | None = None
-        self._stream_tools_ok: bool | None = None
+        self._stream_tools_ok: bool | None = None  # None = unknown yet, True/False = learned from the server
+        # What the server taught us by rejecting a request: fields it refuses, the max-tokens name, and
+        # what it needs in the history (reasoning back, short ids, no system role, tools as text…).
+        self._learned: dict[str, Any] = {"rejected": set()}
+        self._thoughts: dict[str, str] = {}  # first tool call id -> the reasoning that led to it
+        self._notes: list[str] = []
 
     @property
     def model(self) -> str:
         return self.config.model
+
+    @property
+    def family(self) -> families.Family:
+        return families.detect(self.config.model, self.config.base_url, getattr(self.config, "family", "auto"))
+
+    @property
+    def server(self) -> str:
+        return families.server_kind(self.config.base_url)
 
     def with_model(self, model: str) -> LLMClient:
         """Same server and connection, another model (helpers can run on a smaller one)."""
@@ -178,22 +363,139 @@ class LLMClient:
         import dataclasses
 
         clone = copy.copy(self)
-        clone.config = dataclasses.replace(self.config, model=model)
+        changes: dict[str, Any] = {"model": model}
+        if model != self.config.model and hasattr(self.config, "family"):
+            changes["family"] = "auto"  # another model: the main model's family doesn't carry over
+        clone.config = dataclasses.replace(self.config, **changes)
+        # What a server refuses holds for every model on it; what a model needs is its own.
+        clone._learned = {"rejected": set(self._learned["rejected"]), "max_key": self._learned.get("max_key"),
+                          "text_tools": self._learned.get("text_tools")}
+        clone._thoughts, clone._notes = {}, []
         return clone
 
+    def keep_reasoning(self, tool_calls: list[dict[str, Any]], reasoning: str) -> None:
+        """Remember the reasoning behind a step (by its final call id), for the families that want it back."""
+        if tool_calls and reasoning:
+            self._thoughts[str(tool_calls[0].get("id") or "")] = reasoning[-ECHO_CHARS:]
+            while len(self._thoughts) > 32:
+                self._thoughts.pop(next(iter(self._thoughts)))
+
     # --- low level --------------------------------------------------------------
-    def _create(self, **kwargs: Any) -> Any:
-        effort = self.config.reasoning_effort
-        if effort in {"low", "medium", "high"} and self._effort_ok is not False:
+    def _prepare(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None
+                 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]] | None]:
+        """The history as this model's API wants it. Works on copies: the stored history never changes."""
+        family, learned = self.family, self._learned
+        echo = learned.get("echo") or family.echo_reasoning
+        short = learned.get("short_ids") or family.short_call_ids
+        signatures = learned.get("signatures")
+        text_tools = bool(learned.get("text_tools") and tools)
+        no_system = learned.get("no_system") or not family.system_role
+        if not ((echo and self._thoughts) or short or signatures or text_tools or no_system or learned.get("roles")):
+            return messages, tools
+        out = [dict(m) for m in messages]
+        last_user = max((i for i, m in enumerate(out) if m.get("role") == "user"), default=-1)
+        for index, message in enumerate(out):
+            calls = message.get("tool_calls")
+            if message.get("role") == "assistant" and calls:
+                thought = self._thoughts.get(str(calls[0].get("id") or "")) if echo else None
+                if thought and (index > last_user or echo == "all"):
+                    message["reasoning_content"] = thought
+                if short or signatures:
+                    fixed = []
+                    for call in calls:
+                        call = dict(call)
+                        if short:
+                            call["id"] = _short_id(str(call.get("id") or ""))
+                        if signatures and not call.get("extra_content"):
+                            call["extra_content"] = _SKIP_SIGNATURE
+                        fixed.append(call)
+                    message["tool_calls"] = fixed
+            elif message.get("role") == "tool" and short:
+                message["tool_call_id"] = _short_id(str(message.get("tool_call_id") or ""))
+        if text_tools:
+            out, tools = _as_text_tools(out, tools or []), None
+        if no_system:
+            out = _merge_system(out)
+        if learned.get("roles"):
+            out = _alternate(out)
+        return out, tools
+
+    def _shape(self, kwargs: dict[str, Any], effort: str, max_tokens: int | None
+               ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """(extra body fields, the request) for this family and server."""
+        learned, rejected = self._learned, self._learned["rejected"]
+        request = dict(kwargs)
+        if max_tokens:
+            default = "max_completion_tokens" if self.family.completion_tokens or self.server == "openai" else "max_tokens"
+            request[learned.get("max_key") or default] = max_tokens
+        if "stream_options" in rejected:
+            request.pop("stream_options", None)
+        request["messages"], tools = self._prepare(request["messages"], request.get("tools"))
+        if not tools:
+            request.pop("tools", None)
+            request.pop("tool_choice", None)
+        extras = families.request_extras(self.family, self.server, effort, max_tokens)
+        return {k: v for k, v in extras.items() if k not in rejected}, request
+
+    def _learn(self, exc: Exception, body: dict[str, Any], request: dict[str, Any]) -> bool:
+        """Adjust to what the server just rejected. True = something changed, so the request is worth sending again."""
+        text = str(exc)
+        lowered = text.lower()
+        if not _looks_like_param_error(exc) or _CONTEXT_ERROR_RE.search(text) or _MISSING_MODEL_RE.search(text):
+            return False
+        learned = self._learned
+
+        def flag(key: str, value: Any = True) -> bool:
+            if learned.get(key) == value:
+                return False
+            learned[key] = value
+            return True
+
+        if "max_completion_tokens" in lowered and "max_tokens" in request:
+            return flag("max_key", "max_completion_tokens")
+        if "max_completion_tokens" in lowered and "max_completion_tokens" in request \
+                and not re.search(r"use\W+max_completion_tokens", lowered):
+            return flag("max_key", "max_tokens")
+        if "reasoning_content" in lowered:
+            return flag("echo") or flag("echo", "all")
+        if "thought_signature" in lowered or "thought signature" in lowered:
+            return flag("signatures")
+        if re.search(r"tool[ _]?call[ _]?id", lowered) and re.search(r"\b9\b|a-z", lowered):
+            return flag("short_ids")
+        if request.get("tools") and _NO_TOOLS_RE.search(text):
+            if flag("text_tools"):
+                self._notes.append("This server takes no tool definitions; Dcode describes the tools in the prompt")
+                return True
+            return False
+        if _SYSTEM_ROLE_RE.search(text) or ("system" in lowered and "role" in lowered and "not" in lowered):
+            return flag("no_system")
+        if _ROLE_ORDER_RE.search(text):
+            return flag("roles")
+        offered = list(body) + (["stream_options"] if "stream_options" in request else [])
+        named = [key for key in offered if re.search(rf"\b{re.escape(key)}\b", lowered)]
+        named += [key for key in body if isinstance(body[key], dict)
+                  and any(re.search(rf"\b{re.escape(sub)}\b", lowered) for sub in body[key])]
+        if not named and request.get("stream") and request.get("tools") and "stream" in lowered:
+            return False  # streaming with tools refused: chat() falls back to one plain request
+        guilty = named or list(body) or [key for key in offered if key == "stream_options"]
+        if not guilty:
+            return False
+        learned["rejected"].update(guilty)
+        return True
+
+    def _create(self, effort: str | None = None, max_tokens: int | None = None, **kwargs: Any) -> Any:
+        """Send one request; when the server rejects a field or a message shape, adjust and send again."""
+        effort = effort or self.config.reasoning_effort
+        for _ in range(6):
+            body, request = self._shape(kwargs, effort, max_tokens)
             try:
-                result = self.client.chat.completions.create(extra_body={"reasoning_effort": effort}, **kwargs)
-                self._effort_ok = True
-                return result
+                if body:
+                    return self.client.chat.completions.create(extra_body=body, **request)
+                return self.client.chat.completions.create(**request)
             except Exception as exc:
-                if not _looks_like_param_error(exc):
+                if not self._learn(exc, body, request):
                     raise
-                self._effort_ok = False
-        return self.client.chat.completions.create(**kwargs)
+        return self.client.chat.completions.create(**self._shape(kwargs, effort, max_tokens)[1])
 
     # --- public API ---------------------------------------------------------------
     def chat(
@@ -204,21 +506,55 @@ class LLMClient:
         should_stop: Callable[[], bool] | None = None,
         max_tokens: int | None = None,
     ) -> AssistantTurn:
+        """One reply. When the model thinks itself out of room (or in circles), ask again with less thinking."""
+        effort = self.config.reasoning_effort
+        notes: list[str] = []
+        for attempt in range(THINK_RETRIES + 1):
+            try:
+                turn = self._chat_once(messages, tools, on_delta, should_stop, max_tokens, effort)
+                if not (turn.finish_reason == "length" and not turn.content.strip() and not turn.tool_calls
+                        and turn.reasoning):
+                    break
+                reason = "used its whole reply on thinking"
+            except _Overthinking as over:
+                turn, reason = over.turn, over.reason
+            lower = self._less_effort(effort, reason)
+            if lower is None or attempt == THINK_RETRIES:
+                turn.finish_reason = "length"
+                break
+            notes.append(f"The model {reason}; asking again with {'no' if lower == 'none' else lower} thinking")
+            effort = lower
+        turn.notes = self._notes + notes + turn.notes
+        self._notes = []
+        return turn
+
+    def _less_effort(self, effort: str, reason: str) -> str | None:
+        """The next effort down, or None when lowering it would change nothing for this model."""
+        family = self.family
+        if family.thinking == "fixed" or (family is families.GENERIC and self.server in ("local", "ollama")):
+            return None
+        if effort not in _EFFORT_ORDER or effort == "none":
+            return None
+        if "circles" in reason:
+            return "none"
+        return _EFFORT_ORDER[_EFFORT_ORDER.index(effort) - 1]
+
+    def _chat_once(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None,
+                   on_delta: Callable[[str], None] | None, should_stop: Callable[[], bool] | None,
+                   max_tokens: int | None, effort: str) -> AssistantTurn:
         kwargs: dict[str, Any] = {"model": self.config.model, "messages": messages}
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
-        if max_tokens:
-            kwargs["max_tokens"] = max_tokens
 
         use_stream = self.config.stream and (not tools or self._stream_tools_ok is not False)
         if use_stream:
             try:
-                turn = self._chat_stream(kwargs, on_delta, should_stop)
+                turn = self._chat_stream(kwargs, on_delta, should_stop, effort, max_tokens)
                 if tools:
                     self._stream_tools_ok = True
-                return self._finish(turn, tools)
-            except Interrupted:
+                return self._finish(turn, tools, bool(tools and self._learned.get("text_tools")))
+            except (Interrupted, _Overthinking):
                 raise
             except Exception as exc:
                 rejected = _looks_like_param_error(exc) or "stream" in str(exc).lower()
@@ -228,7 +564,7 @@ class LLMClient:
                 self._stream_tools_ok = False
         if should_stop and should_stop():
             raise Interrupted()
-        response = self._create(**kwargs)
+        response = self._create(effort=effort, max_tokens=max_tokens, **kwargs)
         message = response.choices[0].message
         turn = AssistantTurn(content=getattr(message, "content", None) or "",
                              finish_reason=str(getattr(response.choices[0], "finish_reason", "") or ""),
@@ -236,23 +572,26 @@ class LLMClient:
         for call in getattr(message, "tool_calls", None) or []:
             data = call.model_dump(exclude_none=True) if hasattr(call, "model_dump") else dict(call)
             function = data.get("function") or {}
-            turn.tool_calls.append(
-                {
-                    "id": data.get("id") or f"call_{uuid.uuid4().hex[:12]}",
-                    "type": "function",
-                    "function": {"name": function.get("name", ""), "arguments": function.get("arguments") or "{}"},
-                }
-            )
+            entry = {
+                "id": data.get("id") or f"call_{uuid.uuid4().hex[:12]}",
+                "type": "function",
+                "function": {"name": function.get("name", ""), "arguments": function.get("arguments") or "{}"},
+            }
+            if data.get("extra_content"):  # Gemini's thought signature: it must come back with the call
+                entry["extra_content"] = data["extra_content"]
+            turn.tool_calls.append(entry)
         usage = getattr(response, "usage", None)
         if usage is not None:
             turn.usage = _usage_dict(usage)
         if on_delta and turn.content:
-            on_delta(turn.content)
-        return self._finish(turn, tools)
+            visible = strip_thinking(turn.content)
+            if visible:
+                on_delta(visible)
+        return self._finish(turn, tools, bool(tools and self._learned.get("text_tools")))
 
     def complete_text(self, messages: list[dict[str, Any]], max_tokens: int = 800) -> str:
-        """One-shot, tool-less completion (used for summaries)."""
-        response = self._create(model=self.config.model, messages=messages, max_tokens=max_tokens)
+        """One-shot, tool-less completion for side jobs (summaries, titles, routing): no thinking needed."""
+        response = self._create(effort="none", max_tokens=max_tokens, model=self.config.model, messages=messages)
         return strip_thinking(response.choices[0].message.content or "")
 
     def list_models(self) -> list[str]:
@@ -265,23 +604,17 @@ class LLMClient:
         kwargs: dict[str, Any],
         on_delta: Callable[[str], None] | None,
         should_stop: Callable[[], bool] | None,
+        effort: str,
+        max_tokens: int | None,
     ) -> AssistantTurn:
-        stream_kwargs = dict(kwargs, stream=True)
-        if self._usage_opt_ok is not False:
-            stream_kwargs["stream_options"] = {"include_usage": True}
-        try:
-            stream = self._create(**stream_kwargs)
-            self._usage_opt_ok = self._usage_opt_ok if "stream_options" not in stream_kwargs else True
-        except Exception as exc:
-            if "stream_options" not in stream_kwargs or not _looks_like_param_error(exc):
-                raise
-            self._usage_opt_ok = False
-            stream_kwargs.pop("stream_options", None)
-            stream = self._create(**stream_kwargs)
-
+        stream = self._create(effort=effort, max_tokens=max_tokens,
+                              **dict(kwargs, stream=True, stream_options={"include_usage": True}))
+        budget = int(max_tokens * THINK_SHARE * 3.5) if max_tokens else 0  # ~3.5 chars per token
         turn = AssistantTurn()
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
+        reasoning_size, next_check = 0, LOOP_CHECK_EVERY
+        visible = _VisibleText()
         calls: dict[int, dict[str, Any]] = {}
         try:
             for chunk in stream:
@@ -302,11 +635,15 @@ class LLMClient:
                 thought = _reasoning_of(delta)
                 if thought:
                     reasoning_parts.append(thought)
+                    reasoning_size += len(thought)
                 text = getattr(delta, "content", None)
                 if text:
                     content_parts.append(text)
-                    if on_delta:
-                        on_delta(text)
+                    shown = visible.feed(text)
+                    if on_delta and shown:
+                        on_delta(shown)
+                    if not visible.sent:  # still inside an inline <think>
+                        reasoning_size = max(reasoning_size, len(visible.full))
                 for tc in getattr(delta, "tool_calls", None) or []:
                     index = getattr(tc, "index", None)
                     if index is None:
@@ -316,6 +653,9 @@ class LLMClient:
                     )
                     if getattr(tc, "id", None):
                         entry["id"] = tc.id
+                    extra = (getattr(tc, "model_extra", None) or {}).get("extra_content")
+                    if extra:
+                        entry["extra_content"] = extra
                     function = getattr(tc, "function", None)
                     if function is not None:
                         name = getattr(function, "name", None)
@@ -324,6 +664,14 @@ class LLMClient:
                         arguments = getattr(function, "arguments", None)
                         if arguments:
                             entry["function"]["arguments"] += arguments
+                if reasoning_size >= next_check and not visible.sent and not calls:
+                    next_check += LOOP_CHECK_EVERY
+                    so_far = "".join(reasoning_parts) or thinking_text(visible.full)
+                    cut = ("thought in circles" if _looping(so_far)
+                           else "thought too long" if budget and reasoning_size > budget else "")
+                    if cut:
+                        raise _Overthinking(cut, AssistantTurn(reasoning=so_far, finish_reason="length",
+                                                               usage=turn.usage))
         finally:
             close = getattr(stream, "close", None)
             if callable(close):
@@ -344,23 +692,25 @@ class LLMClient:
         return turn
 
     @staticmethod
-    def _finish(turn: AssistantTurn, tools: list[dict[str, Any]] | None) -> AssistantTurn:
+    def _finish(turn: AssistantTurn, tools: list[dict[str, Any]] | None, expected_text: bool = False) -> AssistantTurn:
         inline = thinking_text(turn.content)
         turn.reasoning = "\n\n".join(p for p in (turn.reasoning.strip(), inline) if p)
         turn.content = strip_thinking(turn.content)
-        if tools:
-            names = [t["function"]["name"] for t in tools]
-            for call in turn.tool_calls:
-                function = call.get("function") or {}
-                function["name"] = clean_tool_name(function.get("name", ""), names)
-                function["arguments"] = clean_arguments(function.get("arguments", ""))
-        if tools and not turn.tool_calls and turn.content:
-            names = [t["function"]["name"] for t in tools]
+        if not tools:
+            return turn
+        names = [t["function"]["name"] for t in tools]
+        schemas = {t["function"]["name"]: t["function"].get("parameters") for t in tools}
+        if not turn.tool_calls and turn.content:
             remaining, recovered = parse_text_tool_calls(turn.content, names)
             if recovered:
                 turn.content = remaining
                 turn.tool_calls = recovered
-                turn.recovered_tool_calls = True
+                turn.recovered_tool_calls = not expected_text  # in text-tools mode that's the normal way
+        for call in turn.tool_calls:
+            function = call.get("function") or {}
+            function["name"] = clean_tool_name(function.get("name", ""), names)
+            function["arguments"] = coerce_arguments(clean_arguments(function.get("arguments", "")),
+                                                     schemas.get(function["name"]))
         return turn
 
 

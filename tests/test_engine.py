@@ -225,3 +225,13 @@ def test_activity_counts_commands_and_failures(isolated):
     agent.run_turn("run things")
     usage = [e for e in agent.host.events if e["type"] == "usage"][-1]
     assert usage["commands"] == 2 and usage["commands_failed"] == 1
+
+
+def test_a_reply_that_was_all_thinking_gets_told_to_act(isolated):
+    agent, llm = _agent(scripted(
+        AssistantTurn(content="", finish_reason="length", reasoning="hmm " * 50),
+        AssistantTurn(content="Done: nothing to change."),
+    ))
+    assert agent.run_turn("check the config").text == "Done: nothing to change."
+    assert "whole reply on thinking" in llm.calls[1][-1]["content"]
+

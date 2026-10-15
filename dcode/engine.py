@@ -49,6 +49,8 @@ MAIN_MAX_STEPS = 60
 REPEAT_LIMIT = 3
 STUCK_LIMIT = 2  # the repeat warning was ignored this many times: take the tools away and ask for a report
 PREVIEW_CHARS = 4000
+THOUGHT_ONLY = ("You used your whole reply on thinking and wrote nothing. Stop thinking: make the next tool "
+                "call now, or give a short answer.")
 THINKING_CHARS = 6000   # of the model's reasoning kept for display (it never enters the context)
 MAX_FOLLOW_UPS = 2
 MAX_ARTIFACT_SAVES = 3  # per artifact per task (appends don't count)
@@ -389,6 +391,11 @@ class Agent:
             if not tools:
                 turn.tool_calls = []  # never store calls we won't answer — breaks history
             self._dedupe_call_ids(turn.tool_calls)
+            keep = getattr(self.llm, "keep_reasoning", None)
+            if keep and turn.tool_calls:
+                keep(turn.tool_calls, str(getattr(turn, "reasoning", "") or ""))  # some APIs want it back
+            for note in getattr(turn, "notes", None) or []:
+                self.host.emit("notice", agent=self.agent_id, level="info", text=note)
             if turn.recovered_tool_calls:
                 self.host.emit("notice", agent=self.agent_id, level="info", text="Recovered tool call from model text")
             thought = str(getattr(turn, "reasoning", "") or "").strip()
@@ -397,6 +404,12 @@ class Agent:
             self.messages.append(turn.as_message())
 
             if not turn.tool_calls or not tools:
+                thought_only = turn.finish_reason == "length" and not turn.content.strip() and tools
+                if thought_only and follow_ups < MAX_FOLLOW_UPS:
+                    # The whole reply went on reasoning: "continue" would only make it think more.
+                    follow_ups += 1
+                    self.messages.append({"role": "user", "content": THOUGHT_ONLY})
+                    continue
                 if not turn.content.strip() and not nudged and steps < max_steps:
                     # Small models sometimes stop silently after a tool result.
                     nudged = True

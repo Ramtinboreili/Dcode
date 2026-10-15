@@ -122,6 +122,7 @@ class AppConfig:
     context_window: int = DEFAULT_CONTEXT_WINDOW
     max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
     stream: bool = True
+    family: str = "auto"  # the model family Dcode shapes requests for (dcode/families.py); auto = from the name
     permissions: dict[str, bool] = field(default_factory=lambda: dict(DEFAULT_PERMISSIONS))
     experimental: dict[str, bool] = field(default_factory=lambda: dict(DEFAULT_EXPERIMENTAL))
     agents: dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_AGENTS))
@@ -147,6 +148,7 @@ class AppConfig:
             "context_window": self.context_window,
             "max_output_tokens": self.max_output_tokens,
             "stream": self.stream,
+            "family": self.family,
             "permissions": dict(self.permissions),
             "experimental": dict(self.experimental),
             "agents": dict(self.agents),
@@ -244,6 +246,7 @@ ENV_KEYS = {
     "reasoning_effort": "REASONING_EFFORT",
     "context_window": "CONTEXT_WINDOW",
     "max_output_tokens": "MAX_OUTPUT_TOKENS",
+    "family": "FAMILY",
 }
 
 
@@ -294,6 +297,13 @@ def clean_models(value: Any) -> dict[str, Any]:
     return clean(value)
 
 
+def clean_family(value: Any) -> str:
+    from .families import FAMILIES  # local import: keeps config importable on its own
+
+    name = str(value or "auto").strip().lower()
+    return name if name in FAMILIES else "auto"
+
+
 def config_from_dict(data: dict[str, Any]) -> AppConfig | None:
     base_url = data.get("base_url")
     api_key = data.get("api_key")
@@ -312,6 +322,7 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig | None:
         context_window=_int(data.get("context_window"), DEFAULT_CONTEXT_WINDOW, 2048),
         max_output_tokens=_int(data.get("max_output_tokens"), DEFAULT_MAX_OUTPUT_TOKENS, 256),
         stream=bool(data.get("stream", True)),
+        family=clean_family(data.get("family")),
         permissions=_merge_defaults(data.get("permissions"), DEFAULT_PERMISSIONS),
         experimental=_merge_defaults(data.get("experimental"), DEFAULT_EXPERIMENTAL),
         agents=_merge_defaults(data.get("agents"), DEFAULT_AGENTS),

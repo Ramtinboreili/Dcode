@@ -21,7 +21,7 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("DCODE_HOME", str(home))
     monkeypatch.chdir(work)
     for var in ("BASE_URL", "API_KEY", "MODEL", "REASONING_EFFORT", "CONTEXT_WINDOW", "MAX_OUTPUT_TOKENS",
-                "WORKSPACE", "ALLOW_OUTSIDE_WORKSPACE", "NO_UI"):
+                "WORKSPACE", "ALLOW_OUTSIDE_WORKSPACE", "NO_UI", "FAMILY"):
         monkeypatch.delenv(f"DCODE_{var}", raising=False)
         monkeypatch.delenv(f"CODE_ONE_{var}", raising=False)
     from dcode import tools
