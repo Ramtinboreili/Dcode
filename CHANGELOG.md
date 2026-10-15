@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased — every model family, its own way
+
+GLM, DeepSeek, Claude, GPT, Gemini, Qwen and the rest each reason and call tools differently. Dcode now detects the family and follows its conventions. Tested with scripted servers only; not yet with the real models.
+
+### Model families
+- **Detected from the model name** (and the server URL when the name says nothing): GPT, GPT reasoning (o-series, GPT-5), gpt-oss, Claude, Gemini, Gemini Flash, Gemma, Qwen3, Qwen3-Coder, QwQ, DeepSeek, DeepSeek reasoner (R1), GLM, Kimi, MiniMax, Mistral, Magistral, Llama, Phi, Granite, Command. `/models` shows it; `/models family <name|auto>` or Settings → Model → Model family overrides it (for a fine-tune whose name says nothing).
+- **Reasoning effort, the family's way:** `reasoning_effort` for GPT, gpt-oss and Gemini; the chat-template switch (`enable_thinking`, `thinking`) for Qwen3, GLM and DeepSeek on vLLM, SGLang and llama.cpp; `think` on Ollama; a thinking budget for Claude on Anthropic's API; `reasoning` on OpenRouter. Effort `none` now really switches thinking off where the model allows it. Titles, commit messages, summaries and the router ask for no thinking.
+- **Learned from the server's errors** instead of failing: a field it refuses, `max_completion_tokens` instead of `max_tokens`, reasoning it wants back during a tool loop (DeepSeek, Kimi), Gemini's thought signatures, Mistral's 9-character tool call ids, a template without a system role, strict user/assistant turns, and a server that takes no tools at all (vLLM without `--enable-auto-tool-choice`, Ollama models without tool support). Then the tools are described in the prompt and the calls are read back from text. A context overflow teaches nothing.
+- **Tool calls written as text** are read in every family's format: Hermes/Qwen, Qwen3-Coder XML, GLM `arg_key`, DeepSeek tool tokens and DSML, MiniMax `<invoke>`, Kimi `functions.x:0`, Mistral `[TOOL_CALLS]`, Llama `<function=…>` and `<|python_tag|>`, Gemma `tool_code`, gpt-oss channels, fenced or bare JSON. Other agents' tool names (`bash`, `str_replace`, `functions.read_file:0`) and argument names (`file_path`, `old_string`, `offset`/`limit`, `cmd`) are mapped, and arguments get their schema types (`"false"` is no longer true).
+
+### Too much reasoning
+- Reasoning that runs past most of the reply budget, or in circles, is cut off and the request is sent again with less thinking. A reply that was all thinking gets "stop thinking, act now", not "continue".
+- `<think>` text never shows in the live answer, and reasoning before a lone `</think>` (Qwen3, R1 and QwQ templates open the block in the prompt) or in gpt-oss's analysis channel stays out of the answer.
+
+### Shell commands
+- One shape for every model: `["bash", "-lc", "…"]`, lists, fenced blocks, `$ ` prompts, `workdir`, `timeout_ms` and a trailing `&` (started as a background job).
+- Commands run in bash with no input, no pager, no colours and no editor prompts; a timeout stops the whole process group.
+- Commands that never end or wait for keys without a terminal (`tail -f`, `logs -f`, `kubectl -w`, `watch`, `ping` without `-c`, editors, a bare `python3` or `psql`) are refused with what to run instead.
+- The same command failing the same way three times in a row is stopped, like other repeated calls.
+
+### Tests
+- Every slash command is run by `tests/test_slash_commands.py` (all 41 are handled; menus answered from a script) and in a real terminal by `docs/dev/terminal_e2e.py` (98 checks, up from 64). That found one bug: Esc did nothing in `/setup`, so the next message became the server URL.
+
 ## 0.6.0 — more than one model, and the first fixes from real local models
 
 Tested with real local models for the first time (vLLM: `gemma4:31b` and `diffusiongemma-26B-A4B-it`, 16K context). Linux packages are in `builds/linux-amd64/`.

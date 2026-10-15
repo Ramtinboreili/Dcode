@@ -13,6 +13,6 @@ Developer and project documentation. For **end users**, the bilingual user guide
 | [memory.md](memory.md) | What we know about the owner's preferences, environment and working agreements |
 | [presentation.html](presentation.html) | **Feature presentation** (0.6.0) — 26 slides, self-contained and offline (← → / space, F fullscreen, O overview, `?overview`, prints to PDF). Source: `presentation/` (`python docs/presentation/build.py`) |
 | [claude-memory/](claude-memory/README.md) | Claude Code's memory files for this project, with steps to restore them on another machine |
-| [dev/](dev/) | Test tools: `mock_llm.py` (scripted model), `terminal_e2e.py` (64 pty checks), `screen.py` (pyte renderer) |
+| [dev/](dev/) | Test tools: `mock_llm.py` (scripted model), `terminal_e2e.py` (98 pty checks), `screen.py` (pyte renderer) |
 
 Also see [`../CLAUDE.md`](../CLAUDE.md) (instructions for AI agents working on this repo), [`../CHANGELOG.md`](../CHANGELOG.md) and [`../README.md`](../README.md).

@@ -40,6 +40,14 @@ Why Dcode is built the way it is. Each decision gives the choice and the reason;
 - **The context budget follows the model that runs the task.** A 16K reasoning model given a 32K history must compact first, not fail at the server.
 - **No new tool and no prompt text.** The model never sees the routing, so it costs no context.
 
+## Model families
+- **Detect from the name, then learn from the server.** A name says the family, but not which server options a deployment accepts. So the family picks the first request's shape, and every refused field or message shape is learned from the error and not sent again. Hosted APIs and local servers both work without per-server settings.
+- **Parse every text format, always.** Family detection only shapes requests. Tool calls written as text are read in all known formats whatever the family, because the formats don't overlap and a wrong guess must never lose a call.
+- **Reasoning goes back only when the API demands it** (DeepSeek reasoner, Kimi thinking, or an error asking for it), only for the current task, and only in the request copy. The stored history never holds reasoning: it costs context and other models would read it.
+- **Thinking is cut, not trusted.** Reasoning past most of the reply cap or in circles is stopped and asked again with less effort. A small context can't afford a reply that is all thinking.
+- **Refuse what can't work without a terminal** (follow modes, watch, ping, editors, bare REPLs) instead of running it into the timeout; pagers and `top` are left alone because without a terminal they print once.
+- **Commands run in bash.** Models write bash; `/bin/sh` is dash on Debian and Ubuntu.
+
 ## Architecture
 - **The engine has no I/O.** It reports through a `Host` (events and approvals). That's what lets the terminal and the web UI drive the *same* session, and what makes the engine testable with a fake LLM.
 - **Approvals: the first answer wins.** Either surface can answer. The session raises an "attention" ping to close the terminal prompt only when the *web* answers. Pinging on the request itself closed the menu the terminal was about to open.

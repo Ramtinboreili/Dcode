@@ -26,7 +26,10 @@ dcode (terminal) ──┐                         ┌── browser (per OS use
 | `session.py` | `Session`: worker thread and queue, `EventBus` with replay, approvals (first answer wins; once or for the session), modes, plan approval, `/compact`, undo, auto titles, thread autosave, jobs |
 | `engine.py` | `Agent`: the loop, tool dispatch, approvals by mode, delegation, context compaction, follow-through checks, end-of-task report, activity tracking, artifact dedupe, checkpoints |
 | `agents.py` | prompts, roles, role tool sets, modes, extra tool schemas (delegate, memory, artifacts, skills, jobs) |
-| `llm.py` | `LLMClient`: streaming and non-streaming, learned server quirks, `<think>` stripping, text tool-call recovery, tool-name cleaning, `finish_reason` |
+| `llm.py` | `LLMClient`: streaming and non-streaming, request shaping per family, what the server taught it (`_learned`), runaway-reasoning cut-off, `<think>` stripping, tool-name and argument cleaning, `finish_reason` |
+| `families.py` | model families: `detect()` from the name and server, `request_extras()` turns `reasoning_effort` into the family's own fields |
+| `toolcalls.py` | tool calls written as text, in every family's format (`parse`) |
+| `shell.py` | `run_command` the same for every model: `clean_command`, `refusal` (no terminal), `run` (bash, no stdin, process-group timeout) |
 | `models.py` | more than one model: named profiles (own server, window, key), `ModelPool` (profile → config + client, clients reused), the task router (`decide`, `heuristic_route`) |
 | `context.py` | `TokenCounter` (calibrated heuristic), `ContextBudget`, `compact()` (elide → summarize → drop) |
 | `tools.py` | sandboxed file/shell/git tools, terse schemas, output caps scaled by `configure_limits()` |
@@ -75,6 +78,15 @@ dcode (terminal) ──┐                         ┌── browser (per OS use
 - **Routing** happens in `Session._run_task`, once per task: `models.decide()` asks the utility model for one word (HARD or EASY) when one is set, else uses keywords, error traces and length. Short follow-ups keep the previous task's model. Plan mode and the "plan approved" task are never routed.
 - **The swap:** `Agent.use(config, llm)` switches the client, the context budget and the tool output caps for that task; the history stays. Afterwards the session switches back to its *current* main config. A `route` event tells both UIs.
 - **Helpers** resolve their model through `host.models` (the pool), so a helper gets the right window as well as the right server.
+
+## Model families
+
+Each family reasons and calls tools its own way. `families.detect(model, base_url, override)` returns a `Family`; `LLMClient` reads it on every request (so `/model` and `/models family` take effect at once).
+
+- **Request:** `_shape()` adds the family's reasoning fields (`request_extras`), picks `max_tokens` or `max_completion_tokens`, and `_prepare()` rewrites a *copy* of the history when the API needs it: reasoning back on the steps of the current task (DeepSeek reasoner, Kimi thinking), 9-character call ids (Mistral), no system role, strict turn order, Gemini signatures, or tools as text.
+- **Learning:** `_learn()` reads a rejected request's error and changes one thing (drop a field, rename one, change the history's shape, switch to text tools), then the request goes again, at most six times. What a server refuses carries over to other models on it; what a model needs resets when the model changes. Context overflows and missing models teach nothing.
+- **Reasoning:** while streaming, reasoning that passes 75% of the reply cap or repeats itself raises `_Overthinking`; `chat()` asks again one effort lower (straight to none for a loop), at most twice, only for families where effort changes anything. The `notes` on the turn become info notices.
+- **Text tool calls** are parsed for every family (`toolcalls.parse`), whatever was detected: a wrong guess must never lose a call. The engine then maps argument names (`tools.normalize_call`, before approval) and `llm.coerce_arguments` gives each its schema type.
 
 ## Approvals and modes
 

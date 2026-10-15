@@ -2,7 +2,7 @@
 
 Three layers. Run the first always, the second for any terminal or packaging change, and the third when layout or colors matter.
 
-## 1. Unit tests (`tests/`, about 271 tests, about 45 s)
+## 1. Unit tests (`tests/`, about 426 tests, about 60 s)
 
 ```bash
 .venv/bin/python -m pytest -q
@@ -21,6 +21,7 @@ Three layers. Run the first always, the second for any terminal or packaging cha
   - `test_hub_child_env_does_not_reuse_parent_unpack_dir`
   - `test_edit_file_tolerates_the_space_after_the_line_number` (the first bug a real local model found)
   - `test_a_model_stuck_on_one_failing_edit_is_stopped`
+  - `test_esc_leaves_a_one_line_prompt` (found by the pty check: Esc did nothing in `/setup`)
 
 | File | Covers |
 |---|---|
@@ -29,6 +30,11 @@ Three layers. Run the first always, the second for any terminal or packaging cha
 | `test_context.py` | token counter, elision, compaction keeps tool pairs valid |
 | `test_memory.py` | memory store and BM25 |
 | `test_llm.py` | text tool-call recovery, `<think>`, markup cleaning |
+| `test_families.py` | family detection from model names and servers, reasoning fields per family and server |
+| `test_toolcalls.py` | every family's text tool-call format, prose and unknown tools left alone |
+| `test_llm_client.py` | `LLMClient` against a scripted API: fields per family, learning from refusals (fields, `max_completion_tokens`, text tools, system role, turn order, call ids, reasoning back), the reasoning cut-off, `<think>` kept off the screen, argument types |
+| `test_shell.py` | command shapes, commands refused without a terminal, bash, no stdin, ANSI stripped, process-group timeouts, other agents' argument names |
+| `test_slash_commands.py` | every slash command through the terminal's dispatcher, menus answered from a script |
 | `test_engine.py` | loop, approvals, parallel helpers, repeat guard, step limit, reports, id dedupe |
 | `test_session.py` | queue, approvals from either surface, interrupt repair, titles, allow-for-session |
 | `test_modes.py` | modes, checkpoints/undo, force compact, plan flow |
@@ -48,7 +54,7 @@ Three layers. Run the first always, the second for any terminal or packaging cha
 
 ## 2. Real-terminal end-to-end (`docs/dev/terminal_e2e.py`)
 
-Drives the real `dcode` in a pseudo-terminal against **`docs/dev/mock_llm.py`**, a scripted OpenAI-compatible server. Its docstring lists the trigger words for each scenario. 64 checks, covering:
+Drives the real `dcode` in a pseudo-terminal against **`docs/dev/mock_llm.py`**, a scripted OpenAI-compatible server. Its docstring lists the trigger words for each scenario. 98 checks, covering every slash command and:
 - the web UI link and hub, the bilingual guide
 - streaming and `<think>` stripping, tool calls, `/version`, Shift+Tab
 - approvals answered from the web and in the terminal
