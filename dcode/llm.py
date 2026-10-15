@@ -188,6 +188,9 @@ class _VisibleText:
 
     def feed(self, delta: str) -> str:
         self.full += delta
+        if "<" not in self.full:  # the usual case: nothing to hold back, no rescan
+            self.sent = len(self.full)
+            return delta
         visible = _THINK_RE.sub("", self.full)
         cut = visible.lower().find("<think>")
         if cut >= 0:
