@@ -60,11 +60,12 @@ class Terminal:
     def text(self) -> str:
         return ANSI.sub("", self.buf)
 
-    def expect(self, pattern: str, timeout: float = 12) -> re.Match | None:
+    def expect(self, pattern: str, timeout: float = 12, since: int = 0) -> re.Match | None:
+        """Wait for the pattern on screen (``since`` = only in output after that text position)."""
         end = time.time() + timeout
         while time.time() < end:
             self.read(0.2)
-            match = re.search(pattern, self.text())
+            match = re.search(pattern, self.text()[since:])
             if match:
                 return match
         return None
@@ -83,6 +84,8 @@ def main() -> int:
     work = tmp / "work"
     work.mkdir()
     (work / "app.py").write_text("print('hi')\n")
+    subprocess.run("git init -q . && git add -A && git -c user.name=e2e -c user.email=e2e@local commit -qm init",
+                   shell=True, cwd=work, check=True)  # /diff, /review and /commit need a repository
     import sqlite3
 
     stock = sqlite3.connect(work.parent / "stock.db")  # a real database for the /db checks
@@ -311,6 +314,58 @@ def main() -> int:
         check("re-save loop capped, one artifact", term.expect(r"already saved — skipped", timeout=20))
         _, artifacts = hub("GET", "/api/artifacts")
         check("no 'Untitled' artifacts", not any(a["title"] == "Untitled" for a in artifacts))
+        # Every other slash command, in the real terminal: menus open and close, commands answer.
+        def command(text: str, pattern: str, keys: bytes = b"", timeout: float = 12) -> bool:
+            since = len(term.text())
+            term.send(text + "\r")
+            found = term.expect(pattern, timeout, since)
+            if keys:
+                term.read(0.4)
+                term.send(keys)
+                term.read(0.6)
+            return bool(found)
+
+        esc = b"\x1b"
+        check("/help lists the commands", command("/help", r"/models[\s\S]*/export[\s\S]*/exit"))
+        check("/mode opens its menu", command("/mode", r"Mode[\s\S]*plan — read-only", esc))
+        check("/mode plan", command("/mode plan", r"Mode: plan — read-only"))
+        check("/mode auto", command("/mode auto", r"Mode: auto — never ask"))
+        check("/model picks a model and an effort", command("/model", r"mock-coder-7b", b"\r")
+              and term.expect(r"Reasoning effort", 6) and (term.send(b"\r") or True)
+              and term.expect(r"Model: mock-coder-7b · reasoning: \w+", 6))
+        check("/context shows usage and its menu", command("/context", r"Context: ~[\d,]+ / 16,384 tokens", esc))
+        check("/remember saves a memory", command("/remember the e2e server is a mock", r"Saved memory the-e2e-server"))
+        check("/memory lists it", command("/memory", r"the-e2e-server-is-a"))
+        check("/permissions opens its checklist", command("/permissions", r"run shell commands", esc))
+        check("/experimental opens its checklist", command("/experimental", r"auto_commit", esc))
+        check("/skills opens its checklist", command("/skills", r"Skills", esc))
+        check("/agents lists the helpers", command("/agents", r"@explore[\s\S]*@review"))
+        check("/hooks", command("/hooks", r"No hooks"))
+        check("/stats", command("/stats", r"usage"))
+        check("/notify bell", command("/notify bell", r"terminal bell"))
+        check("/notify off", command("/notify off", r"Notifications are off"))
+        check("/jobs", command("/jobs", r"No background jobs"))
+        check("/artifacts opens its menu", command("/artifacts", r"Artifacts — enter opens", esc))
+        check("/diff shows the changes", command("/diff", r"app\.py"))
+        check("/review runs the reviewer", command("/review", r"◆ review", timeout=20) and term.expect(r"Done in"))
+        check("/commit writes a message and asks", command("/commit", r"Commit all changes with this message\?",
+                                                         esc, timeout=20))
+        check("/commit with a message commits", command("/commit e2e change", r"Commit all changes", b"\r")
+              and term.expect(r"e2e change", 8))
+        check("/diff after the commit", command("/diff", r"No uncommitted changes"))
+        check("/init starts the AGENTS.md task", command("/init", r"write AGENTS\.md[\s\S]*✓ Done in", timeout=30))
+        check("/undo", command("/undo", r"Undid “|Nothing to undo"))
+        check("/redo", command("/redo", r"Brought back “|Nothing to redo"))
+        check("/rename", command("/rename e2e chat", r"Chat renamed: e2e chat"))
+        check("/guide", command("/guide", r"Guide \(English / فارسی\)"))
+        check("/ui", command("/ui", r"Web UI\s+.*http://127\.0\.0\.1"))
+        check("/setup can be left with Esc", command("/setup", r"Dcode setup", esc)
+              and command("say still alive", r"Echo: say still alive"))
+        check("/reset starts a fresh chat", command("/reset", r"Chat new"))
+        check("/clear starts a fresh chat", command("/clear", r"Chat new"))
+        check("/version", command("/version", r"Dcode\s+\d+\.\d+\.\d+ +· mock-coder-7b"))
+        term.send("say hello again\r")
+        term.expect(r"Echo: say hello again")
         term.send("/export html\r")
         exported = term.expect(r"Exported this chat \([\d,]+ characters\) to dcode-[\w-]+\.html")
         page = next(iter(work.glob("dcode-*.html")), None)
@@ -341,10 +396,9 @@ def main() -> int:
         term.read(0.4)
         term.send("\r")
         check("/sessions continues the picked chat", term.expect(r"Chats — enter[\s\S]*Continuing “[^”]+”[\s\S]*▎ "))
-        term.send(b"\x03")
-        term.expect(r"Press Ctrl\+C again to exit", timeout=3)
-        term.send(b"\x03")
-        term.expect(r"Bye\.", timeout=8)
+        since = len(term.text())
+        term.send("/exit\r")
+        check("/exit", term.expect(r"Bye\.", timeout=8, since=since))
     finally:
         try:
             os.kill(term.pid, 9)
