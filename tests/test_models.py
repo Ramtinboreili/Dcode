@@ -282,3 +282,32 @@ def test_models_command_in_the_terminal(isolated):
         assert saved.models["profiles"] == {} and saved.models["reasoning"] == "" and saved.agents["helper_model"] == ""
     finally:
         session.close()
+
+
+def test_the_model_family_in_the_terminal_and_the_settings(isolated, stack):
+    from dcode import ui
+    from dcode.cli import TerminalApp
+    from dcode.config import load_config
+
+    config = make_config(model="my-finetune")
+    session = Session(config, llm=FakeLLM(scripted(), config))
+    app = TerminalApp(session)
+    try:
+        with ui.console.capture() as capture:
+            app._command("/models")
+            app._command("/models family glm")
+            app._command("/models family nonsense")
+        shown = capture.get()
+        assert "family     Other · reasoning: reasoning_effort" in shown
+        assert "Main model: GLM (set by you) · reasoning: chat-template switch" in shown
+        assert "Families: auto, openai," in shown
+        assert load_config().family == "glm"
+        app._command("/models family auto")
+        assert load_config().family == "auto"
+    finally:
+        session.close()
+    _, data, _ = req(stack, "GET", "/api/config")
+    assert {"key": "qwen", "label": "Qwen3"} in data["families"] and data["family"] == "auto"
+    assert data["family_detected"].startswith("Other")
+    assert req(stack, "PUT", "/api/config", {"family": "deepseek"})[0] == 200
+    assert load_raw_config()["family"] == "deepseek"

@@ -99,7 +99,7 @@ COMMANDS: dict[str, str] = {
     "/guide": "Open the user guide in your browser (English / فارسی)",
     "/ui": "Open the web UI in your browser",
     "/model": "Switch model + reasoning effort",
-    "/models": "More models: one for reasoning, helpers, small jobs: /models [add|rm|reasoning|route …]",
+    "/models": "More models: one for reasoning, helpers, small jobs: /models [add|rm|reasoning|route|family …]",
     "/agents": "List helpers (use one with @name) · /agents settings",
     "/context": "Context window + usage",
     "/stats": "Usage numbers: tasks, tokens, time, tools: /stats [days]",

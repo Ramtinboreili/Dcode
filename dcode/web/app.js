@@ -1305,7 +1305,7 @@
   function lockable(key, el) {
     if (!(S.cfg?.env_locked || []).includes(key)) return el;
     $$("input,button", el).forEach((x) => (x.disabled = true));
-    if (el.tagName === "INPUT") el.disabled = true;
+    if (el.tagName === "INPUT" || el.tagName === "SELECT") el.disabled = true;
     return h("div", {}, el, h("div", { class: "help lock" }, icon("lock"), `Set by DCODE_${key.toUpperCase()} in the environment`));
   }
 
@@ -1367,7 +1367,9 @@
           field("Model name", lockable("model", h("div", { class: "with-btn" }, textInput(c.model, (v) => (c.model = v), { list: "model-options" }), fetchBtn))),
           models,
           field("Reasoning effort", lockable("reasoning_effort", seg(c.reasoning_efforts || ["none", "low", "medium", "high"], c.reasoning_effort, (v) => (c.reasoning_effort = v))),
-            help("Servers that don't support this are detected automatically.")),
+            help("Dcode sends it the way the model's family expects. Fields a server refuses are dropped automatically.")),
+          field("Model family", lockable("family", familySelect(c)),
+            help(`Each family reasons and calls tools its own way. Detected: ${c.family_detected || "unknown"}. Pick one only when the name doesn't say, e.g. a fine-tune.`)),
           h("div", { class: "grid2" },
             field("Context window", lockable("context_window", textInput(c.context_window, (v) => (c.context_window = v), { type: "number", min: 2048, step: 1024 })),
               help("In tokens. Match your server, e.g. 32768.")),
@@ -1540,6 +1542,15 @@
       u.projects.length ? section("By project", null, bars(u.projects, (r) => r.tasks, (r) => `${r.tasks} · ${spent(r.seconds)}`)) : "",
       u.tools.length ? section("Most used tools", null, bars(u.tools, (r) => r.calls, (r) => String(r.calls))) : "");
   }
+  function familySelect(c) {
+    const el = h("select", { class: "select", style: "max-width:260px" },
+      h("option", { value: "auto" }, "Auto (from the model name)"),
+      ...(c.families || []).map((f) => h("option", { value: f.key }, f.label)));
+    el.value = c.family || "auto";
+    el.addEventListener("change", () => (c.family = el.value));
+    return el;
+  }
+
   function modelsSection(c) {
     c.models ||= {};
     c.models.profiles ||= {};
@@ -1686,7 +1697,7 @@
   $("#settings-save").addEventListener("click", async () => {
     const c = { ...S.cfg };
     if (!c.api_key || c.api_key.includes("•")) delete c.api_key;
-    for (const k of [...(c.env_locked || []), "has_api_key", "reasoning_efforts", "env_locked"]) delete c[k];
+    for (const k of [...(c.env_locked || []), "has_api_key", "reasoning_efforts", "env_locked", "families", "family_detected"]) delete c[k];
     try {
       const r = await api("PUT", "/api/config", c);
       toast(r.sessions_reloaded ? `Saved · ${r.sessions_reloaded} live session${r.sessions_reloaded > 1 ? "s" : ""} updated` : "Saved");

@@ -262,3 +262,14 @@ def test_helpers_on_another_model_do_not_inherit_the_main_family():
     assert llm.family.key == "qwen"
     helper = llm.with_model("llama3.1:8b")
     assert helper.family.key == "llama"
+
+
+def test_switching_models_keeps_what_the_server_refused_but_not_what_the_model_needed():
+    llm, api = client(Rejected("Unrecognized request argument supplied: reasoning_effort"),
+                      Rejected("Missing reasoning_content in the assistant message"), reply("a"), reply("b"),
+                      model="my-model", base_url="http://gw/v1")
+    llm.chat([{"role": "user", "content": "hi"}])
+    assert llm._learned["echo"] is True and "reasoning_effort" in llm._learned["rejected"]
+    llm.config.model = "other-model"  # /model
+    llm.chat([{"role": "user", "content": "hi"}])
+    assert "echo" not in llm._learned and "reasoning_effort" in llm._learned["rejected"]

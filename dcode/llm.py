@@ -344,6 +344,7 @@ class LLMClient:
         self._learned: dict[str, Any] = {"rejected": set()}
         self._thoughts: dict[str, str] = {}  # first tool call id -> the reasoning that led to it
         self._notes: list[str] = []
+        self._learned_for = config.model
 
     @property
     def model(self) -> str:
@@ -367,11 +368,14 @@ class LLMClient:
         if model != self.config.model and hasattr(self.config, "family"):
             changes["family"] = "auto"  # another model: the main model's family doesn't carry over
         clone.config = dataclasses.replace(self.config, **changes)
-        # What a server refuses holds for every model on it; what a model needs is its own.
-        clone._learned = {"rejected": set(self._learned["rejected"]), "max_key": self._learned.get("max_key"),
-                          "text_tools": self._learned.get("text_tools")}
-        clone._thoughts, clone._notes = {}, []
+        clone._learned, clone._thoughts, clone._notes = self._server_lessons(), {}, []
+        clone._learned_for = model
         return clone
+
+    def _server_lessons(self) -> dict[str, Any]:
+        """What a server refuses holds for every model on it; what a model needs is its own."""
+        return {"rejected": set(self._learned["rejected"]), "max_key": self._learned.get("max_key"),
+                "text_tools": self._learned.get("text_tools")}
 
     def keep_reasoning(self, tool_calls: list[dict[str, Any]], reasoning: str) -> None:
         """Remember the reasoning behind a step (by its final call id), for the families that want it back."""
@@ -486,6 +490,8 @@ class LLMClient:
     def _create(self, effort: str | None = None, max_tokens: int | None = None, **kwargs: Any) -> Any:
         """Send one request; when the server rejects a field or a message shape, adjust and send again."""
         effort = effort or self.config.reasoning_effort
+        if self.config.model != self._learned_for:  # /model switched models on this client
+            self._learned, self._thoughts, self._learned_for = self._server_lessons(), {}, self.config.model
         for _ in range(6):
             body, request = self._shape(kwargs, effort, max_tokens)
             try:

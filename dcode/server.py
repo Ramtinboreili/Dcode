@@ -57,6 +57,8 @@ from .config import (
 )
 from .custom_agents import agents_dir, load_specs, save_spec
 from .custom_agents import normalize_name as agent_name
+from .families import FAMILIES
+from .families import describe as describe_family
 from .hooks import clean as clean_hooks
 from .memory import SCOPES, _parse, slugify, write_memory
 from .rules import _clean as _clean_rules
@@ -621,6 +623,8 @@ class Hub:
                 if spec.get("api_key"):
                     spec["api_key"] = _mask(spec["api_key"])
             data["reasoning_efforts"] = REASONING_EFFORTS
+            data["families"] = [{"key": k, "label": f.label} for k, f in FAMILIES.items() if k != "generic"]
+            data["family_detected"] = describe_family(str(data.get("model") or ""), str(data.get("base_url") or ""))
             return handler._json(data)
         if path == "/api/stats":
             from . import stats
@@ -682,7 +686,7 @@ class Hub:
     def _api_mutate(self, handler: _Handler, method: str, path: str, body: dict[str, Any]) -> None:
         if path == "/api/config" and method == "PUT":
             raw = load_raw_config()
-            for key in ("base_url", "model", "reasoning_effort", "context_window", "max_output_tokens", "stream"):
+            for key in ("base_url", "model", "reasoning_effort", "context_window", "max_output_tokens", "stream", "family"):
                 if key in body:
                     raw[key] = body[key]
             if body.get("api_key") and "•" not in str(body["api_key"]):

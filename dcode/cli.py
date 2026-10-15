@@ -21,6 +21,8 @@ from . import __version__, ui
 from .agents import MODE_LABELS, MODE_SHORT, MODES
 from .config import REASONING_EFFORTS, list_skill_files, list_threads, save_config
 from .engine import git_summary
+from .families import FAMILIES
+from .families import describe as describe_family
 from .models import ROUTES as MODEL_ROUTES
 from .models import clean_models
 from .session import ALWAYS_ASK_KINDS, Session
@@ -1274,6 +1276,16 @@ class TerminalApp:
             self._save()
             ui.notice(f"Removed {words[1]}.", "success")
             return
+        if action == "family" and len(words) <= 2:
+            if len(words) == 2:
+                choice = words[1].lower()
+                if choice != "auto" and choice not in FAMILIES:
+                    ui.notice("Families: auto, " + ", ".join(k for k in FAMILIES if k != "generic"), "warning")
+                    return
+                cfg.family = choice
+                self._save()
+            ui.notice("Main model: " + describe_family(cfg.model, cfg.base_url, cfg.family), "info")
+            return
         if action in ("reasoning", "utility", "helpers") and len(words) == 2:
             value = "" if words[1].lower() in ("none", "main", "off") else words[1]
             if action == "helpers":
@@ -1284,7 +1296,8 @@ class TerminalApp:
             action = ""
         if action:
             ui.notice("Usage: /models · /models add <name> <model> [server-url] [context] · /models rm <name> · "
-                      "/models reasoning|utility|helpers <name|none> · /models route auto|off|always", "warning")
+                      "/models reasoning|utility|helpers <name|none> · /models route auto|off|always · "
+                      "/models family [name|auto]", "warning")
             return
         ui.console.print(f"{ui.PAD}[bold]Models[/]")
         for job, what in session.models.describe():
@@ -1292,6 +1305,8 @@ class TerminalApp:
         routes = {"auto": "auto: hard tasks go to the reasoning model", "off": "off: everything on the main model",
                   "always": "always: every task on the reasoning model"}
         ui.console.print(f"{ui.PAD}  {'routing':<10} {routes[session.route]}", highlight=False)
+        family = describe_family(cfg.model, cfg.base_url, cfg.family)
+        ui.console.print(f"{ui.PAD}  {'family':<10} {ui._escape(family)}", highlight=False)
         if settings["profiles"]:
             ui.console.print(f"{ui.PAD}[{MUTED}]Profiles: {ui._escape(', '.join(settings['profiles']))}[/]")
         hint = ui._escape("Add one: /models add <name> <model> [server-url] [context]. API keys: Settings in the web UI.")
