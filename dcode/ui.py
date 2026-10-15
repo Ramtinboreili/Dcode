@@ -76,6 +76,10 @@ class PromptInterrupted(Exception):
     """The prompt was closed from another thread (e.g. the web UI took action)."""
 
 
+class PromptCancelled(PromptInterrupted):
+    """Esc in a one-line prompt (a wizard, a name, an answer): leave without an answer."""
+
+
 COMMANDS: dict[str, str] = {
     "/help": "Show commands",
     "/clear": "Clear the screen and start a fresh chat (the old one is saved)",
@@ -285,9 +289,16 @@ def interrupt_prompt() -> None:
 def _render_prompt_input(field: str | None, default: str, password: bool, completer: Completer | None) -> str:
     if field:
         console.print(f"[bold]{field}[/]")
+    keys = KeyBindings()
+
+    @keys.add("escape", eager=True)
+    def _cancel(event: Any) -> None:
+        event.app.exit(exception=PromptCancelled())
+
     with _prompt_lock, patch_stdout(raw=True):
         return _prompt_session().prompt(
             [("class:prompt", "❯ ")],
+            key_bindings=keys,
             default=default,
             is_password=password,
             style=_PROMPT_STYLE,
@@ -767,7 +778,10 @@ def question_prompt(question: str, options: Sequence[str]) -> str:
     if result is None:
         answer = ""
     elif choices[result] == typed:
-        answer = prompt_input("Your answer")
+        try:
+            answer = prompt_input("Your answer")
+        except PromptCancelled:
+            answer = ""
     else:
         answer = choices[result]
     shown = answer or "skipped — Dcode will decide"

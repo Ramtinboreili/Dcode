@@ -417,7 +417,8 @@ class TerminalApp:
             if not self._mine(event, "by"):  # the terminal's own /sessions prints its line and a recap
                 ui.notice(f"Continuing “{event.get('name')}” (picked in {SURFACES.get(event.get('by'), 'the web UI')})", "info")
         elif kind == "thread" and event.get("action") != "title":  # titles show in the status line
-            ui.notice(f"Chat {event.get('action')}: {event.get('name')}", "info")
+            action = {"rename": "renamed"}.get(str(event.get("action")), event.get("action"))
+            ui.notice(f"Chat {action}: {event.get('name')}", "info")
 
     # --- slash commands -----------------------------------------------------------------------
     def _command(self, text: str) -> str | None:

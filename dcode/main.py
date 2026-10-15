@@ -179,7 +179,11 @@ def cli(ctx: click.Context, setup: bool, base_url: str | None, api_key: str | No
         base_url = _normalize_base_url(base_url)
     config = load_config()
     if setup or not config:
-        config = run_setup(base_url, api_key, model)
+        try:
+            config = run_setup(base_url, api_key, model)
+        except (KeyboardInterrupt, ui.PromptInterrupted):
+            ui.console.print("\nSetup cancelled. Run dcode again when you have the server address.")
+            raise SystemExit(1) from None
     else:
         changed = False
         for key, value in (("base_url", base_url), ("api_key", api_key), ("model", model),

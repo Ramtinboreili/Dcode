@@ -208,3 +208,21 @@ def test_help_keeps_the_square_brackets():
         ui.show_help()
     shown = capture.get()
     assert "/compact [focus]" in shown and "[md|html|json]" in shown and "/stats [days]" in shown
+
+
+def test_esc_leaves_a_one_line_prompt(monkeypatch):
+    """Found by the pty check: Esc did nothing in /setup, so the next message became the server URL."""
+    import pytest
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from dcode import ui
+
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        monkeypatch.setattr(ui, "_PROMPT_SESSION", None)
+        pipe.send_text("\x1b")
+        with pytest.raises(ui.PromptCancelled):
+            ui.prompt_input("Base URL")
+        pipe.send_text("typed\r")
+        assert ui.prompt_input("Name") == "typed"
