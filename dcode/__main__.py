@@ -15,6 +15,11 @@ def main() -> None:
         from .headless import main as run_task
 
         sys.exit(run_task(sys.argv[2:]))
+    if sys.argv[1:2] == ["manager"]:
+        # The team's model gateway and its web UI: a server, standard library only.
+        from .manager.cli import main as manage
+
+        sys.exit(manage(sys.argv[2:]))
     if sys.argv[1:2] == ["acp"]:
         # An editor drives Dcode over stdin/stdout (Agent Client Protocol): no terminal app.
         from .acp import main as serve_editor

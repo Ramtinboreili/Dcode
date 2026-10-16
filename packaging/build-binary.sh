@@ -39,6 +39,7 @@ echo ">> Building single-file binary"
   --hidden-import pymysql \
   --add-data "dcode/web:dcode/web" \
   --add-data "dcode/skills:dcode/skills" \
+  --add-data "dcode/manager/web:dcode/manager/web" \
   dcode_bootstrap.py
 
 echo ">> Done: $(ls -lh dist/dcode | awk '{print $5, $9}')"

@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('dcode/web', 'dcode/web'), ('dcode/skills', 'dcode/skills')]
+datas = [('dcode/web', 'dcode/web'), ('dcode/skills', 'dcode/skills'), ('dcode/manager/web', 'dcode/manager/web')]
 binaries = []
 hiddenimports = ['pg8000', 'pymysql']
 tmp_ret = collect_all('prompt_toolkit')

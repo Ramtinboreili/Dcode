@@ -32,10 +32,10 @@ dev = [
 dcode = "dcode.__main__:main"
 
 [tool.setuptools]
-packages = ["dcode"]
+packages = ["dcode", "dcode.manager"]
 
 [tool.setuptools.package-data]
-dcode = ["web/*", "skills/*.md"]
+dcode = ["web/*", "skills/*.md", "manager/web/*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "dcode.__version__" }

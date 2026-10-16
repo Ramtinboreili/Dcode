@@ -153,6 +153,8 @@ def _thinking_budget(effort: str, max_tokens: int | None) -> int:
 def request_extras(family: Family, server: str, effort: str, max_tokens: int | None = None) -> dict:
     """The fields this family/server pair needs for the chosen reasoning effort (sent in the request body)."""
     effort = effort if effort in EFFORTS else "medium"
+    if server == "manager":  # a Dcode Manager translates for the model's own server
+        return {"reasoning_effort": effort}
     if server == "openrouter":  # one shape for every model behind it ("exclude" only hides the thinking)
         return {"reasoning": {"effort": effort}} if effort != "none" else {"reasoning": {"enabled": False}}
     if family.thinking == "effort":
