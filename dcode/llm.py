@@ -224,6 +224,7 @@ def parse_text_tool_calls(content: str, known: Iterable[str]) -> tuple[str, list
 THINK_SHARE = 0.75        # a reply whose reasoning passes this share of the output cap is cut and asked again
 THINK_RETRIES = 2         # at most this many asks again with less thinking
 LOOP_CHECK_EVERY = 2000   # chars of reasoning between checks for a thought going in circles
+SIDE_JOB_ROOM = 2048      # max_tokens for a side job asked again because its thinking used the whole cap
 BUSY_WAITS = (3, 8, 15)   # seconds to wait on a "rate limited / busy" reply (429, 503) before giving up
 ECHO_CHARS = 8000         # of reasoning sent back to the families whose API asks for it
 _EFFORT_ORDER = ["none", "low", "medium", "high"]
@@ -657,7 +658,15 @@ class LLMClient:
     def complete_text(self, messages: list[dict[str, Any]], max_tokens: int = 800) -> str:
         """One-shot, tool-less completion for side jobs (summaries, titles, routing): no thinking needed."""
         response = self._create(effort="none", max_tokens=max_tokens, model=self.config.model, messages=messages)
-        return strip_thinking(response.choices[0].message.content or "")
+        choice = response.choices[0]
+        text = strip_thinking(choice.message.content or "")
+        if not text.strip() and getattr(choice, "finish_reason", None) == "length":
+            # A model that thinks anyway (GLM 5.3: "reasoning is mandatory") spent the whole cap on it:
+            # once more with room for the thinking, so a title isn't lost to a 60-token cap.
+            response = self._create(effort="none", max_tokens=max(max_tokens * 8, SIDE_JOB_ROOM),
+                                    model=self.config.model, messages=messages)
+            text = strip_thinking(response.choices[0].message.content or "")
+        return text
 
     def list_models(self) -> list[str]:
         response = self.client.models.list()

@@ -323,3 +323,9 @@ def test_a_model_that_must_think_keeps_its_effort_and_other_models_keep_theirs()
     other.client = FakeAPI(reply("t"))
     other.complete_text([{"role": "user", "content": "title"}])
     assert other.client.requests[0]["reasoning"] == {"enabled": False}
+
+
+def test_a_side_job_whose_thinking_used_the_whole_cap_is_asked_again_with_room():
+    llm, api = client(reply("", finish="length", reasoning="Let me think about a title…"), reply("Kubectl rollout fix"))
+    assert llm.complete_text([{"role": "user", "content": "title"}], max_tokens=60) == "Kubectl rollout fix"
+    assert [r["max_tokens"] for r in api.requests] == [60, 2048]
