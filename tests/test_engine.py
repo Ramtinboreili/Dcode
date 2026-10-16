@@ -280,3 +280,22 @@ def test_the_clients_notes_reach_the_screen_and_calls_arrive_cleaned(isolated):
         [e["text"] for e in host.events if e["type"] == "notice"]
     assert [e["args"] for e in host.events if e["type"] == "tool_call"] == [{"path": "a.txt"}]
     assert agent.messages[2]["tool_calls"][0]["function"]["arguments"] == '{"path": "a.txt"}'
+
+
+def test_write_file_will_not_replace_an_unread_file_at_first(isolated):
+    """Gemma 4 on OpenRouter rewrote data.txt and calc.py from memory when only asked to commit them."""
+    (isolated / "data.txt").write_text("3\n42\n7\n")
+    (isolated / "seen.txt").write_text("old\n")
+    blind = call("write_file", json.dumps({"path": "data.txt", "content": "1\n2\n"}))
+    agent, _ = _agent(scripted(
+        AssistantTurn(tool_calls=[blind]),
+        AssistantTurn(tool_calls=[call("read_file", '{"path": "seen.txt"}')]),
+        AssistantTurn(tool_calls=[call("write_file", json.dumps({"path": "seen.txt", "content": "new\n"})),
+                                  call("write_file", json.dumps({"path": "fresh.txt", "content": "x\n"}))]),
+        AssistantTurn(tool_calls=[blind]),  # asked again on purpose: it goes through
+        AssistantTurn(content="done")))
+    agent.run_turn("tidy up")
+    outputs = [m["content"] for m in agent.messages if m["role"] == "tool"]
+    assert outputs[0].startswith("Not written: data.txt already exists and you haven't read it")
+    assert (isolated / "seen.txt").read_text() == "new\n" and (isolated / "fresh.txt").exists()
+    assert (isolated / "data.txt").read_text() == "1\n2\n"

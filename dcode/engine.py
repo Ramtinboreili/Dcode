@@ -151,6 +151,10 @@ class Agent:
         self._artifact_saves: dict[str, int] = {}
         self._repeat: list[str] = []
         self._command_outputs: list[str] = []  # the last outputs of the command being repeated
+        # Files this agent has read or written: write_file on any other existing file is refused once,
+        # so a model can't replace a file it never looked at (Gemma 4 rewrote both files of a task it
+        # was only asked to commit).
+        self._seen_files: set[str] = set()
         self.todos: list[dict[str, str]] = []
         self._db_names: dict[str, str] = {}  # saved connections (name -> engine), refreshed at turn start
         self._db_schemas: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -474,6 +478,7 @@ class Agent:
         for call in calls:
             function = call["function"]
             output = execute_tool(function["name"], parse_arguments(function["arguments"]))
+            self._saw(parse_arguments(function["arguments"]).get("path"))
             self.messages.append({"role": "tool", "tool_call_id": call["id"], "name": function["name"],
                                   "content": output})
         if named:
@@ -772,6 +777,27 @@ class Agent:
         except Exception as exc:  # a tool must never kill the loop
             return f"Tool error: {exc}"
 
+    def _saw(self, path: Any) -> None:
+        try:
+            self._seen_files.add(str(_safe_path(str(path))))
+        except Exception:
+            pass  # the tool itself reports a bad path
+
+    def _unread_overwrite(self, path: str) -> str:
+        """Why write_file must not replace this file yet ("" when it may). Asked once per file: a second
+        write_file on the same path goes through, for when replacing it is really meant."""
+        try:
+            target = _safe_path(path)
+        except Exception:
+            return ""
+        key = str(target)
+        if key in self._seen_files or not target.is_file() or target.stat().st_size == 0:
+            return ""
+        self._seen_files.add(key)
+        return (f"Not written: {path} already exists and you haven't read it, so this would replace all of it. "
+                "Read it first, or use edit_file to change part of it. If replacing it is really intended, "
+                "call write_file again.")
+
     def _session_id(self) -> str:
         return str(getattr(self.host, "id", "") or "")
 
@@ -1068,6 +1094,12 @@ class Agent:
             self.git = git_summary()
             return output
 
+        if name == "write_file":
+            refused = self._unread_overwrite(str(args.get("path", "")))
+            if refused:
+                return refused
+        if name in ("read_file", "edit_file", "write_file"):
+            self._saw(args.get("path"))
         if name in ("write_file", "edit_file", "create_directory"):
             if mode == "manual" and not self._approve("edit_file", self._edit_detail(name, args)):
                 return f"{name} cancelled by user for {args.get('path', '')}"
