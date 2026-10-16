@@ -189,7 +189,7 @@ footer.foot { margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--b
     <svg viewBox="0 0 64 40" class="mark" aria-hidden="true"><path class="frame" d="M11 2H53L62 11V29L53 38H11L2 29V11Z"/><path class="glyph" d="M14 12H19.5C25 12 28 15.6 28 20C28 24.4 25 28 19.5 28H14Z"/><path class="glyph" d="M33 14L39 20L33 26"/><rect class="cursor" x="42" y="25" width="8" height="3.4" rx="1.7"/></svg>
     <h1>The Dcode guide</h1>
     <p class="lead">Dcode is a coding agent that runs in your terminal, with a matching web UI. It works with your own local or private LLMs, and it's built for models with small context windows (32K or less). This guide covers installing it, connecting a model, and day-to-day use.</p>
-    <div class="badges"><span class="badge blue">v0.6.0</span><span class="badge">Air-gapped friendly</span><span class="badge">Terminal + Web UI</span><span class="badge">Any OpenAI-compatible server</span></div>
+    <div class="badges"><span class="badge blue">v0.7.0</span><span class="badge">Air-gapped friendly</span><span class="badge">Terminal + Web UI</span><span class="badge">Any OpenAI-compatible server</span></div>
   </section>
 
   <h2 id="en-what"><span class="num">1</span>What Dcode does</h2>
@@ -211,10 +211,10 @@ dcode --version</pre></div>
   <p>Build on a <strong>connected</strong> machine with the same CPU as the target (PyInstaller doesn't cross-compile), then copy the package and <code>install-airgap.sh</code> over. <code>make packages</code> builds inside an old-Linux container, so that one binary runs on RHEL 8+, Debian 10+ and Ubuntu 20.04+:</p>
   <div class="code"><div class="bar"><span>shell — build machine</span><button>Copy</button></div><pre>make packages  <span class="c"># needs docker → dist/: dcode, .deb, .rpm, .tar.gz, a Docker image, the VS Code .vsix</span>
 make deb       <span class="c"># without docker: binary + .deb for this machine's own OS version</span></pre></div>
-  <div class="code"><div class="bar"><span>shell — air-gapped server</span><button>Copy</button></div><pre>sudo ./install-airgap.sh dcode_0.6.0_amd64.deb        <span class="c"># Debian / Ubuntu</span>
-sudo ./install-airgap.sh dcode-0.6.0-1.x86_64.rpm     <span class="c"># RHEL / Rocky / Alma / Fedora / SUSE</span>
-tar -xzf dcode-0.6.0-linux-x86_64.tar.gz &amp;&amp; ./dcode-0.6.0-linux-x86_64/install.sh   <span class="c"># any Linux, no root needed</span>
-docker load -i dcode-0.6.0-docker-x86_64.tar.gz       <span class="c"># as a container (see packaging/Dockerfile)</span></pre></div>
+  <div class="code"><div class="bar"><span>shell — air-gapped server</span><button>Copy</button></div><pre>sudo ./install-airgap.sh dcode_0.7.0_amd64.deb        <span class="c"># Debian / Ubuntu</span>
+sudo ./install-airgap.sh dcode-0.7.0-1.x86_64.rpm     <span class="c"># RHEL / Rocky / Alma / Fedora / SUSE</span>
+tar -xzf dcode-0.7.0-linux-x86_64.tar.gz &amp;&amp; ./dcode-0.7.0-linux-x86_64/install.sh   <span class="c"># any Linux, no root needed</span>
+docker load -i dcode-0.7.0-docker-x86_64.tar.gz       <span class="c"># as a container (see packaging/Dockerfile)</span></pre></div>
   <div class="callout tip"><span class="ic">💡</span><p>For a build machine without internet, pre-download wheels and run <code>PIP_ARGS="--no-index --find-links ./wheels" make binary</code>.</p></div>
   <h3>From source (any OS with Python 3.10+)</h3>
   <div class="code"><div class="bar"><span>shell</span><button>Copy</button></div><pre>pip install .
@@ -609,7 +609,7 @@ make mac PYTHON=.venv/bin/python   <span class="c"># build + install on macOS</s
 make packages               <span class="c"># Linux: portable binary, .deb, .rpm, .tar.gz, Docker image (needs docker)</span>
 make deb                    <span class="c"># build binary + .deb (Linux build host)</span>
 make test   ·   make lint</pre></div>
-  <footer class="foot">Dcode v0.6.0 · This page works offline. Data lives in <code>~/.dcode</code>.</footer>
+  <footer class="foot">Dcode v0.7.0 · This page works offline. Data lives in <code>~/.dcode</code>.</footer>
 </article>
 
 <!-- ================================================================== -->
@@ -642,10 +642,10 @@ dcode --version</pre></div>
   <p>روی یک سیستم <strong>متصل به اینترنت</strong> با همان پردازندهٔ سرور مقصد بسازید (PyInstaller برای معماری دیگر خروجی نمی‌سازد)، بعد بسته و <code>install-airgap.sh</code> را منتقل کنید. <code>make packages</code> داخل یک کانتینر لینوکس قدیمی می‌سازد؛ برای همین همان یک فایل اجرایی روی RHEL 8 به بالا، Debian 10 به بالا و Ubuntu 20.04 به بالا کار می‌کند:</p>
   <div class="code"><div class="bar"><span>shell — build machine</span><button>Copy</button></div><pre>make packages  <span class="c"># needs docker → dist/: dcode, .deb, .rpm, .tar.gz, a Docker image, the VS Code .vsix</span>
 make deb       <span class="c"># without docker: binary + .deb for this machine's own OS version</span></pre></div>
-  <div class="code"><div class="bar"><span>shell — air-gapped server</span><button>Copy</button></div><pre>sudo ./install-airgap.sh dcode_0.6.0_amd64.deb        <span class="c"># Debian / Ubuntu</span>
-sudo ./install-airgap.sh dcode-0.6.0-1.x86_64.rpm     <span class="c"># RHEL / Rocky / Alma / Fedora / SUSE</span>
-tar -xzf dcode-0.6.0-linux-x86_64.tar.gz &amp;&amp; ./dcode-0.6.0-linux-x86_64/install.sh   <span class="c"># any Linux, no root needed</span>
-docker load -i dcode-0.6.0-docker-x86_64.tar.gz       <span class="c"># as a container (see packaging/Dockerfile)</span></pre></div>
+  <div class="code"><div class="bar"><span>shell — air-gapped server</span><button>Copy</button></div><pre>sudo ./install-airgap.sh dcode_0.7.0_amd64.deb        <span class="c"># Debian / Ubuntu</span>
+sudo ./install-airgap.sh dcode-0.7.0-1.x86_64.rpm     <span class="c"># RHEL / Rocky / Alma / Fedora / SUSE</span>
+tar -xzf dcode-0.7.0-linux-x86_64.tar.gz &amp;&amp; ./dcode-0.7.0-linux-x86_64/install.sh   <span class="c"># any Linux, no root needed</span>
+docker load -i dcode-0.7.0-docker-x86_64.tar.gz       <span class="c"># as a container (see packaging/Dockerfile)</span></pre></div>
   <div class="callout tip"><span class="ic">💡</span><p>اگر سیستم سازنده هم اینترنت ندارد، بسته‌های wheel را از قبل دانلود کنید و این را اجرا کنید: <code>PIP_ARGS="--no-index --find-links ./wheels" make binary</code></p></div>
   <h3>از سورس (هر سیستم‌عامل با پایتون ۳٫۱۰ به بالا)</h3>
   <div class="code"><div class="bar"><span>shell</span><button>Copy</button></div><pre>pip install .

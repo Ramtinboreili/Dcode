@@ -1,9 +1,9 @@
 # Changelog
 
-## Unreleased — the Dcode Manager, and every model family its own way
+## 0.7.0 — the Dcode Manager, and every model family its own way
 
 ### Dcode Manager
-A team server for models, users, limits and usage: `dcode manager serve` (same binary, standard library only), or `deploy/manager` on Kubernetes. See `docs/manager.md`. Tested with a scripted model server and live through OpenRouter (DeepSeek v4.1 flash, GLM 5.3 flash, Qwen3.8 27B), with discovery read from the real `vllm` namespace; not yet deployed on the cluster.
+A team server for models, users, limits and usage: `dcode manager serve` (same binary, standard library only), or `deploy/manager` on Kubernetes. See `docs/manager.md`. Tested with a scripted model server and live through OpenRouter (DeepSeek v4.1 flash, GLM 5.3 flash, Qwen3.8 27B), and deployed on the cluster (`deploy/manager`), where discovery found every model server in `vllm`.
 - **A model gateway** (OpenAI-compatible `/v1`) in front of every model server: chat (streamed or not), completions, embeddings and other model routes. Each model has its own server, server-side name and key; the gateway counts every request's tokens, latency and time to first token.
 - **Users and admins.** Dcode signs in (`dcode login <url>`, or the new first choice in setup) and gets its own API key and the user's models with their context lengths. `/usage` shows your tokens, limits and when they reset.
 - **Admins** turn models on and off, set their context length (refused the way vLLM words it, so Dcode compacts) and max reply, who may use each model, and token limits per user per model and in total, per day, week, month or until reset, in the manager's time zone. They reset one user's usage or everyone's.

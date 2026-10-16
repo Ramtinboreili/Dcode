@@ -206,7 +206,7 @@ Work moved to the bastion host of the owner's GPU cluster (Ubuntu 24.04), where 
 - **Reported by the owner three days later** (gemma4 editing a Kubernetes manifest on another machine, still on 0.5.0): two "old_text not found", then the same `edit_file` call repeated under the "identical arguments 3 times" warning until Ctrl+C. Reproduced with the real model on 0.5.0: 13 spaces where the YAML has 12, the same separator-space bug. Second bug: the repeat warning never ended the loop. Now the second ignored warning removes the tools and asks for a report, and a failed edit names the closest line. Tests: `test_a_model_stuck_on_one_failing_edit_is_stopped`, `test_edit_file_yaml_block_copied_one_space_too_deep`, `test_a_failed_edit_says_which_line_it_probably_meant`.
 - **Still open:** a long session that compacts, 32K, Ollama and llama.cpp, a small utility model for the router.
 
-## 14. Every model family, its own way (unreleased, October 15, 2026)
+## 14. Every model family, its own way — 0.7.0 (October 15, 2026)
 
 The owner plans to connect very different models (GLM, DeepSeek, Claude, GPT, Gemini, Qwen…) and asked for a detector that follows each one's best practice for reasoning and tool calls; for the differences in how models run shell commands; and for runaway reasoning. Also: test every slash command, commit per change, and no tests with local models until the owner confirms.
 
@@ -215,7 +215,7 @@ The owner plans to connect very different models (GLM, DeepSeek, Claude, GPT, Ge
 - **Slash commands:** `tests/test_slash_commands.py` runs all 41 through the terminal's dispatcher; the pty check (98 checks, up from 64) now opens and closes each menu in a real terminal. It found one bug: Esc did nothing in `/setup`, so there was no way out and the next message typed became the server URL. Esc now cancels every one-line prompt (`test_esc_leaves_a_one_line_prompt`).
 - Tested with scripted servers first. With the owner's go-ahead, then on OpenRouter (DeepSeek v4.1 flash, Gemma 4 31B, Qwen3.8 27B, Qwen3-Coder-Next, GLM 5.3 and 5.3 flash: shell, edit, git, a background server, the real terminal), which found seven more bugs: OpenRouter's `exclude` only hid reasoning (now `enabled: false`); a 429 failed at once with a JSON dump (now waits 3/8/15 s); Gemma rewrote files it never read (`write_file` now refuses that once); a bare "web" or `index.html` counted as asking for an artifact; Qwen3-Coder's `background: true` plus a trailing `&` detached the server so `job_stop` couldn't reach it; GLM 5.3 refuses turning reasoning off, and Dcode dropped the whole field for every model on the server (now a per-model "must think"); GLM's 60-token titles came back empty (side jobs are asked again with room to think).
 
-## 15. Dcode Manager (unreleased, October 16, 2026)
+## 15. Dcode Manager — 0.7.0 (October 16, 2026)
 
 The owner asked for a manager for all users: set the manager's URL in Dcode's setup, sign in, get an API key and the models; admins manage models (context length, on/off), users (which models, token limits per model and user, usage resets), guards per model, discovery of the models on the cluster and a models path, a gateway for all models, and monitoring of usage and model performance; users see their usage, limits and reset times. Test with OpenRouter.
 
