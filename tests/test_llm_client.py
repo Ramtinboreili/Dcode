@@ -10,8 +10,10 @@ from conftest import make_config
 from dcode.llm import (
     AssistantTurn,
     LLMClient,
+    ModelBusy,
     clean_tool_name,
     coerce_arguments,
+    error_text,
     strip_thinking,
     thinking_text,
 )
@@ -25,6 +27,14 @@ TOOLS = [{"type": "function", "function": {
 
 class Rejected(Exception):
     status_code = 400
+
+
+class Busy(Exception):
+    """OpenRouter's free pool, as the openai SDK raises it (one 429 reported by a real run)."""
+    status_code = 429
+    body = {"error": {"message": "Provider returned error", "code": 429, "metadata": {
+        "raw": "google/gemma-4-31b-it:free is temporarily rate-limited upstream.", "provider_name": "Google"}}}
+    response = SimpleNamespace(headers={})
 
 
 def reply(content="", tool_calls=None, finish="stop", reasoning=None, extra=None):
@@ -273,3 +283,28 @@ def test_switching_models_keeps_what_the_server_refused_but_not_what_the_model_n
     llm.config.model = "other-model"  # /model
     llm.chat([{"role": "user", "content": "hi"}])
     assert "echo" not in llm._learned and "reasoning_effort" in llm._learned["rejected"]
+
+
+def test_a_busy_server_is_waited_for_then_reported_in_one_line(monkeypatch):
+    from dcode import llm as llm_module
+
+    slept: list[float] = []
+    monkeypatch.setattr(llm_module.time, "sleep", slept.append)
+    llm, api = client(Busy(), Busy(), reply("ok"))
+    turn = llm.chat([{"role": "user", "content": "hi"}])
+    assert turn.content == "ok" and slept == [3, 8]
+    assert "busy" in turn.notes[0]
+    llm, api = client(*[Busy()] * 4)
+    try:
+        llm.chat([{"role": "user", "content": "hi"}])
+        raise AssertionError("expected ModelBusy")
+    except ModelBusy as exc:
+        assert str(exc) == ("The model server is rate-limiting requests (429): "
+                            "google/gemma-4-31b-it:free is temporarily rate-limited upstream.")
+    assert len(api.requests) == 4  # three waits, then it gives up; a 429 teaches nothing
+    assert not llm._learned["rejected"]
+
+
+def test_error_text_keeps_plain_errors_plain():
+    assert error_text(ValueError("boom")) == "boom"
+    assert error_text(Rejected("bad field")) == "400: bad field"

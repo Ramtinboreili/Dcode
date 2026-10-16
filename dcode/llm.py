@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -223,6 +224,7 @@ def parse_text_tool_calls(content: str, known: Iterable[str]) -> tuple[str, list
 THINK_SHARE = 0.75        # a reply whose reasoning passes this share of the output cap is cut and asked again
 THINK_RETRIES = 2         # at most this many asks again with less thinking
 LOOP_CHECK_EVERY = 2000   # chars of reasoning between checks for a thought going in circles
+BUSY_WAITS = (3, 8, 15)   # seconds to wait on a "rate limited / busy" reply (429, 503) before giving up
 ECHO_CHARS = 8000         # of reasoning sent back to the families whose API asks for it
 _EFFORT_ORDER = ["none", "low", "medium", "high"]
 
@@ -333,6 +335,41 @@ def _alternate(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             out.append({"role": "assistant", "content": "OK."})
         out.append(dict(message))
     return out
+
+
+class ModelBusy(RuntimeError):
+    """The server kept answering "rate limited" / "overloaded" after Dcode waited."""
+
+
+def _busy(exc: Exception) -> bool:
+    return getattr(exc, "status_code", None) in (429, 503)
+
+
+def _retry_after(exc: Exception) -> float | None:
+    """The server's own Retry-After (seconds), capped so a long ban doesn't hang the task."""
+    headers = getattr(getattr(exc, "response", None), "headers", None) or {}
+    try:
+        value = float(headers.get("retry-after", ""))
+    except (TypeError, ValueError):
+        return None
+    return min(max(value, 1.0), 30.0)
+
+
+def error_text(exc: BaseException) -> str:
+    """A server error in one readable line: its own message, not the whole JSON body."""
+    status = getattr(exc, "status_code", None)
+    body = getattr(exc, "body", None)
+    message = ""
+    if isinstance(body, dict):
+        error = body.get("error", body) if isinstance(body.get("error", body), dict) else body
+        raw = (error.get("metadata") or {}).get("raw") if isinstance(error.get("metadata"), dict) else None
+        message = str(raw or error.get("message") or "")
+    message = message or str(getattr(exc, "message", "") or exc)
+    if status == 429:
+        return f"The model server is rate-limiting requests (429): {message}"
+    if status == 503:
+        return f"The model server is overloaded (503): {message}"
+    return f"{status}: {message}" if status else message
 
 
 class LLMClient:
@@ -495,14 +532,22 @@ class LLMClient:
         effort = effort or self.config.reasoning_effort
         if self.config.model != self._learned_for:  # /model switched models on this client
             self._learned, self._thoughts, self._learned_for = self._server_lessons(), {}, self.config.model
-        for _ in range(6):
+        waits = list(BUSY_WAITS)
+        for _ in range(6 + len(waits)):
             body, request = self._shape(kwargs, effort, max_tokens)
             try:
                 if body:
                     return self.client.chat.completions.create(extra_body=body, **request)
                 return self.client.chat.completions.create(**request)
             except Exception as exc:
-                if not self._learn(exc, body, request):
+                if _busy(exc):
+                    if not waits:
+                        raise ModelBusy(error_text(exc)) from exc
+                    wait = _retry_after(exc) or waits[0]
+                    waits.pop(0)
+                    self._notes.append(f"The model server is busy; trying again in {wait:g}s")
+                    time.sleep(wait)
+                elif not self._learn(exc, body, request):
                     raise
         return self.client.chat.completions.create(**self._shape(kwargs, effort, max_tokens)[1])
 

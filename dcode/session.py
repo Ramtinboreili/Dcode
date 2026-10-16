@@ -29,7 +29,7 @@ from .commands import expand, load_commands
 from .config import AppConfig, load_config, load_thread, run_dir, save_thread, thread_path, threads_dir
 from .engine import Agent, git_summary
 from .jobs import JobManager
-from .llm import Interrupted, LLMClient
+from .llm import Interrupted, LLMClient, error_text
 from .memory import MemoryStore
 from .models import ROUTES, ModelPool, decide
 from .tools import _truncate, workspace_root
@@ -720,7 +720,7 @@ class Session:
                 self.emit("notice", level="warning", text="Task interrupted")
             except Exception as exc:
                 self._repair_history()
-                self.emit("error", text=f"Task failed: {exc}")
+                self.emit("error", text=f"Task failed: {error_text(exc)}")
             finally:
                 with self._approvals_lock:
                     leftovers = list(self._approvals)
