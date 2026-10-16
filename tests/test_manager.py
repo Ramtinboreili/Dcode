@@ -616,3 +616,19 @@ def test_dcode_login_takes_the_key_and_models_and_keeps_other_settings(stack, mo
     assert manager_client.is_manager(config)
     lines = manager_client.usage_lines(manager_client.usage(config))
     assert lines[0].startswith("All models: 0 tokens") and any(line.startswith("other:") for line in lines)
+
+
+def test_tls_trusts_the_hosts_ca_bundle_even_when_openssl_looks_elsewhere(monkeypatch):
+    """The AlmaLinux-built binary's OpenSSL found no CA store on Ubuntu: every HTTPS model server failed."""
+    import os
+
+    from dcode.manager import tls
+
+    bundle = next((p for p in tls.SYSTEM_BUNDLES if os.path.isfile(p)), None)
+    if bundle is None:
+        pytest.skip("no system CA bundle on this machine")
+    monkeypatch.setenv("SSL_CERT_DIR", "/nonexistent")  # what the frozen OpenSSL effectively sees
+    monkeypatch.setenv("SSL_CERT_FILE", "/nonexistent/cert.pem")
+    monkeypatch.setattr(tls, "SYSTEM_BUNDLES", ())
+    monkeypatch.setenv("DCODE_MANAGER_CA_BUNDLE", bundle)
+    assert tls._build().cert_store_stats()["x509_ca"] > 10

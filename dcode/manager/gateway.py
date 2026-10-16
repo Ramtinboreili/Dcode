@@ -14,14 +14,13 @@ from __future__ import annotations
 import http.client
 import json
 import re
-import ssl
 import time
 import urllib.parse
 from dataclasses import dataclass, field
 from typing import Any
 
 from .. import families
-from . import guards, limits
+from . import guards, limits, tls
 from .store import Store
 
 CHARS_PER_TOKEN = 3.5
@@ -60,7 +59,7 @@ def open_upstream(url: str, timeout: float) -> tuple[http.client.HTTPConnection,
         raise GatewayError(500, f"The model's server address is not a URL: {url}", "bad_upstream", "server_error")
     if parts.scheme == "https":
         conn: http.client.HTTPConnection = http.client.HTTPSConnection(
-            parts.hostname, parts.port, timeout=timeout, context=ssl.create_default_context())
+            parts.hostname, parts.port, timeout=timeout, context=tls.context())
     else:
         conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=timeout)
     path = parts.path or "/"

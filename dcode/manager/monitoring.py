@@ -13,6 +13,7 @@ import time
 import urllib.request
 from typing import Any
 
+from . import tls
 from .discovery import probe
 from .store import Store
 
@@ -142,7 +143,7 @@ def _health(model: dict[str, Any]) -> dict[str, Any]:
                 serves=[m["id"] for m in listed][:5])
     if model.get("metrics_url") and not error:
         try:
-            with urllib.request.urlopen(model["metrics_url"], timeout=3) as response:
+            with urllib.request.urlopen(model["metrics_url"], timeout=3, context=tls.context()) as response:
                 item["metrics"] = parse_metrics(response.read().decode(errors="replace"))
         except Exception as exc:  # noqa: BLE001
             item["metrics_error"] = str(exc)[:200]

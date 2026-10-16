@@ -117,6 +117,8 @@ On Kubernetes: `deploy/manager` (see its README).
 * A model's server key is stored in the database (on the volume) and never returned by the API.
 * The last admin can't be demoted, disabled or deleted.
 * Discovery and deployment changes use only the RBAC you grant, and only on an admin's click.
+* HTTPS to model servers is verified against the host's CA bundle (where a company CA is
+  installed), plus `DCODE_MANAGER_CA_BUNDLE` or `SSL_CERT_FILE` for one more.
 
 ## API
 

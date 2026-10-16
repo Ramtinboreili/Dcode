@@ -17,6 +17,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from . import tls
+
 SA_DIR = Path("/var/run/secrets/kubernetes.io/serviceaccount")
 PROBE_TIMEOUT = 2.5
 SERVER_IMAGES = re.compile(r"vllm|sglang|text-generation-inference|tgi|llama\.?cpp|ollama|lmdeploy|triton|tabby|"
@@ -106,7 +108,7 @@ def probe(url: str, api_key: str = "") -> tuple[list[dict[str, Any]], str]:
     if api_key:
         request.add_header("Authorization", f"Bearer {api_key}")
     try:
-        with urllib.request.urlopen(request, timeout=PROBE_TIMEOUT) as response:
+        with urllib.request.urlopen(request, timeout=PROBE_TIMEOUT, context=tls.context()) as response:
             payload = json.load(response)
     except Exception as exc:  # noqa: BLE001 - every failure is just "not reachable"
         return [], str(getattr(exc, "reason", exc))[:200]
