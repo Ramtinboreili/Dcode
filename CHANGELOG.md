@@ -2,7 +2,7 @@
 
 ## Unreleased — every model family, its own way
 
-GLM, DeepSeek, Claude, GPT, Gemini, Qwen and the rest each reason and call tools differently. Dcode now detects the family and follows its conventions. Tested with scripted servers only; not yet with the real models.
+GLM, DeepSeek, Claude, GPT, Gemini, Qwen and the rest each reason and call tools differently. Dcode now detects the family and follows its conventions. Tested with scripted servers, then on OpenRouter with DeepSeek v4.1 flash and Gemma 4 31B (bash, edit, git, a background server, the real terminal); not yet with the local vLLM models.
 
 ### Model families
 - **Detected from the model name** (and the server URL when the name says nothing): GPT, GPT reasoning (o-series, GPT-5), gpt-oss, Claude, Gemini, Gemini Flash, Gemma, Qwen3, Qwen3-Coder, QwQ, DeepSeek, DeepSeek reasoner (R1), GLM, Kimi, MiniMax, Mistral, Magistral, Llama, Phi, Granite, Command. `/models` shows it; `/models family <name|auto>` or Settings → Model → Model family overrides it (for a fine-tune whose name says nothing).
@@ -19,6 +19,12 @@ GLM, DeepSeek, Claude, GPT, Gemini, Qwen and the rest each reason and call tools
 - Commands run in bash with no input, no pager, no colours and no editor prompts; a timeout stops the whole process group.
 - Commands that never end or wait for keys without a terminal (`tail -f`, `logs -f`, `kubectl -w`, `watch`, `ping` without `-c`, editors, a bare `python3` or `psql`) are refused with what to run instead.
 - The same command failing the same way three times in a row is stopped, like other repeated calls.
+
+### Found by the OpenRouter runs
+- **No reasoning on OpenRouter** is now `reasoning: {enabled: false}`; `exclude` only hid it (DeepSeek still spent 136 reasoning tokens on a one-word answer).
+- **A busy server** (429, 503: OpenRouter's free Gemma pool) is waited for (3, 8, 15 s, or its Retry-After) before the task fails, and the error is one line instead of a JSON dump.
+- **`write_file` won't replace a file the agent never read**, the first time: Gemma 4 rewrote both files it was only asked to commit. Asked again on the same path, it goes through.
+- **No unasked-for artifacts:** "start a web server" (any "web", or a file name like `index.html`) counted as asking for an artifact, so both models saved an HTML report nobody wanted.
 
 ### Tests
 - Every slash command is run by `tests/test_slash_commands.py` (all 41 are handled; menus answered from a script) and in a real terminal by `docs/dev/terminal_e2e.py` (98 checks, up from 64). That found one bug: Esc did nothing in `/setup`, so the next message became the server URL.
