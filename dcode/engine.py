@@ -62,9 +62,10 @@ DB_MODEL_ROWS = 100     # rows a db_query hands back to the model (the text cap 
 def _norm_title(title: str) -> str:
     """'nginx-setup — Repo Activity Report' == 'Nginx setup: repo activity report'."""
     return " ".join(re.findall(r"[a-z0-9\u0600-\u06ff]+", title.lower()))
-# "make an artifact", "an html page", "a dashboard", "draw a diagram", "as an svg"…
+# "make an artifact", "an html page", "a dashboard", "draw a diagram", "as an svg"… but not a file name
+# ("fix index.html") or a bare "web" ("start a web server" got an unasked-for report page).
 ARTIFACT_REQUEST = re.compile(
-    r"\bartifacts?\b|\b(html|web)\s*(page|report|file|dashboard|version)?\b|\bdashboard\b|\bdiagram\b|\bsvg\b"
+    r"\bartifacts?\b|(?<![\w./-])(html|svg)\b|\bweb\s*(page|report|dashboard|version)\b|\bdashboard\b|\bdiagram\b"
     r"|آرتیفکت|داشبورد|نمودار",
     re.IGNORECASE,
 )

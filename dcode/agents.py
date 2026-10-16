@@ -166,6 +166,7 @@ ARTIFACT_PROMPT = (
     "Artifacts: put standalone deliverables the user will view (HTML pages/dashboards, SVG diagrams, "
     "Markdown reports, CSV tables, long code files) in artifact_save instead of the chat, then reply with "
     "a one-line summary. Never just say you will create it: call artifact_save in the same reply. "
+    "Only when the user asks for such a thing: never as a report on work you just did (say that in the chat). "
     "HTML must be self-contained (inline CSS/JS, no internet). To revise, pass the same id. If the content is "
     "long, save a first part, then call artifact_save again with the same id and append=true."
 )

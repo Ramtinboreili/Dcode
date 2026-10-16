@@ -144,3 +144,14 @@ def test_one_artifact_per_chat_across_tasks():
     assert len(items) == 2 and not any(a["title"] == "Untitled" for a in items)
     report = next(a for a in items if "repo activity report" in a["title"].lower())
     assert report["versions"] == 3 and ArtifactStore().get(report["id"])["content"].endswith("<p>v3</p>")
+
+
+def test_what_counts_as_asking_for_an_artifact():
+    from dcode.engine import ARTIFACT_REQUEST
+
+    for asked in ("make an html report artifact", "make an html and tell me", "a web page for it", "draw a diagram",
+                  "as an svg", "build a dashboard", "یک داشبورد بساز"):
+        assert ARTIFACT_REQUEST.search(asked), asked
+    for not_asked in ("start a web server with python3 -m http.server", "fix the title in index.html",
+                      "open docs/logo.svg", "the web UI is slow"):
+        assert not ARTIFACT_REQUEST.search(not_asked), not_asked
