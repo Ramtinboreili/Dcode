@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Fewer tokens per task.** When a new turn starts, the big tool outputs of earlier turns (over 1,500 characters) become a short stub; the answer that used them stays. On a real chat ("which containers run here?", then "save this on memory") the second turn's prompt went from about 9,700 to 4,100 tokens.
+- A retry after a failed request (for example a manager's token limit) no longer adds the message to the history twice.
+- The Linux binary no longer passes its bundled libraries to the commands it runs: `bash` and `awk` printed "libtinfo.so.6: no version information available" into every output.
+
 ## 0.7.0 — the Dcode Manager, and every model family its own way
 
 ### Dcode Manager
