@@ -329,3 +329,36 @@ def test_a_side_job_whose_thinking_used_the_whole_cap_is_asked_again_with_room()
     llm, api = client(reply("", finish="length", reasoning="Let me think about a title…"), reply("Kubectl rollout fix"))
     assert llm.complete_text([{"role": "user", "content": "title"}], max_tokens=60) == "Kubectl rollout fix"
     assert [r["max_tokens"] for r in api.requests] == [60, 2048]
+
+
+def test_a_spent_quota_is_not_waited_for(monkeypatch):
+    """A Dcode Manager token limit is a 429 too, but waiting won't bring tokens back before the reset."""
+    from dcode import llm as llm_module
+
+    class Quota(Exception):
+        status_code = 429
+        body = {"message": "Token limit reached on coder: 61 of 60 this day. It resets on 2026-10-17 at 00:00 UTC.",
+                "type": "insufficient_quota", "code": "token_limit"}
+        response = SimpleNamespace(headers={})
+
+    slept: list[float] = []
+    monkeypatch.setattr(llm_module.time, "sleep", slept.append)
+    llm, api = client(Quota())
+    try:
+        llm.chat([{"role": "user", "content": "hi"}])
+        raise AssertionError("expected the quota error")
+    except Quota:
+        pass
+    assert slept == [] and len(api.requests) == 1
+    assert "Token limit reached" in error_text(Quota())
+
+
+def test_through_a_manager_reasoning_is_one_field_and_the_family_comes_from_it():
+    llm, api = client(reply("a"), reply("b"), model="coder", base_url="http://mgr:8080/v1",
+                      manager={"url": "http://mgr:8080", "username": "sara",
+                               "models": {"coder": {"family": "glm", "context_length": 32768}}})
+    assert llm.server == "manager" and llm.family.key == "glm"
+    llm.chat([{"role": "user", "content": "hi"}])
+    assert api.requests[0]["reasoning_effort"] == "medium" and "chat_template_kwargs" not in api.requests[0]
+    llm.complete_text([{"role": "user", "content": "title"}])
+    assert api.requests[1]["reasoning_effort"] == "none"

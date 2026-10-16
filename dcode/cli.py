@@ -17,7 +17,7 @@ from typing import Any
 
 from rich.text import Text
 
-from . import __version__, ui
+from . import __version__, manager_client, ui
 from .agents import MODE_LABELS, MODE_SHORT, MODES
 from .config import REASONING_EFFORTS, list_skill_files, list_threads, save_config
 from .engine import git_summary
@@ -533,6 +533,8 @@ class TerminalApp:
             elif command == "/rename":
                 name = arg.strip() or ui.prompt_input("Thread name", default=session.thread_name)
                 session.rename(name)
+            elif command == "/usage":
+                self._usage()
             elif command == "/stats":
                 from . import stats
 
@@ -1313,11 +1315,32 @@ class TerminalApp:
         hint = ui._escape("Add one: /models add <name> <model> [server-url] [context]. API keys: Settings in the web UI.")
         ui.console.print(f"{ui.PAD}[{MUTED}]{hint}[/]")
 
+    def _usage(self) -> None:
+        cfg = self.session.config
+        if not manager_client.is_manager(cfg):
+            ui.notice("Usage limits come from a Dcode Manager; this setup talks to the model server directly. "
+                      "Sign in to one with `dcode login <url>`. For local numbers, see /stats.")
+            return
+        try:
+            summary = manager_client.usage(cfg)
+        except manager_client.ManagerError as exc:
+            ui.notice(str(exc), "warning")
+            return
+        ui.console.print(f"{ui.PAD}[bold]Usage[/]  [{MUTED}]· {ui._escape(cfg.manager.get('username', ''))} on "
+                         f"{ui._escape(cfg.manager.get('url', ''))}[/]", highlight=False)
+        for line in manager_client.usage_lines(summary):
+            ui.console.print(f"{ui.PAD}  {ui._escape(line)}", highlight=False)
+
     def _switch_model(self) -> None:
         cfg = self.session.config
         try:
             with ui.console.status("Fetching models…", spinner=ui.SPINNER, spinner_style=PRIMARY):
-                models = self.session.llm.list_models()
+                if manager_client.is_manager(cfg):  # with each model's family and context length
+                    listed = manager_client.models(cfg)
+                    manager_client.remember_models(cfg, listed)
+                    models = [m["id"] for m in listed if (m.get("kind") or "chat") == "chat"]
+                else:
+                    models = self.session.llm.list_models()
         except Exception as exc:
             ui.notice(f"Could not load models: {exc}", "warning")
             models = []

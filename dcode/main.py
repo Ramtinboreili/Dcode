@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import signal
 import sys
 import webbrowser
@@ -64,8 +65,57 @@ def _fetch_models(base_url: str, api_key: str) -> list[str]:
     return sorted(set(models))
 
 
+SETUP_MANAGER = "Sign in to a Dcode Manager (your team's model gateway)"
+SETUP_DIRECT = "Connect to a model server directly (URL and API key)"
+
+
+def manager_setup(url: str = "", username: str = "", model: str | None = None) -> AppConfig:
+    """Sign in to a Dcode Manager: its URL, your username and password → an API key and its models."""
+    from . import manager_client as mc
+
+    url = url or os.environ.get("DCODE_MANAGER_URL", "")
+    for _ in range(5):
+        while not url:
+            url = ui.prompt_input("Manager URL (e.g. http://dcode-manager.corp:8080)")
+        try:
+            about = mc.info(url)
+            break
+        except mc.ManagerError as exc:
+            ui.notice(str(exc), "warning")
+            url = ""
+    else:
+        raise SystemExit("No Dcode Manager found.")
+    ui.notice(f"Connected to {about.get('name', 'Dcode Manager')}")
+    for _ in range(5):
+        username = username or ui.prompt_input("Username")
+        password = ui.prompt_input("Password", password=True)
+        try:
+            result = mc.device_login(url, username, password)
+            break
+        except mc.ManagerError as exc:
+            ui.notice(str(exc), "warning")
+            username = ""
+    else:
+        raise SystemExit("Sign-in failed.")
+    config = load_config() or AppConfig(base_url="", api_key="", model="", reasoning_effort=DEFAULT_REASONING_EFFORT)
+    mc.apply_login(config, url, username, result, model or "")
+    chat_models = [m["id"] for m in result.get("models") or [] if (m.get("kind") or "chat") == "chat"]
+    if len(chat_models) > 1:
+        mc.use_model(config, ui.select_model(chat_models, selected=config.model) or config.model)
+    elif not chat_models:
+        ui.notice("No models are open to you yet. Ask an admin, then run `dcode login` again.", "warning")
+    save_config(config)
+    ui.notice(f"Signed in as {username}. Model: {config.model or 'none'} · context {config.context_window:,} tokens. "
+              "See your usage with /usage.", "success")
+    return config
+
+
 def run_setup(base_url: str | None = None, api_key: str | None = None, model: str | None = None) -> AppConfig:
     ensure_app_dirs()
+    if not base_url and not api_key:
+        how = ui.select_one("How does Dcode reach its models?", [SETUP_MANAGER, SETUP_DIRECT])
+        if how == SETUP_MANAGER:
+            return manager_setup(model=model)
     ui.console.print(f"[bold {PRIMARY}]Dcode setup[/] — connect to any OpenAI-compatible endpoint "
                      "(Ollama, vLLM, llama.cpp, LM Studio, TGI…)")
     while not base_url:
@@ -220,6 +270,25 @@ def cli(ctx: click.Context, setup: bool, base_url: str | None, api_key: str | No
             server.unregister_session(session.id)
             api.stop()
         ui.console.print(f"[{PRIMARY}]Saved thread[/] {session.thread_name}. Bye.")
+
+
+@cli.command("login")
+@click.argument("url", required=False)
+@click.option("-u", "--username", default="", help="Your username on the manager")
+def login_cmd(url: str | None, username: str) -> None:
+    """Sign in to a Dcode Manager and use its models (keeps your other settings)."""
+    from . import manager_client as mc
+
+    try:
+        config = manager_setup(url or "", username)
+    except (KeyboardInterrupt, ui.PromptInterrupted):
+        ui.console.print("\nSign-in cancelled.")
+        raise SystemExit(1) from None
+    try:
+        for line in mc.usage_lines(mc.usage(config)):
+            ui.console.print(f"  {line}", markup=False)
+    except mc.ManagerError:
+        pass
 
 
 @cli.command("hub", hidden=True)

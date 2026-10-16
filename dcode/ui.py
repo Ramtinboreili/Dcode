@@ -107,6 +107,7 @@ COMMANDS: dict[str, str] = {
     "/agents": "List helpers (use one with @name) · /agents settings",
     "/context": "Context window + usage",
     "/stats": "Usage numbers: tasks, tokens, time, tools: /stats [days]",
+    "/usage": "Your tokens and limits on the Dcode Manager, and when they reset",
     "/memory": "List saved memories",
     "/remember": "Save a memory: /remember <text>",
     "/permissions": "Tool permissions",

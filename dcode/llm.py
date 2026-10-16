@@ -22,7 +22,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import families, toolcalls
+from . import families, manager_client, toolcalls
 from .config import AppConfig
 
 
@@ -348,7 +348,13 @@ class ModelBusy(RuntimeError):
 
 
 def _busy(exc: Exception) -> bool:
-    return getattr(exc, "status_code", None) in (429, 503)
+    """Worth waiting for: rate limited or overloaded, but not a spent quota (a Dcode Manager token limit)."""
+    if getattr(exc, "status_code", None) not in (429, 503):
+        return False
+    body = getattr(exc, "body", None)
+    error = body.get("error", body) if isinstance(body, dict) else {}
+    code = (error.get("code") or error.get("type")) if isinstance(error, dict) else ""
+    return code not in ("token_limit", "insufficient_quota")
 
 
 def _retry_after(exc: Exception) -> float | None:
@@ -383,7 +389,8 @@ class LLMClient:
         from openai import OpenAI  # imported lazily: keeps tests / hub startup fast
 
         self.config = config
-        self.client = OpenAI(base_url=config.base_url, api_key=config.api_key, timeout=600.0, max_retries=1)
+        self.client = OpenAI(base_url=config.base_url, api_key=config.api_key, timeout=600.0, max_retries=1,
+                             default_headers={"X-Dcode-Client": manager_client.client_name()})
         self._stream_tools_ok: bool | None = None  # None = unknown yet, True/False = learned from the server
         # What the server taught us by rejecting a request: fields it refuses, the max-tokens name, and
         # what it needs in the history (reasoning back, short ids, no system role, tools as text…).
@@ -398,10 +405,15 @@ class LLMClient:
 
     @property
     def family(self) -> families.Family:
-        return families.detect(self.config.model, self.config.base_url, getattr(self.config, "family", "auto"))
+        chosen = getattr(self.config, "family", "auto")
+        if chosen in ("", "auto") and self.server == "manager":  # a gateway name ("coder") says nothing
+            chosen = (self.config.manager.get("models", {}).get(self.config.model) or {}).get("family") or "auto"
+        return families.detect(self.config.model, self.config.base_url, chosen)
 
     @property
     def server(self) -> str:
+        if manager_client.is_manager(self.config):
+            return "manager"
         return families.server_kind(self.config.base_url)
 
     def with_model(self, model: str) -> LLMClient:

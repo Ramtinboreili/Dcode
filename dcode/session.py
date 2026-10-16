@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import tools
+from . import manager_client, tools
 from .agents import DEFAULT_MODE, INIT_PROMPT, MODES
 from .checkpoints import CheckpointStore
 from .commands import expand, load_commands
@@ -521,7 +521,10 @@ class Session:
 
     def set_model(self, model: str | None = None, reasoning_effort: str | None = None,
                   route: str | None = None) -> None:
-        if model:
+        if model and manager_client.is_manager(self.config):
+            manager_client.use_model(self.config, model)  # the manager says each model's context length
+            self.agent.use(self.config, self.llm)
+        elif model:
             self.config.model = model
         if reasoning_effort:
             self.config.reasoning_effort = reasoning_effort

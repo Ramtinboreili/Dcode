@@ -138,6 +138,9 @@ class AppConfig:
     models: dict[str, Any] = field(default_factory=lambda: {"profiles": {}, "reasoning": "", "utility": "",
                                                             "router": "auto"})
     enabled_skills: list[str] = field(default_factory=list)
+    # signed in through a Dcode Manager (dcode/manager_client.py): its URL, the user, and what it says
+    # about each model (family, context length) so Dcode shapes requests for the model behind the gateway
+    manager: dict[str, Any] = field(default_factory=lambda: {"url": "", "username": "", "models": {}})
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -162,6 +165,7 @@ class AppConfig:
             "mcp": json.loads(json.dumps(self.mcp)),
             "models": json.loads(json.dumps(self.models)),
             "enabled_skills": list(self.enabled_skills),
+            "manager": json.loads(json.dumps(self.manager)),
         }
 
 
@@ -337,7 +341,15 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig | None:
         mcp=clean_mcp(data.get("mcp")),
         models=clean_models(data.get("models")),
         enabled_skills=[str(name) for name in enabled_skills],
+        manager=clean_manager(data.get("manager")),
     )
+
+
+def clean_manager(value: Any) -> dict[str, Any]:
+    value = value if isinstance(value, dict) else {}
+    models = value.get("models") if isinstance(value.get("models"), dict) else {}
+    return {"url": str(value.get("url") or ""), "username": str(value.get("username") or ""),
+            "models": {str(k): dict(v) for k, v in models.items() if isinstance(v, dict)}}
 
 
 def load_raw_config() -> dict[str, Any]:
