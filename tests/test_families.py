@@ -98,3 +98,5 @@ def test_each_family_turns_its_reasoning_down_its_own_way():
     assert request_extras(FAMILIES["generic"], "local", "medium") == {"reasoning_effort": "medium"}
     assert request_extras(FAMILIES["generic"], "local", "none") == {}
     assert request_extras(qwen, "openrouter", "low") == {"reasoning": {"effort": "low"}}
+    # "exclude" would only hide it: the model still thinks (and the tokens are billed)
+    assert request_extras(qwen, "openrouter", "none") == {"reasoning": {"enabled": False}}
