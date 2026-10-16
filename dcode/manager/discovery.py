@@ -133,31 +133,40 @@ def discover(kube: Kube, namespaces: list[str], known: list[dict[str, Any]]) -> 
             container = next((c for c in containers if SERVER_IMAGES.search(c.get("image", ""))), containers[0])
             args = server_args(container)
             looks_like_server = SERVER_IMAGES.search(container.get("image", "")) or args["model_path"]
-            service = next((s for s in services if (s.get("spec") or {}).get("type") != "NodePort"
-                            and _selected((s.get("spec") or {}).get("selector") or {}, labels)), None) or next(
-                (s for s in services if _selected((s.get("spec") or {}).get("selector") or {}, labels)), None)
-            if not looks_like_server and service is None:
-                continue
+            matching = [svc for svc in services if _selected((svc.get("spec") or {}).get("selector") or {}, labels)]
+            # One entry per in-cluster service port: a pod may run several servers (jina-stack serves embeddings on
+            # one port and a reranker on another). NodePort services are the same servers seen from outside.
+            endpoints = [(svc["metadata"]["name"], port.get("port", 80)) for svc in matching
+                         if (svc.get("spec") or {}).get("type") != "NodePort"
+                         for port in (svc.get("spec") or {}).get("ports") or []]
             name = deployment["metadata"]["name"]
-            url = ""
-            if service is not None:
-                ports = (service.get("spec") or {}).get("ports") or []
-                port = ports[0].get("port") if ports else 80
-                url = f"http://{service['metadata']['name']}.{namespace}.svc:{port}/v1"
             replicas, ready = spec.get("replicas", 1), (deployment.get("status") or {}).get("readyReplicas") or 0
-            served, error = (probe(url) if url and ready else ([], "scaled to 0" if not replicas else "not ready"))
             volumes = [(v.get("hostPath") or {}).get("path") for v in (template.get("spec") or {}).get("volumes") or []]
-            found.append({
-                "namespace": namespace, "deployment": name, "container": container.get("name", ""),
-                "image": container.get("image", ""), "replicas": replicas, "ready": ready,
-                "service": service["metadata"]["name"] if service else "", "url": url,
-                "served": served, "error": error, "args": args,
-                "host_paths": [p for p in volumes if p],
-                "added": [m["id"] for m in known if (m.get("deployment") or {}).get("name") == name
-                          and (m.get("deployment") or {}).get("namespace") == namespace]
-                or [m["id"] for m in known if url and m.get("upstream_url", "").rstrip("/") == url],
-            })
-    return found
+            for service_name, port in endpoints or [("", 0)]:
+                url = f"http://{service_name}.{namespace}.svc:{port}/v1" if service_name else ""
+                found.append({
+                    "namespace": namespace, "deployment": name, "container": container.get("name", ""),
+                    "image": container.get("image", ""), "replicas": replicas, "ready": ready,
+                    "service": service_name, "url": url, "served": [], "args": args, "server_like": bool(looks_like_server),
+                    "error": "scaled to 0" if not replicas else "not ready" if not ready else "" if url else "no service",
+                    "host_paths": [p for p in volumes if p],
+                    "added": [m["id"] for m in known if url and m.get("upstream_url", "").rstrip("/") == url]
+                    or ([m["id"] for m in known if (m.get("deployment") or {}).get("name") == name
+                         and (m.get("deployment") or {}).get("namespace") == namespace] if len(endpoints) <= 1 else []),
+                })
+    _probe_all([item for item in found if item["url"] and item["ready"]])
+    # Keep model servers: an image or command line that says so, or a service that answered /v1/models.
+    return [item for item in found if item.pop("server_like") or item["served"]]
+
+
+def _probe_all(items: list[dict[str, Any]]) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    if not items:
+        return
+    with ThreadPoolExecutor(max_workers=min(16, len(items))) as pool:
+        for item, (served, error) in zip(items, pool.map(lambda i: probe(i["url"]), items), strict=True):
+            item["served"], item["error"] = served, error
 
 
 # --- changing a deployment (asked for in the UI, never automatic) ---------------------------------------

@@ -509,6 +509,11 @@ def test_the_ui_is_served_with_security_headers(stack):
     response = conn.getresponse()
     assert response.status == 200 and b"<html" in response.read()
     assert "frame-ancestors 'none'" in response.getheader("Content-Security-Policy")
+    for path, kind in (("/app.js", "javascript"), ("/admin.js", "javascript"), ("/app.css", "css"), ("/theme.css", "css"),
+                       ("/models", "html")):  # the UI's own routes fall back to the page
+        conn.request("GET", path)
+        response = conn.getresponse()
+        assert response.status == 200 and kind in response.getheader("Content-Type") and response.read(), path
 
 
 def test_the_manager_imports_no_terminal_or_client_libraries():
@@ -564,3 +569,23 @@ def test_a_model_that_must_think_is_left_thinking(stack):
     assert len(upstream.requests) == 3 and stack["store"].model("coder")["learned"]["must_think"] is True
     chat(stack, reasoning_effort="high")  # the effort itself still goes
     assert upstream.requests[-1]["body"]["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_one_pod_with_two_servers_gives_two_entries_and_plain_web_servers_are_left_out(monkeypatch):
+    """jina-stack on the real cluster: one container serving embeddings on 8011 and a reranker on 8010."""
+    kube = FakeKube()
+    jina = {"metadata": {"name": "jina-stack"}, "spec": {"replicas": 1, "template": {
+        "metadata": {"labels": {"app": "jina-stack"}},
+        "spec": {"containers": [{"name": "jina", "image": "vllm/vllm-openai:gemma4-cu130", "command": ["bash", "/app/launch.sh"]}]}}},
+        "status": {"readyReplicas": 1}}
+    web = {"metadata": {"name": "web"}, "spec": {"replicas": 1, "template": {"metadata": {"labels": {"app": "web"}},
+           "spec": {"containers": [{"name": "nginx", "image": "nginx:1.27"}]}}}, "status": {"readyReplicas": 1}}
+    services = [{"metadata": {"name": n}, "spec": {"selector": {"app": a}, "ports": [{"port": 8000}]}}
+                for n, a in (("jina-embeddings", "jina-stack"), ("vllm-jina-reranker", "jina-stack"), ("web", "web"))]
+    kube.get = lambda path: {"items": [jina, web]} if path.endswith("/deployments") else {"items": services}
+    answers = {"jina-embeddings": [{"id": "jina-embeddings-v3"}], "vllm-jina-reranker": [{"id": "jina-reranker"}]}
+    monkeypatch.setattr(discovery, "probe", lambda url, key="": (next((v for k, v in answers.items() if k in url), []),
+                                                                  "" if "jina" in url else "404"))
+    found = discovery.discover(kube, ["vllm"], [])
+    assert [(f["service"], f["served"][0]["id"]) for f in found] == [
+        ("jina-embeddings", "jina-embeddings-v3"), ("vllm-jina-reranker", "jina-reranker")]

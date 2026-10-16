@@ -350,7 +350,7 @@ def test_a_spent_quota_is_not_waited_for(monkeypatch):
     except Quota:
         pass
     assert slept == [] and len(api.requests) == 1
-    assert "Token limit reached" in error_text(Quota())
+    assert error_text(Quota()).startswith("Token limit reached") and error_text(Quota()).endswith("See /usage.")
 
 
 def test_through_a_manager_reasoning_is_one_field_and_the_family_comes_from_it():

@@ -131,21 +131,30 @@ def parse_metrics(text: str) -> dict[str, float]:
     return values
 
 
+def _health(model: dict[str, Any]) -> dict[str, Any]:
+    item: dict[str, Any] = {"model": model["id"], "enabled": model["enabled"], "up": None, "probe_ms": None,
+                            "error": "", "metrics": {}}
+    if not model["enabled"]:
+        return item
+    started = time.perf_counter()
+    listed, error = probe(model["upstream_url"], model.get("upstream_key", ""))
+    item.update(up=not error, probe_ms=round((time.perf_counter() - started) * 1000, 1), error=error,
+                serves=[m["id"] for m in listed][:5])
+    if model.get("metrics_url") and not error:
+        try:
+            with urllib.request.urlopen(model["metrics_url"], timeout=3) as response:
+                item["metrics"] = parse_metrics(response.read().decode(errors="replace"))
+        except Exception as exc:  # noqa: BLE001
+            item["metrics_error"] = str(exc)[:200]
+    return item
+
+
 def live(store: Store) -> list[dict[str, Any]]:
-    out = []
-    for model in store.models():
-        item: dict[str, Any] = {"model": model["id"], "enabled": model["enabled"], "up": None, "probe_ms": None,
-                                "error": "", "metrics": {}}
-        if model["enabled"]:
-            started = time.perf_counter()
-            listed, error = probe(model["upstream_url"], model.get("upstream_key", ""))
-            item.update(up=not error, probe_ms=round((time.perf_counter() - started) * 1000, 1), error=error,
-                        serves=[m["id"] for m in listed][:5])
-            if model.get("metrics_url") and not error:
-                try:
-                    with urllib.request.urlopen(model["metrics_url"], timeout=3) as response:
-                        item["metrics"] = parse_metrics(response.read().decode(errors="replace"))
-                except Exception as exc:  # noqa: BLE001
-                    item["metrics_error"] = str(exc)[:200]
-        out.append(item)
-    return out
+    """Every model's server asked at once: one slow or dead server doesn't hold up the page."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    models = store.models()
+    if not models:
+        return []
+    with ThreadPoolExecutor(max_workers=min(16, len(models))) as pool:
+        return list(pool.map(_health, models))

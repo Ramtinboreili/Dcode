@@ -23,7 +23,7 @@ from typing import Any
 from .. import __version__
 from ..families import FAMILIES
 from . import auth, discovery, guards, limits, monitoring
-from .gateway import Call, Gateway, GatewayError
+from .gateway import Call, Gateway, GatewayError, family_of
 from .store import Store, public_model, public_user
 
 WEB = Path(__file__).parent / "web"
@@ -376,8 +376,10 @@ class Manager:
     def list_models(self, ctx: Context) -> dict[str, Any]:
         counts = {r["model_id"]: r for r in self.store.all(
             "SELECT model_id, COUNT(*) AS users FROM access WHERE allowed = 1 GROUP BY model_id")}
-        return {"models": [public_model(m) | {"users": (counts.get(m["id"]) or {}).get("users", 0)}
-                           for m in self.store.models()]}
+        return {"models": [public_model(m) | {"users": (counts.get(m["id"]) or {}).get("users", 0),
+                                              "detected_family": family_of(m).key}
+                           for m in self.store.models()],
+                "families": [{"key": f.key, "label": f.label} for f in FAMILIES.values()]}
 
     def _model(self, model_id: str) -> dict[str, Any]:
         model = self.store.model(urllib.parse.unquote(model_id))
@@ -692,7 +694,7 @@ class Context:
 
 
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js", "text/javascript; charset=utf-8"),
-          "/app.css": ("app.css", "text/css; charset=utf-8")}
+          "/admin.js": ("admin.js", "text/javascript; charset=utf-8"), "/app.css": ("app.css", "text/css; charset=utf-8")}
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer",
     "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "

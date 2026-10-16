@@ -377,6 +377,9 @@ def error_text(exc: BaseException) -> str:
         raw = (error.get("metadata") or {}).get("raw") if isinstance(error.get("metadata"), dict) else None
         message = str(raw or error.get("message") or "")
     message = message or str(getattr(exc, "message", "") or exc)
+    code = error.get("code") if isinstance(body, dict) and isinstance(error, dict) else None
+    if code in ("token_limit", "insufficient_quota"):
+        return f"{message} See /usage."  # a Dcode Manager limit: the message already says when it resets
     if status == 429:
         return f"The model server is rate-limiting requests (429): {message}"
     if status == 503:
