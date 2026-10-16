@@ -337,6 +337,11 @@ def _alternate(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+_MUST_THINK_RE = re.compile(
+    r"(reasoning|thinking)\b.{0,60}\b(is mandatory|cannot be (disabled|turned off)|can'?t be (disabled|turned off)"
+    r"|must be enabled|is required)|\b(mandatory|required)\b.{0,30}\b(reasoning|thinking)\b", re.IGNORECASE)
+
+
 class ModelBusy(RuntimeError):
     """The server kept answering "rate limited" / "overloaded" after Dcode waited."""
 
@@ -478,6 +483,8 @@ class LLMClient:
         if not tools:
             request.pop("tools", None)
             request.pop("tool_choice", None)
+        if effort == "none" and learned.get("must_think"):
+            return {}, request  # it can't stop thinking: leave it at its default rather than be refused
         extras = families.request_extras(self.family, self.server, effort, max_tokens)
         return {k: v for k, v in extras.items() if k not in rejected}, request
 
@@ -495,6 +502,10 @@ class LLMClient:
             learned[key] = value
             return True
 
+        if body and _MUST_THINK_RE.search(text) and not learned.get("must_think"):
+            # "Reasoning is mandatory" (GLM 5.3 on OpenRouter) refuses only turning it off; dropping the
+            # whole field would also lose the effort level, and for every model on that server.
+            return flag("must_think")
         if "max_completion_tokens" in lowered and "max_tokens" in request:
             return flag("max_key", "max_completion_tokens")
         if "max_completion_tokens" in lowered and "max_completion_tokens" in request \

@@ -308,3 +308,18 @@ def test_a_busy_server_is_waited_for_then_reported_in_one_line(monkeypatch):
 def test_error_text_keeps_plain_errors_plain():
     assert error_text(ValueError("boom")) == "boom"
     assert error_text(Rejected("bad field")) == "400: bad field"
+
+
+def test_a_model_that_must_think_keeps_its_effort_and_other_models_keep_theirs():
+    """GLM 5.3 on OpenRouter refuses reasoning: {enabled: false} ("Reasoning is mandatory…")."""
+    mandatory = Rejected("Error code: 400 - Reasoning is mandatory for this endpoint and cannot be disabled.")
+    llm, api = client(mandatory, reply("Fixing kubectl rollouts"), reply("a"), reply("b"),
+                      model="z-ai/glm-5.3", base_url="https://openrouter.ai/api/v1")
+    assert llm.complete_text([{"role": "user", "content": "title"}]) == "Fixing kubectl rollouts"
+    assert api.requests[0]["reasoning"] == {"enabled": False} and "reasoning" not in api.requests[1]
+    llm.chat([{"role": "user", "content": "hi"}])
+    assert api.requests[2]["reasoning"] == {"effort": "medium"}  # the effort still goes
+    other = llm.with_model("deepseek/deepseek-v4.1-flash")
+    other.client = FakeAPI(reply("t"))
+    other.complete_text([{"role": "user", "content": "title"}])
+    assert other.client.requests[0]["reasoning"] == {"enabled": False}
