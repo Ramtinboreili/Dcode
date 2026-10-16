@@ -97,3 +97,19 @@ def test_a_correct_call_is_left_byte_for_byte():
     call = {"id": "c", "type": "function", "function": {"name": "edit_file", "arguments": raw}}
     normalize_call(call)
     assert call["function"]["arguments"] == raw
+
+
+def test_frozen_binary_gives_commands_the_hosts_libraries():
+    """Reported: every command in the 0.7.0 binary began with "bash: /tmp/_MEI…/libtinfo.so.6:
+    no version information available", tokens the model read on every call."""
+    from dcode.__main__ import restore_host_libraries
+
+    env = {"LD_LIBRARY_PATH": "/tmp/_MEI123", "LD_LIBRARY_PATH_ORIG": "/opt/lib", "KEEP": "1"}
+    restore_host_libraries(env, frozen=True)
+    assert env == {"LD_LIBRARY_PATH": "/opt/lib", "KEEP": "1"}
+    env = {"LD_LIBRARY_PATH": "/tmp/_MEI123"}
+    restore_host_libraries(env, frozen=True)
+    assert env == {}  # the host had none
+    env = {"LD_LIBRARY_PATH": "/mine"}
+    restore_host_libraries(env, frozen=False)
+    assert env == {"LD_LIBRARY_PATH": "/mine"}  # from source: untouched

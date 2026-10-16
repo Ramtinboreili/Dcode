@@ -1,9 +1,30 @@
 """Entry point for ``python -m dcode`` and the packaged binary."""
 
+import os
 import sys
 
 
+def restore_host_libraries(environ=None, frozen=None) -> None:
+    """Give child processes the host's own library path, not the packaged binary's.
+
+    A PyInstaller one-file binary points LD_LIBRARY_PATH at its unpack folder (and keeps the
+    original in LD_LIBRARY_PATH_ORIG). Inherited, it makes every command load our bundled
+    libtinfo/libreadline: bash and awk print "no version information available" into each
+    output (tokens the model reads) and some tools break. The loader read the variable when
+    this process started, so changing it now only affects children.
+    """
+    if not (getattr(sys, "frozen", False) if frozen is None else frozen):
+        return  # from source, LD_LIBRARY_PATH is the user's own
+    environ = os.environ if environ is None else environ
+    original = environ.pop("LD_LIBRARY_PATH_ORIG", None)
+    if original:
+        environ["LD_LIBRARY_PATH"] = original
+    else:
+        environ.pop("LD_LIBRARY_PATH", None)
+
+
 def main() -> None:
+    restore_host_libraries()
     if sys.argv[1:2] == ["hub"]:
         # The background hub skips the terminal app (and its libraries) entirely.
         from .server import hub_main
