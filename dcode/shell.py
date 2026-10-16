@@ -91,8 +91,10 @@ def clean_command(args: dict[str, Any]) -> dict[str, Any]:
             value = args.pop(key)
             args["background"] = value if isinstance(value, bool) else str(value).strip().lower() in ("true", "1", "yes")
             break
-    if not args.get("background") and _LONE_AMP_RE.search(command):
-        command, args["background"] = _LONE_AMP_RE.sub("", command).rstrip(), True  # "server &": a job, not a hang
+    if _LONE_AMP_RE.search(command):
+        # "server &": a job, not a hang. Strip it even with background=true (Qwen3-Coder sends both): left in,
+        # bash detaches the server and exits, so the job looks finished and job_stop can't reach it.
+        command, args["background"] = _LONE_AMP_RE.sub("", command).rstrip(), True
     if "timeout_ms" in args:
         ms = args.pop("timeout_ms")
         args["timeout"] = float(ms) / 1000 if _number(ms) else None

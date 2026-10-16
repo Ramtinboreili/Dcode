@@ -29,6 +29,9 @@ def test_every_command_shape_becomes_one_command_line(args, command):
 
 def test_background_timeouts_and_a_trailing_ampersand():
     assert shell.clean_command({"command": "npm run dev &"}) == {"command": "npm run dev", "background": True}
+    # both at once (Qwen3-Coder): the & must still go, or bash detaches the server and the job looks finished
+    assert shell.clean_command({"command": "python3 -m http.server 8765 &", "background": True}) == {
+        "command": "python3 -m http.server 8765", "background": True}
     assert shell.clean_command({"command": "a && b"}) == {"command": "a && b"}
     assert shell.clean_command({"command": "x", "is_background": "true"})["background"] is True
     assert shell.clean_command({"command": "x", "timeout_ms": 30000})["timeout"] == 30

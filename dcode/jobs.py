@@ -15,6 +15,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from . import shell
 
@@ -109,8 +110,10 @@ class JobManager:
 
     def stop(self, job_id: int, timeout: float = 3.0) -> bool:
         job = self.jobs.get(job_id)
-        if job is None or not job.running:
+        if job is None:
             return False
+        if not job.running:
+            return _stop_leftovers(job)
         job.stopped_by_user = True
         try:
             if os.name == "posix":
@@ -131,5 +134,24 @@ class JobManager:
         return True
 
     def stop_all(self) -> None:
-        for job in self.running():
-            self.stop(job.id, timeout=1.5)
+        for job in list(self.jobs.values()):
+            if job.running:
+                self.stop(job.id, timeout=1.5)
+            else:
+                _stop_leftovers(job)
+
+
+def _stop_leftovers(job: Any) -> bool:
+    """A finished job whose children live on (``server &``, a daemon) still owns its process group: end it."""
+    if os.name != "posix":
+        return False
+    try:
+        os.killpg(job.process.pid, 0)
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+    try:
+        os.killpg(job.process.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        return False
+    job.stopped_by_user = True
+    return True

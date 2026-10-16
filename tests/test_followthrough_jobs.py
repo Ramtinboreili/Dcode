@@ -155,3 +155,25 @@ def test_what_counts_as_asking_for_an_artifact():
     for not_asked in ("start a web server with python3 -m http.server", "fix the title in index.html",
                       "open docs/logo.svg", "the web UI is slow"):
         assert not ARTIFACT_REQUEST.search(not_asked), not_asked
+
+
+def test_stopping_a_finished_job_ends_what_it_left_running(tmp_path):
+    """`server &` inside a job: bash exits at once, the server lives on in the job's process group."""
+    import subprocess
+    import time
+
+    from dcode.jobs import JobManager
+
+    manager = JobManager(tmp_path)
+    job = manager.start("sleep 300 & echo started", str(tmp_path))
+    for _ in range(100):
+        if not job.running:
+            break
+        time.sleep(0.05)
+    assert not job.running
+    alive = lambda: subprocess.run(["pgrep", "-g", str(job.process.pid)], capture_output=True).returncode == 0  # noqa: E731
+    assert alive()
+    assert manager.stop(job.id)
+    time.sleep(0.3)
+    assert not alive()
+    assert not manager.stop(job.id)  # nothing left: "not running" again
