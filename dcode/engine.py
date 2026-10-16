@@ -28,7 +28,14 @@ from . import mcp as external
 from . import rules as permission_rules
 from .artifacts import ArtifactStore
 from .config import AppConfig
-from .context import SUMMARY_INSTRUCTIONS, SUMMARY_PREFIX, ContextBudget, compact, render_for_summary
+from .context import (
+    SUMMARY_INSTRUCTIONS,
+    SUMMARY_PREFIX,
+    ContextBudget,
+    compact,
+    elide_earlier_turns,
+    render_for_summary,
+)
 from .custom_agents import AgentSpec, load_specs
 from .llm import Interrupted, LLMClient
 from .memory import MemoryStore
@@ -360,8 +367,11 @@ class Agent:
                 self.recalled = self.memory.recall(user_text, max_chars=budget_chars)
             except Exception:
                 self.recalled = ""
+        elide_earlier_turns(self.messages)
         self.refresh_system_message()
-        self.messages.append({"role": "user", "content": user_text})
+        last = self.messages[-1] if self.messages else {}
+        if not (last.get("role") == "user" and last.get("content") == user_text):
+            self.messages.append({"role": "user", "content": user_text})  # a retry after a failed call: once
         if self.is_main:
             self._attach_mentions(user_text)
 

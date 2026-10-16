@@ -21,6 +21,7 @@ CHARS_PER_TOKEN = 3.5
 PER_MESSAGE_OVERHEAD = 6
 KEEP_RECENT_TOOL_RESULTS = 3
 ELIDE_MIN_CHARS = 600
+EARLIER_TURN_MIN_CHARS = 1500  # smaller outputs cost little and are often what "that" refers to
 SUMMARY_PREFIX = "[Session summary of earlier conversation]"
 
 
@@ -110,6 +111,27 @@ def elide_tool_results(messages: list[Message], keep_recent: int = KEEP_RECENT_T
             f"[elided {len(content)} chars of {messages[index].get('name', 'tool')} output to save context; "
             f"re-run the tool if needed]\n{head}..."
         )
+        elided += 1
+    return elided
+
+
+def elide_earlier_turns(messages: list[Message], min_chars: int = EARLIER_TURN_MIN_CHARS) -> int:
+    """At a new user turn, stub the bulky tool outputs of the turns before it.
+
+    Each call re-sends the whole history, and an answered turn's raw outputs (a 10K-char
+    `kubectl get pods -A`) were paid for again on every later call; the answer that used them
+    stays. Only done at turn start, with the system prompt refresh, so the cached prompt
+    prefix changes once per turn, not per call.
+    """
+    elided = 0
+    for index, message in enumerate(messages):
+        content = message.get("content") or ""
+        if (message.get("role") != "tool" or not isinstance(content, str) or len(content) < min_chars
+                or content.startswith("[elided")):
+            continue
+        messages[index] = {**message, "content": (
+            f"[elided {len(content)} chars of {message.get('name', 'tool')} output from an earlier turn; "
+            f"re-run the tool if you need it again]\n{content[:300].rstrip()}...")}
         elided += 1
     return elided
 

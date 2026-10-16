@@ -299,3 +299,42 @@ def test_write_file_will_not_replace_an_unread_file_at_first(isolated):
     assert outputs[0].startswith("Not written: data.txt already exists and you haven't read it")
     assert (isolated / "seen.txt").read_text() == "new\n" and (isolated / "fresh.txt").exists()
     assert (isolated / "data.txt").read_text() == "1\n2\n"
+
+
+def test_a_new_turn_stops_resending_the_last_turns_big_outputs(isolated):
+    """Reported: "which containers run here?" then "save this on memory" went past a 32K/day
+    limit: the 10K-char kubectl/docker outputs of the answered turn were re-sent on every call."""
+    (isolated / "big.txt").write_text("pod line\n" * 600)
+    (isolated / "small.txt").write_text("tiny")
+    agent, llm = _agent(scripted(
+        AssistantTurn(tool_calls=[call("read_file", '{"path": "big.txt"}', "c1"),
+                                  call("read_file", '{"path": "small.txt"}', "c2")]),
+        AssistantTurn(content="600 pods."),
+        AssistantTurn(tool_calls=[call("read_file", '{"path": "big.txt"}', "c3")]),
+        AssistantTurn(content="Still 600."),
+    ))
+    agent.run_turn("list the pods")
+    within = [m["content"] for m in llm.calls[1] if m["role"] == "tool"]
+    assert len(within[0]) > 4000  # the turn that ran the tool still sees all of it
+    agent.run_turn("save this")
+    earlier = [m["content"] for m in llm.calls[2] if m["role"] == "tool"]
+    assert earlier[0].startswith("[elided") and "re-run the tool" in earlier[0] and len(earlier[0]) < 500
+    assert earlier[1] == "1| tiny"  # small outputs stay
+    assert len([m for m in llm.calls[3] if m["role"] == "tool"][-1]["content"]) > 4000  # a fresh read is whole
+
+
+def test_retrying_a_failed_request_does_not_repeat_the_message(isolated):
+    """Reported: "save this on memory" was in the history twice after a 429 and a retry."""
+    def router(messages, tools):
+        if sum(m["role"] == "user" for m in messages) == 1 and not router.failed:
+            router.failed = True
+            raise RuntimeError("429 token_limit")
+        return AssistantTurn(content="saved")
+    router.failed = False
+    agent, llm = _agent(router)
+    try:
+        agent.run_turn("save this on memory")
+    except RuntimeError:
+        pass
+    agent.run_turn("save this on memory")
+    assert [m["content"] for m in agent.messages if m["role"] == "user"] == ["save this on memory"]
