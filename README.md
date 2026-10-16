@@ -46,6 +46,7 @@ Dcode works with any OpenAI-compatible server (Ollama, vLLM, llama.cpp, LM Studi
 - **More than one way in.** `dcode attach` joins a running session from another terminal (also through an SSH tunnel). `dcode acp` puts Dcode inside Zed and other ACP editors, and `editors/vscode` holds a small VS Code extension. The hub's HTTP API is described at `/api/openapi.json`.
 - **Everyday conveniences.** `!command` to run something yourself, `/editor`, `/thinking`, `/details`, `/notify`, `/undo` and `/redo`, `/sessions` and `dcode --continue`, `/export` and `dcode import`, `/stats`.
 - **One look.** The terminal and the web UI share the same blue palette, defined once in `dcode/theme.py`.
+- **Dcode Manager, for teams.** `dcode manager serve` runs a model gateway with users, API keys, token limits per model and in total (per day, week or month), guards per model, discovery of the model servers on a Kubernetes cluster (start, stop, `--max-model-len`), and monitoring of usage, latency and speed, in its own web UI. People sign in with `dcode login <url>` and see their usage with `/usage`. See [`docs/manager.md`](docs/manager.md) and [`deploy/manager`](deploy/manager/README.md).
 
 > 🛠 **Developer docs:** [`docs/`](docs/README.md) (architecture, history, decisions, roadmap, testing, operations) · agent instructions in [`CLAUDE.md`](CLAUDE.md).
 >
@@ -61,6 +62,8 @@ export DCODE_MODEL=qwen2.5-coder:7b
 export DCODE_CONTEXT_WINDOW=32768                 # match your server's setting
 dcode
 ```
+
+With a Dcode Manager, sign in instead of setting variables: `dcode login http://<manager>:31010`.
 
 The welcome panel prints a link like `http://127.0.0.1:7301/?token=…#s=<session>`. Open it to control the same session from your browser. `dcode ui` reprints the link, and `dcode --no-ui` skips the web UI.
 
@@ -107,7 +110,10 @@ dcode/
   stats.py     usage numbers (~/.dcode/stats.jsonl)
   openapi.py   the hub's HTTP API as an OpenAPI document
   server.py    session API + per-user hub
+  manager_client.py  sign in to a Dcode Manager, usage
+  manager/     Dcode Manager: gateway, users, limits, guards, discovery, monitoring, its web UI
   web/         index.html, app.css, app.js (no external assets)
+deploy/manager/  the Dcode Manager on Kubernetes (kustomize)
 packaging/     PyInstaller binary, .deb, .rpm, tarball, Docker image, offline installer
 editors/       VS Code extension
 tests/         pytest suite (fake LLM, no network)
@@ -155,6 +161,7 @@ Settings live in `~/.dcode/config.json` (mode `0600`). You can edit them with `/
 | `/editor`, `/thinking`, `/details`, `/notify` | Write in `$EDITOR`; show reasoning; hide tool details; bell or desktop notification |
 | `/mcp` | External tools from MCP servers: `/mcp add <name> <command…>` |
 | `/stats [days]` | Usage numbers |
+| `/usage` | Your tokens and limits on the Dcode Manager, and when they reset |
 | `!command` | Run a shell command yourself; Dcode sees the output |
 | `/setup`, `/help`, `/exit` | Setup again, show help, quit |
 

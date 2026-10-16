@@ -53,6 +53,12 @@ Why Dcode is built the way it is. Each decision gives the choice and the reason;
 - **Approvals: the first answer wins.** Either surface can answer. The session raises an "attention" ping to close the terminal prompt only when the *web* answers. Pinging on the request itself closed the menu the terminal was about to open.
 - **One hub per OS user, token-protected.** Shared servers are common in air-gapped environments, and other users must not see or drive your sessions.
 - **The hub dies with the last session, but data stays on disk.** That's how the user asked the UI to behave.
+- **The Dcode Manager is part of Dcode, not a separate product** (`dcode manager serve`, same package and binary). The gateway reuses `families.py`, the UI reuses the theme and logo, and one image ships both. Standard library only (`http.server`, `sqlite3`), so it runs on an air-gapped cluster with no new dependencies.
+- **The manager is a gateway, not just a key issuer.** Limits, guards, usage and latency can only be enforced and measured where the requests pass. It also owns reasoning translation: only it knows each model's real server, so clients send one `reasoning_effort`.
+- **Usage rows are the only counter.** Limits, the usage page and monitoring read the same table; a reset moves the start of counting instead of deleting anything, so history and charts survive resets.
+- **Limits are checked before a request, not reserved.** A request can overshoot a limit by its own size. Reserving tokens up front would need the reply length in advance, and a refused half-answer is worse than a small overshoot.
+- **SQLite with one replica** (`Recreate`). The load is one row per request, a single writer is plenty, and it needs no database server on the cluster.
+- **Cluster changes only on an admin's click,** each with a confirmation that says what happens (scaling to 0 frees the GPU memory and fails every request). Discovery itself only reads.
 
 ## Small-model behavior
 - **Helpers start with an empty context.** Exploration doesn't fill the main window; only a capped report returns. Only read-only roles run in parallel, so helpers never write the same file at once.

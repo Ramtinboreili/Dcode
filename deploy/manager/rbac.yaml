@@ -1,0 +1,39 @@
+# What the manager may do on the cluster, in the namespace where the model servers run (here: vllm).
+# Read services, pods and deployments (discovery); patch deployments and their scale (start/stop a
+# model, change --max-model-len), always from an admin's click in the UI. Copy the Role and
+# RoleBinding for each namespace listed in Settings → Discovery.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dcode-manager
+  namespace: dcode
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dcode-manager
+  namespace: vllm
+rules:
+  - apiGroups: [""]
+    resources: ["services", "pods"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dcode-manager
+  namespace: vllm
+subjects:
+  - kind: ServiceAccount
+    name: dcode-manager
+    namespace: dcode
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dcode-manager

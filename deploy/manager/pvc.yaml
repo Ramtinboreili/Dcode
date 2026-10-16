@@ -1,0 +1,11 @@
+# The database (users, models, usage). Small: usage rows are ~200 bytes each.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dcode-manager-data
+  namespace: dcode
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi

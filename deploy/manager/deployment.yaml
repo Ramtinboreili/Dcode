@@ -1,0 +1,53 @@
+# One replica: the database is a SQLite file on the volume (Recreate, so two pods never share it).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dcode-manager
+  namespace: dcode
+  labels: {app: dcode-manager}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: dcode-manager}
+  template:
+    metadata:
+      labels: {app: dcode-manager}
+    spec:
+      serviceAccountName: dcode-manager
+      securityContext: {runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, runAsNonRoot: true}
+      containers:
+        - name: manager
+          image: dcode
+          args: ["manager", "serve", "--host", "0.0.0.0", "--port", "8080", "--data", "/data"]
+          ports:
+            - {name: http, containerPort: 8080}
+          env:
+            - {name: TZ, value: UTC}
+            # The address people use, so Dcode is told the right gateway URL behind a proxy:
+            # - {name: DCODE_MANAGER_URL, value: "https://dcode-manager.example.com"}
+          envFrom:
+            - secretRef: {name: dcode-manager-admin}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}     # the one-file binary unpacks itself here
+            # - {name: models, mountPath: /models, readOnly: true}   # see "Models folder" in the README
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 512Mi}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: dcode-manager-data}
+        - name: tmp
+          emptyDir: {sizeLimit: 512Mi}
+        # Weights on a GPU node (listed in Discovery): also pin the pod to that node.
+        # - name: models
+        #   hostPath: {path: /home/admin1, type: Directory}

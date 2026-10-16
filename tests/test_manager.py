@@ -589,3 +589,30 @@ def test_one_pod_with_two_servers_gives_two_entries_and_plain_web_servers_are_le
     found = discovery.discover(kube, ["vllm"], [])
     assert [(f["service"], f["served"][0]["id"]) for f in found] == [
         ("jina-embeddings", "jina-embeddings-v3"), ("vllm-jina-reranker", "jina-reranker")]
+
+
+
+def test_dcode_login_takes_the_key_and_models_and_keeps_other_settings(stack, monkeypatch):
+    from conftest import make_config
+
+    from dcode import main, manager_client, ui
+    from dcode.config import load_config, save_config
+
+    before = make_config(model="old-model")
+    before.permissions["run_command"] = False
+    save_config(before)
+    stack["admin"].call("POST", "/api/admin/models", {"id": "other", "upstream_url": stack["upstream"].url,
+                                                      "context_length": 16384, "family": "glm"})
+    answers = iter(["sara-pass-1"])
+    monkeypatch.setattr(ui, "prompt_input", lambda *a, **k: next(answers))
+    monkeypatch.setattr(ui, "select_model", lambda models, selected=None: "other")
+    monkeypatch.setattr(ui, "notice", lambda *a, **k: None)
+    url = f"http://127.0.0.1:{stack['port']}"
+    config = main.manager_setup(url, "sara")
+    saved = load_config()
+    assert saved.base_url == url + "/v1" and saved.api_key.startswith("dcm-") and saved.model == "other"
+    assert saved.context_window == 16384 and saved.manager["models"]["other"]["family"] == "glm"
+    assert saved.permissions["run_command"] is False  # the rest of the settings stayed
+    assert manager_client.is_manager(config)
+    lines = manager_client.usage_lines(manager_client.usage(config))
+    assert lines[0].startswith("All models: 0 tokens") and any(line.startswith("other:") for line in lines)

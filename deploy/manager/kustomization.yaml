@@ -1,0 +1,17 @@
+# Dcode Manager on Kubernetes:  kubectl apply -k deploy/manager
+# Before applying: set the image below, the admin password in secret.yaml, and the model namespace
+# in rbac.yaml (the manager may only read and scale deployments there). Each object names its own
+# namespace: the Role and RoleBinding live where the model servers are, the rest in "dcode".
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - secret.yaml
+  - rbac.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+images:
+  - name: dcode
+    newName: dcode          # e.g. registry.example.com/dcode (built with `make docker`)
+    newTag: "0.6.0"

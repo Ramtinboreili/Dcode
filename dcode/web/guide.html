@@ -232,6 +232,11 @@ export DCODE_API_KEY=local
 export DCODE_MODEL=Qwen/Qwen2.5-Coder-7B-Instruct
 dcode</pre></div>
   <div class="callout warn"><span class="ic">⚠️</span><p><strong>Set the context window to match your server</strong> (for example <code>--ctx-size</code> in llama.cpp or <code>num_ctx</code> in Ollama). Dcode uses it to decide when to trim and summarize.</p></div>
+  <h3>Through a Dcode Manager</h3>
+  <p>If your team runs a <strong>Dcode Manager</strong> (one gateway for all the models, with users, limits and usage), choose <em>Sign in to a Dcode Manager</em> in the first setup, or sign in at any time:</p>
+  <div class="code"><div class="bar"><span>Sign in</span><button>Copy</button></div><pre>dcode login http://dcode-manager.corp:31010 -u sara</pre></div>
+  <p>Dcode asks for your password, gets an API key for this device, lists the models you may use, and sets each model's context length for you; your other settings stay. <code>/model</code> switches between the manager's models and <code>/usage</code> shows your tokens, your limits and when they reset. The manager's web page (same address) shows the same, and lets you make keys for other tools.</p>
+  <div class="callout tip"><span class="ic">💡</span><p><strong>Running the manager:</strong> <code>dcode manager serve --port 8080</code> (or <code>deploy/manager</code> on Kubernetes). Admins add models (or find them on the cluster), turn them on and off, set context lengths, guards, who may use each model and how many tokens per day, week or month, and watch usage, latency and speed. See <code>docs/manager.md</code>.</p></div>
 
   <h2 id="en-terminal"><span class="num">4</span>Using the terminal</h2>
   <p>Open a terminal in your project folder and run <code>dcode</code>. The welcome panel shows the model, folder and a <strong>web UI link</strong>. Type what you want and press <kbd>Enter</kbd>.</p>
@@ -271,6 +276,7 @@ dcode</pre></div>
       <tr><td><code>/thinking</code> · <code>/details</code></td><td>Show the model's reasoning; hide tool calls and results</td></tr>
       <tr><td><code>/notify off|bell|desktop</code></td><td>Ring the bell or send a desktop notification when a task of 10 seconds or more ends, or when Dcode needs an answer</td></tr>
       <tr><td><code>/stats [days]</code></td><td>Usage numbers: tasks, tokens, working time, tools, by model and project</td></tr>
+      <tr><td><code>/usage</code></td><td>Your tokens and limits on the Dcode Manager, and when they reset</td></tr>
       <tr><td><code>/mcp</code></td><td>External tools from MCP servers (see <a href="#en-mcp">External tools</a>)</td></tr>
       <tr><td><code>/mode</code></td><td>Switch mode (or press <kbd>Shift</kbd>+<kbd>Tab</kbd>)</td></tr>
       <tr><td><code>/compact [focus]</code></td><td>Summarize this session to free up context; the summary is saved to memory</td></tr>
@@ -657,6 +663,11 @@ export DCODE_API_KEY=local
 export DCODE_MODEL=Qwen/Qwen2.5-Coder-7B-Instruct
 dcode</pre></div>
   <div class="callout warn"><span class="ic">⚠️</span><p><strong>پنجرهٔ زمینه را دقیقاً هم‌اندازهٔ تنظیم سرور بگذارید</strong> (مثلاً <code>--ctx-size</code> در llama.cpp یا <code>num_ctx</code> در Ollama). Dcode از این عدد برای تصمیم دربارهٔ کوتاه‌سازی و خلاصه‌سازی استفاده می‌کند.</p></div>
+  <h3>از راه Dcode Manager</h3>
+  <p>اگر تیم شما یک <strong>Dcode Manager</strong> دارد (یک درگاه برای همهٔ مدل‌ها، با کاربران، سقف مصرف و گزارش مصرف)، در راه‌اندازی اول گزینهٔ <em>Sign in to a Dcode Manager</em> را بزنید، یا هر وقت خواستید وارد شوید:</p>
+  <div class="code"><div class="bar"><span>ورود</span><button>Copy</button></div><pre>dcode login http://dcode-manager.corp:31010 -u sara</pre></div>
+  <p>Dcode رمز عبور را می‌پرسد، برای همین دستگاه یک کلید API می‌گیرد، مدل‌هایی را که اجازه دارید فهرست می‌کند و اندازهٔ زمینهٔ هر مدل را خودش تنظیم می‌کند؛ بقیهٔ تنظیمات شما دست نمی‌خورد. <code dir="ltr">/model</code> بین مدل‌های مدیر جابه‌جا می‌کند و <code dir="ltr">/usage</code> توکن‌های مصرف‌شده، سقف‌ها و زمان صفر شدنشان را نشان می‌دهد. صفحهٔ وب مدیر (همان نشانی) هم همین‌ها را نشان می‌دهد و برای ابزارهای دیگر کلید می‌سازد.</p>
+  <div class="callout tip"><span class="ic">💡</span><p><strong>اجرای مدیر:</strong> <code dir="ltr">dcode manager serve --port 8080</code> (یا <code dir="ltr">deploy/manager</code> روی Kubernetes). مدیرها مدل‌ها را اضافه می‌کنند (یا روی کلاستر پیدا می‌کنند)، روشن و خاموششان می‌کنند، اندازهٔ زمینه، نگهبان‌ها (guard)، اینکه چه کسی از هر مدل استفاده کند و چند توکن در روز، هفته یا ماه را تعیین می‌کنند و مصرف، تأخیر و سرعت را می‌بینند. جزئیات در <code dir="ltr">docs/manager.md</code>.</p></div>
 
   <h2 id="fa-terminal"><span class="num">۴</span>کار با ترمینال</h2>
   <p>در پوشهٔ پروژه یک ترمینال باز کنید و <code>dcode</code> را اجرا کنید. پنل خوش‌آمد مدل، پوشه و <strong>لینک رابط وب</strong> را نشان می‌دهد. خواسته‌تان را بنویسید و <kbd>Enter</kbd> بزنید.</p>
@@ -702,6 +713,7 @@ dcode</pre></div>
       <tr><td><code>/thinking</code> · <code>/details</code></td><td>نمایش استدلال مدل؛ پنهان کردن فراخوانی ابزارها و نتیجه‌هایشان</td></tr>
       <tr><td><code dir="ltr">/notify off|bell|desktop</code></td><td>وقتی کاری ۱۰ ثانیه یا بیشتر طول کشید و تمام شد، یا Dcode منتظر پاسخ شماست: زنگ ترمینال یا اعلان دسکتاپ</td></tr>
       <tr><td><code dir="ltr">/stats [days]</code></td><td>آمار استفاده: تعداد کارها، توکن‌ها، زمان کار و ابزارها، به تفکیک مدل و پروژه</td></tr>
+      <tr><td><code dir="ltr">/usage</code></td><td>توکن‌ها و سقف‌های شما در Dcode Manager و زمان صفر شدنشان</td></tr>
       <tr><td><code>/mcp</code></td><td>ابزارهای بیرونی از سرورهای MCP (بخش <a href="#fa-mcp">ابزارهای بیرونی</a>)</td></tr>
       <tr><td><code>/jobs</code></td><td>کارهای پس‌زمینه (سرورها، watcherها): دیدن خروجی و متوقف کردن</td></tr>
       <tr><td><code>/db</code></td><td>پایگاه‌های داده: اتصال‌ها، جدول‌ها، کوئری، خلاصه، خروجی (بخش <a href="#fa-db">پایگاه‌های داده</a>)</td></tr>

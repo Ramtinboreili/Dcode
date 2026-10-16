@@ -35,6 +35,7 @@ Three layers. Run the first always, the second for any terminal or packaging cha
 | `test_llm_client.py` | `LLMClient` against a scripted API: fields per family, learning from refusals (fields, `max_completion_tokens`, text tools, system role, turn order, call ids, reasoning back), the reasoning cut-off, `<think>` kept off the screen, argument types |
 | `test_shell.py` | command shapes, commands refused without a terminal, bash, no stdin, ANSI stripped, process-group timeouts, other agents' argument names |
 | `test_slash_commands.py` | every slash command through the terminal's dispatcher, menus answered from a script |
+| `test_manager.py` | the Dcode Manager on a random port with a scripted model server: sign-in and keys, the gateway (streaming, usage, reasoning translation and what it learns), access and limits, guards, monitoring, discovery against a fake Kubernetes API, the UI's files and headers |
 | `test_engine.py` | loop, approvals, parallel helpers, repeat guard, step limit, reports, id dedupe |
 | `test_session.py` | queue, approvals from either surface, interrupt repair, titles, allow-for-session |
 | `test_modes.py` | modes, checkpoints/undo, force compact, plan flow |
@@ -54,7 +55,7 @@ Three layers. Run the first always, the second for any terminal or packaging cha
 
 ## 2. Real-terminal end-to-end (`docs/dev/terminal_e2e.py`)
 
-Drives the real `dcode` in a pseudo-terminal against **`docs/dev/mock_llm.py`**, a scripted OpenAI-compatible server. Its docstring lists the trigger words for each scenario. 98 checks, covering every slash command and:
+Drives the real `dcode` in a pseudo-terminal against **`docs/dev/mock_llm.py`**, a scripted OpenAI-compatible server. Its docstring lists the trigger words for each scenario. 99 checks, covering every slash command and:
 - the web UI link and hub, the bilingual guide
 - streaming and `<think>` stripping, tool calls, `/version`, Shift+Tab
 - approvals answered from the web and in the terminal

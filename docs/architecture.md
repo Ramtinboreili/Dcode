@@ -18,8 +18,9 @@ dcode (terminal) ──┐                         ┌── browser (per OS use
 
 | Module | Responsibility |
 |---|---|
-| `__main__.py` | the real entry point: `hub`, `run` and `acp` skip the terminal app's imports, everything else goes to `main.cli` |
-| `main.py` | click entry point, setup wizard, signal handling, starting/joining the hub, `--continue` / `--resume`, and the subcommands `ui`, `attach`, `stats`, `export`, `import`, hidden `hub` |
+| `__main__.py` | the real entry point: `hub`, `run`, `acp` and `manager` skip the terminal app's imports, everything else goes to `main.cli` |
+| `main.py` | click entry point, setup wizard (a Dcode Manager or a server directly), signal handling, starting/joining the hub, `--continue` / `--resume`, and the subcommands `login`, `ui`, `attach`, `stats`, `export`, `import`, hidden `hub` |
+| `manager_client.py` | Dcode's side of a Dcode Manager: `info`, `device_login`, `usage`, `models`, `apply_login`, `use_model` (the model's context length), `is_manager` |
 | `cli.py` | `TerminalApp`: a state-driven loop (approval → busy → plan approval → input), event rendering, slash commands, live activity panel, `/jobs`, `/artifacts`, `/commit` |
 | `ui.py` | rich and prompt_toolkit widgets: header, bottom input box (labeled top rule, mode badge, slash suggestions, Shift+Tab, Ctrl+O, Ctrl+C×2), selectors, approval menu, diffs, links |
 | `theme.py` | **the single source of colors**: web `LIGHT`/`DARK` token dicts (served as `/theme.css`), terminal colors, logo |
@@ -54,7 +55,8 @@ dcode (terminal) ──┐                         ┌── browser (per OS use
 | `schedules.py` | scheduled jobs: cron parser, jobs and runs on disk, `run_job` (log, time limit), `Scheduler` (a thread in the hub) |
 | `headless.py` | `dcode run`: a `Session` with no terminal; approvals are denied, events are printed as plain text |
 | `server.py` | `SessionServer` (per session), `Hub` (per user), registry, token, hub lifecycle (`ensure_hub`, `hub_usable`, `_retire_hub`, clean child env) |
-| `config.py` | `AppConfig`, paths (`DCODE_HOME`), env overrides, legacy migration, threads |
+| `config.py` | `AppConfig` (incl. `manager`: URL, user, each model's family and context), paths (`DCODE_HOME`), env overrides, legacy migration, threads |
+| `manager/` | **Dcode Manager** (`dcode manager serve`, see below): `store.py` (SQLite), `auth.py`, `limits.py`, `guards.py`, `gateway.py`, `discovery.py`, `monitoring.py`, `server.py`, `cli.py`, `web/` |
 | `web/` | `index.html`, `app.js`, `app.css` (main UI), `artifact.html` (`/a/<id>`), `guide.html` (`/guide`), `logo.svg` |
 | `skills/*.md` | built-in skills (bundled, seeded once into `~/.dcode/skills`) |
 
@@ -87,6 +89,16 @@ Each family reasons and calls tools its own way. `families.detect(model, base_ur
 - **Learning:** `_learn()` reads a rejected request's error and changes one thing (drop a field, rename one, change the history's shape, switch to text tools), then the request goes again, at most six times. What a server refuses carries over to other models on it; what a model needs resets when the model changes. Context overflows and missing models teach nothing.
 - **Reasoning:** while streaming, reasoning that passes 75% of the reply cap or repeats itself raises `_Overthinking`; `chat()` asks again one effort lower (straight to none for a loop), at most twice, only for families where effort changes anything. The `notes` on the turn become info notices.
 - **Text tool calls** are parsed for every family (`toolcalls.parse`), whatever was detected: a wrong guess must never lose a call. The engine then maps argument names (`tools.normalize_call`, before approval) and `llm.coerce_arguments` gives each its schema type.
+
+## Dcode Manager (`dcode/manager/`)
+
+A team server: the model gateway (`/v1`) plus users, limits, guards, discovery and monitoring, with its own web UI (`manager/web`: `app.js` for everyone, `admin.js` for admins). Standard library only, like the hub, and it never imports the terminal or client libraries (a test guards it). User-facing description: `docs/manager.md`.
+
+- **Store:** one SQLite file (WAL; a connection per thread, one writer lock). The `usage` table (one row per request) is the only counter: limits, the usage page and monitoring all read it. A reset moves the start of counting (`users.reset_at`, `settings.global_reset_at`), it never deletes history. New columns go into `MIGRATIONS`.
+- **Gateway** (`Gateway.prepare` → `check_with_guard_model` → `forward`): model on? access and token limits (`limits.check`), requests per minute, guards (`guards.check_request` changes the body in place: redaction, policy prompt), `_fit` (cap the reply, refuse an overflow with vLLM's wording), `_reasoning` (one `reasoning_effort` in, the model's own fields out via `families.request_extras` on the upstream's server kind), then the upstream's name and key. `forward` relays plain or streamed answers (adds `stream_options.include_usage` and drops that chunk again if the client didn't ask), masks output (`OutputMasker` holds back 96 characters so a match split across chunks is caught), and learns per model what the upstream refuses (`stream_options`, a reasoning field, "reasoning is mandatory"). The usage row is written before the last bytes go out, so the next request already counts it.
+- **Auth:** scrypt passwords; sessions and API keys as SHA-256 hashes; a cookie session needs the `X-Dcode-Manager` header for changes; an API key reaches `/v1` and the user's read-only `/api/me*`. The last admin can't be removed.
+- **Discovery:** the Kubernetes REST API (in-cluster service account or a `kubectl proxy` URL), one entry per in-cluster service port of a model-server deployment, probed in parallel; `server_args` reads vLLM-style command lines; `scale` and `set_max_model_len` patch a linked deployment, only from an admin's click. `scan_weights` lists model folders and `.gguf` files.
+- **Dcode through a manager:** `server_kind` is `"manager"` (`manager_client.is_manager`): Dcode sends one `reasoning_effort`, takes the family from the manager's `/v1/models` (`config.manager.models`), and a `token_limit` 429 is reported at once instead of waited for.
 
 ## Approvals and modes
 

@@ -113,11 +113,16 @@ def manager_setup(url: str = "", username: str = "", model: str | None = None) -
 def run_setup(base_url: str | None = None, api_key: str | None = None, model: str | None = None) -> AppConfig:
     ensure_app_dirs()
     if not base_url and not api_key:
+        ui.console.print(f"[bold {PRIMARY}]Dcode setup[/] — a Dcode Manager, or any OpenAI-compatible endpoint "
+                         "(Ollama, vLLM, llama.cpp, LM Studio, TGI…)")
         how = ui.select_one("How does Dcode reach its models?", [SETUP_MANAGER, SETUP_DIRECT])
+        if not how:  # Esc
+            raise ui.PromptCancelled()
         if how == SETUP_MANAGER:
             return manager_setup(model=model)
-    ui.console.print(f"[bold {PRIMARY}]Dcode setup[/] — connect to any OpenAI-compatible endpoint "
-                     "(Ollama, vLLM, llama.cpp, LM Studio, TGI…)")
+    else:
+        ui.console.print(f"[bold {PRIMARY}]Dcode setup[/] — connect to any OpenAI-compatible endpoint "
+                         "(Ollama, vLLM, llama.cpp, LM Studio, TGI…)")
     while not base_url:
         base_url = ui.prompt_input("Base URL (e.g. http://localhost:11434/v1)")
         if not base_url:

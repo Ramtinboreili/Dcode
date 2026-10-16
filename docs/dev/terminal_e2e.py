@@ -342,6 +342,7 @@ def main() -> int:
         check("/agents lists the helpers", command("/agents", r"@explore[\s\S]*@review"))
         check("/hooks", command("/hooks", r"No hooks"))
         check("/stats", command("/stats", r"usage"))
+        check("/usage without a manager says how to sign in", command("/usage", r"dcode login"))
         check("/notify bell", command("/notify bell", r"terminal bell"))
         check("/notify off", command("/notify off", r"Notifications are off"))
         check("/jobs", command("/jobs", r"No background jobs"))

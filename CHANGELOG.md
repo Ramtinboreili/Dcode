@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased — every model family, its own way
+## Unreleased — the Dcode Manager, and every model family its own way
+
+### Dcode Manager
+A team server for models, users, limits and usage: `dcode manager serve` (same binary, standard library only), or `deploy/manager` on Kubernetes. See `docs/manager.md`. Tested with a scripted model server and live through OpenRouter (DeepSeek v4.1 flash, GLM 5.3 flash, Qwen3.8 27B), with discovery read from the real `vllm` namespace; not yet deployed on the cluster.
+- **A model gateway** (OpenAI-compatible `/v1`) in front of every model server: chat (streamed or not), completions, embeddings and other model routes. Each model has its own server, server-side name and key; the gateway counts every request's tokens, latency and time to first token.
+- **Users and admins.** Dcode signs in (`dcode login <url>`, or the new first choice in setup) and gets its own API key and the user's models with their context lengths. `/usage` shows your tokens, limits and when they reset.
+- **Admins** turn models on and off, set their context length (refused the way vLLM words it, so Dcode compacts) and max reply, who may use each model, and token limits per user per model and in total, per day, week, month or until reset, in the manager's time zone. They reset one user's usage or everyone's.
+- **Guards per model:** refuse requests matching patterns, mask secrets before the model sees them, mask patterns in answers (also across streamed chunks), requests per minute, the largest request, a policy prompt, a guard model.
+- **Discovery** of model servers on the cluster (one entry per service port; `jina-stack` serves two) and of model weights in a models folder; start and stop a model's deployment and change its `--max-model-len` from the UI, each asked first.
+- **Monitoring:** requests, tokens, errors and refusals; tokens over time per model; p50/p95, time to first token, tokens/s and error rate per model; live server health with vLLM's running/waiting requests and KV-cache use; top users; recent problems; devices.
+- **Reasoning through the gateway:** Dcode sends one `reasoning_effort`; the manager turns it into each model's own fields and learns per model what its server refuses.
 
 GLM, DeepSeek, Claude, GPT, Gemini, Qwen and the rest each reason and call tools differently. Dcode now detects the family and follows its conventions. Tested with scripted servers, then on OpenRouter with DeepSeek v4.1 flash and Gemma 4 31B (bash, edit, git, a background server, the real terminal); not yet with the local vLLM models.
 
