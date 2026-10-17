@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.1 — fewer tokens per task, and commands get the host's libraries
 
 - **Fewer tokens per task.** When a new turn starts, the big tool outputs of earlier turns (over 1,500 characters) become a short stub; the answer that used them stays. On a real chat ("which containers run here?", then "save this on memory") the second turn's prompt went from about 9,700 to 4,100 tokens.
 - A retry after a failed request (for example a manager's token limit) no longer adds the message to the history twice.
