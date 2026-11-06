@@ -1,4 +1,4 @@
-.PHONY: help install dev test lint binary mac deb linux rpm tarball docker vsix packages clean
+.PHONY: help install dev test lint bench-validate bench-smoke binary mac deb linux rpm tarball docker vsix packages clean
 
 PYTHON ?= python3
 # Optional: point at a private/offline PyPI mirror, e.g.
@@ -12,6 +12,8 @@ help:
 	@echo "  dev      Install with dev extras (pytest, ruff, pyinstaller)"
 	@echo "  test     Run the test suite"
 	@echo "  lint     Run ruff"
+	@echo "  bench-validate  The oracle: each benchmark check fails on its repo and passes with its solution"
+	@echo "  bench-smoke     The benchmark pipeline against the mock server, end to end"
 	@echo "  binary   Build a self-contained binary (dist/dcode)"
 	@echo "  mac      Build dist/dcode with the current venv and install it to /opt/homebrew/bin"
 	@echo "  deb      Build a .deb from the binary (Debian/Ubuntu build host)"
@@ -30,7 +32,13 @@ test:
 	$(PYTHON) -m pytest
 
 lint:
-	$(PYTHON) -m ruff check dcode tests
+	$(PYTHON) -m ruff check dcode tests bench/*.py bench/lib
+
+bench-validate:
+	$(PYTHON) bench/validate_tasks.py
+
+bench-smoke:
+	$(PYTHON) bench/smoke.py
 
 binary:
 	bash packaging/build-binary.sh

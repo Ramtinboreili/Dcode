@@ -559,10 +559,13 @@ def main(argv: list[str] | None = None) -> int:
                 print("\nStopping: killing the running agents. Finished runs are kept, --resume continues.", flush=True)
             ctx.stop.set()
 
-        signal.signal(signal.SIGINT, stop)
-        signal.signal(signal.SIGTERM, stop)
+        handlers = {number: signal.signal(number, stop) for number in (signal.SIGINT, signal.SIGTERM)}
         print(f"{len(runs)} runs planned, {len(pending)} to do, {args.parallel} slot(s), output in {args.out}", flush=True)
-        execute_all(pending, keys, ctx, len(runs))
+        try:
+            execute_all(pending, keys, ctx, len(runs))
+        finally:
+            for number, handler in handlers.items():
+                signal.signal(number, handler)
         rows = aggregate(args.out)
         for slot in {run.slot for run in runs}:
             shutil.rmtree(ctx.workdir / f"w{slot}", ignore_errors=True)
