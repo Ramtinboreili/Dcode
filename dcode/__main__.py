@@ -25,6 +25,16 @@ def restore_host_libraries(environ=None, frozen=None) -> None:
 
 def main() -> None:
     restore_host_libraries()
+    from .experiment import ExperimentError
+
+    try:
+        _start()
+    except ExperimentError as exc:  # a study's settings are wrong: running anyway would measure the wrong thing
+        print(f"Dcode: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+
+def _start() -> None:
     if sys.argv[1:2] == ["hub"]:
         # The background hub skips the terminal app (and its libraries) entirely.
         from .server import hub_main

@@ -22,6 +22,8 @@ PER_MESSAGE_OVERHEAD = 6
 KEEP_RECENT_TOOL_RESULTS = 3
 ELIDE_MIN_CHARS = 600
 EARLIER_TURN_MIN_CHARS = 1500  # smaller outputs cost little and are often what "that" refers to
+COMPACT_TRIGGER = 0.75
+COMPACT_TARGET = 0.45
 SUMMARY_PREFIX = "[Session summary of earlier conversation]"
 
 
@@ -72,8 +74,10 @@ class TokenCounter:
 
 
 class ContextBudget:
-    def __init__(self, context_window: int, max_output_tokens: int) -> None:
+    def __init__(self, context_window: int, max_output_tokens: int, trigger: float = COMPACT_TRIGGER,
+                 target: float = COMPACT_TARGET) -> None:
         self.context_window = context_window
+        self.trigger, self.target = trigger, target
         # Never let the reply budget eat more than a quarter of a tiny window.
         self.max_output_tokens = min(max_output_tokens, max(256, context_window // 4))
         self.counter = TokenCounter()
@@ -84,11 +88,11 @@ class ContextBudget:
 
     @property
     def compact_threshold(self) -> int:
-        return int(self.input_budget * 0.75)
+        return int(self.input_budget * self.trigger)
 
     @property
     def target_after_compaction(self) -> int:
-        return int(self.input_budget * 0.45)
+        return int(self.input_budget * self.target)
 
     def usage(self, messages: list[Message], tools: list[dict[str, Any]] | None = None) -> int:
         return self.counter.messages(messages, tools)
@@ -97,13 +101,14 @@ class ContextBudget:
         return self.usage(messages, tools) > self.compact_threshold
 
 
-def elide_tool_results(messages: list[Message], keep_recent: int = KEEP_RECENT_TOOL_RESULTS) -> int:
+def elide_tool_results(messages: list[Message], keep_recent: int = KEEP_RECENT_TOOL_RESULTS,
+                       min_chars: int = ELIDE_MIN_CHARS) -> int:
     """Replace bulky old tool outputs with short stubs. Returns how many were elided."""
     tool_indexes = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
     elided = 0
     for index in tool_indexes[:-keep_recent] if keep_recent else tool_indexes:
         content = messages[index].get("content") or ""
-        if not isinstance(content, str) or len(content) < ELIDE_MIN_CHARS or content.startswith("[elided"):
+        if not isinstance(content, str) or len(content) < min_chars or content.startswith("[elided"):
             continue
         head = content[:200].rstrip()
         messages[index] = dict(messages[index])
@@ -203,16 +208,22 @@ def compact(
     budget: ContextBudget,
     summarize: Callable[[str], str],
     tools: list[dict[str, Any]] | None = None,
+    options: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Shrink ``messages`` in place if over budget. Returns a report or None."""
+    """Shrink ``messages`` in place if over budget. Returns a report or None.
+
+    ``options`` is the experiment section (the defaults when absent)."""
+    options = options or {}
+    keep_recent = options.get("keep_recent_tool_results", KEEP_RECENT_TOOL_RESULTS)
+    min_chars = options.get("elide_min_chars", ELIDE_MIN_CHARS)
     before = budget.usage(messages, tools)
     if before <= budget.compact_threshold:
         return None
 
-    elided = elide_tool_results(messages)
+    elided = elide_tool_results(messages, keep_recent, min_chars)
     after = budget.usage(messages, tools)
     summary_text = ""
-    if after > budget.compact_threshold:
+    if after > budget.compact_threshold and options.get("summarization", True):
         tools_cost = budget.counter.messages([], tools)
         keep = max(512, budget.target_after_compaction - budget.counter.message(messages[0]) - tools_cost)
         old, recent = split_for_summary(messages, keep, budget.counter)
@@ -237,7 +248,7 @@ def compact(
 
     if after > budget.input_budget:
         # Last resort: elide every tool result, then drop oldest turns.
-        elide_tool_results(messages, keep_recent=0)
+        elide_tool_results(messages, 0, min_chars)
         while budget.usage(messages, tools) > budget.input_budget and len(_turn_boundaries(messages)) > 1:
             boundaries = _turn_boundaries(messages)
             del messages[boundaries[0]:boundaries[1]]

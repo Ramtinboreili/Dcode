@@ -84,7 +84,9 @@ PROMISE = re.compile(
     r"|\bnow (i(?:'|’)?ll|i will) |\bi will (now )?(create|build|save|write|make|generate))",
     re.IGNORECASE,
 )
-COMPACT_ARG_TOOLS = {"artifact_save", "skill_save"}
+COMPACT_ARG_TOOLS = {"artifact_save", "skill_save"}  # their payload is stored on disk: see _stub_payload
+STUB_ARG_KEYS = ("content", "instructions", "old_text", "new_text")
+MCP_FUNCTION_NAME = re.compile(r"[^A-Za-z0-9_-]")
 # Tools whose "path" argument the file rules (and the outside-workspace rule) apply to.
 FILE_ARG_TOOLS = {"read_file", "edit_file", "write_file", "delete_file", "create_directory", "list_files",
                   "search_in_files", "git_diff"}
@@ -153,7 +155,7 @@ class Agent:
         self.role = role
         self.agent_id = agent_id
         self.git = git if git is not None else {"is_repo": False}
-        self.budget = ContextBudget(config.context_window, config.max_output_tokens)
+        self.budget = self._new_budget(config)
         self.recalled = ""
         self.current_task = ""
         self._artifact_saves: dict[str, int] = {}
@@ -166,7 +168,7 @@ class Agent:
         self.todos: list[dict[str, str]] = []
         self._db_names: dict[str, str] = {}  # saved connections (name -> engine), refreshed at turn start
         self._db_schemas: dict[str, tuple[float, dict[str, Any]]] = {}
-        configure_limits(config.context_window)
+        self._apply_limits(config)
         self.artifacts = ArtifactStore()
         self.checkpoints = getattr(host, "checkpoints", None)
         self.specs: dict[str, AgentSpec] = self._load_specs()
@@ -179,9 +181,19 @@ class Agent:
         ratio = self.budget.counter.ratio
         self.config = config
         self.llm = llm
-        self.budget = ContextBudget(config.context_window, config.max_output_tokens)
+        self.budget = self._new_budget(config)
         self.budget.counter.ratio = ratio
-        configure_limits(config.context_window)
+        self._apply_limits(config)
+
+    @staticmethod
+    def _new_budget(config: AppConfig) -> ContextBudget:
+        exp = config.experiment
+        return ContextBudget(config.context_window, config.max_output_tokens, exp["compact_trigger"], exp["compact_target"])
+
+    @staticmethod
+    def _apply_limits(config: AppConfig) -> None:
+        exp = config.experiment
+        configure_limits(config.context_window, exp["output_cap_share"], exp["output_cap_min"], exp["output_cap_max"])
 
     # --- prompt & tools -------------------------------------------------------------
     @property
@@ -200,7 +212,7 @@ class Agent:
             names = list(allowed)
             if memory_on:
                 names += roles.MEMORY_TOOL_NAMES
-            if self.config.agents.get("enabled", True):
+            if self._delegation_on:
                 names.append("delegate")
             if self.config.artifacts.get("enabled", True):
                 names += roles.ARTIFACT_TOOL_NAMES
@@ -209,7 +221,7 @@ class Agent:
             if self._db_names:
                 names += roles.DB_TOOL_NAMES
             if getattr(self.host, "mcp", None):
-                names += roles.MCP_TOOL_NAMES
+                names += list(self._mcp_functions()) if self._mcp_full else roles.MCP_TOOL_NAMES
             if hasattr(self.host, "ask_user"):
                 names.append("ask_user")
         else:
@@ -222,10 +234,35 @@ class Agent:
             names = [n for n in names if n not in roles.PLAN_BLOCKED_TOOLS]
         return names
 
+    @property
+    def _delegation_on(self) -> bool:
+        return bool(self.config.agents.get("enabled", True) and self.config.experiment["delegation"])
+
+    @property
+    def _mcp_full(self) -> bool:
+        return self.config.experiment["mcp_schemas"] == "full"
+
+    def _mcp_functions(self) -> dict[str, dict[str, Any]]:
+        """The "full schemas" variant: each MCP tool as a function of its own (only for comparing with names-only)."""
+        functions: dict[str, dict[str, Any]] = {}
+        servers = getattr(self.host, "mcp", None)
+        for server in (servers.servers.values() if servers else ()):
+            if server.state != "ready":
+                continue
+            for spec in server.tools:
+                name = MCP_FUNCTION_NAME.sub("_", f"mcp__{server.name}__{spec['name']}")[:64]
+                parameters = spec.get("inputSchema") if isinstance(spec.get("inputSchema"), dict) else {"type": "object"}
+                functions[name] = {"server": server.name, "tool": spec["name"], "schema": {"type": "function", "function": {
+                    "name": name, "description": str(spec.get("description") or ""), "parameters": parameters}}}
+        return functions
+
     def tools(self) -> list[dict[str, Any]]:
         schemas = []
+        functions = self._mcp_functions() if self.is_main and self._mcp_full else {}
         for name in self.tool_names():
             schema = TOOL_SCHEMAS.get(name) or roles.EXTRA_TOOL_SCHEMAS.get(name)
+            if not schema and name in functions:
+                schema = functions[name]["schema"]
             if schema and name == "delegate" and self.specs:
                 schema = json.loads(json.dumps(schema))  # the role list includes your own helpers
                 schema["function"]["parameters"]["properties"]["role"]["enum"] = list(self.specs)
@@ -248,7 +285,7 @@ class Agent:
             return roles.role_prompt(self.role, cwd, self.spec.prompt if self.spec else "")
 
         parts = [roles.MAIN_PROMPT.format(cwd=cwd)]
-        if self.config.agents.get("enabled", True):
+        if self._delegation_on:
             descriptions = {name: spec.description for name, spec in self.specs.items()} or None
             parts.append(roles.delegation_block(window, descriptions))
         if self.memory is not None and self.config.memory.get("enabled", True):
@@ -268,7 +305,7 @@ class Agent:
             index = self.memory.index_text(max_chars=int(window * 3.5 * 0.03))
             if index:
                 parts.append(f"Saved memories (memory_search for details):\n{index}")
-            if self.recalled:
+            if self.recalled and self.config.experiment["recall_placement"] == "system":
                 parts.append(f"Memories relevant to the current task:\n{self.recalled}")
         if self.config.artifacts.get("enabled", True):
             parts.append(roles.ARTIFACT_PROMPT)
@@ -279,7 +316,7 @@ class Agent:
         if self._db_names:
             parts.append(roles.DB_PROMPT.format(names=", ".join(f"{n} [{e}]" for n, e in self._db_names.items())))
         servers = getattr(self.host, "mcp", None)
-        if servers:
+        if servers and not self._mcp_full:
             # ~3% of the window: names only. Like the checklist, read once per turn (keeps the prompt cache).
             index = servers.index_text(max_chars=max(300, int(window * 3.5 * 0.03)))
             if index:
@@ -337,6 +374,9 @@ class Agent:
             return ""
         if not available:
             return ""
+        if self.config.experiment["skills_mode"] == "inline":
+            # The variant to compare the index with: every skill in full, so no cap (it would hide the cost).
+            return "\n\n".join([roles.SKILLS_PROMPT] + [f"## Skill: {s.name}\n{s.content}" for s in available])
         pinned_names = {normalize_name(n) for n in self.config.enabled_skills}
         pinned = [s for s in available if s.name in pinned_names]
         lines = [roles.SKILLS_PROMPT]
@@ -350,8 +390,9 @@ class Agent:
     # --- main loop ----------------------------------------------------------------------
     def run_turn(self, user_text: str, max_steps: int | None = None) -> TurnResult:
         started = time.perf_counter()
+        exp = self.config.experiment
         usage = {"prompt": 0, "completion": 0, "total": 0}
-        max_steps = max_steps or (MAIN_MAX_STEPS if self.is_main else int(self.config.agents.get("max_steps", 16)))
+        max_steps = max_steps or (self.config.experiment["main_max_steps"] if self.is_main else int(self.config.agents.get("max_steps", 16)))
         self.current_task = user_text
         self._repeat = []
         self._command_outputs = []
@@ -367,11 +408,16 @@ class Agent:
                 self.recalled = self.memory.recall(user_text, max_chars=budget_chars)
             except Exception:
                 self.recalled = ""
-        elide_earlier_turns(self.messages)
+        if exp["earlier_turn_elision"]:
+            elide_earlier_turns(self.messages, exp["earlier_turn_min_chars"])
         self.refresh_system_message()
+        sent_text = user_text
+        if self.is_main and self.recalled and exp["recall_placement"] == "user":
+            # The variant that keeps messages[0] the same across tasks: this stays in the history, like any message.
+            sent_text = f"Memories relevant to the current task:\n{self.recalled}\n\n---\n\n{user_text}"
         last = self.messages[-1] if self.messages else {}
-        if not (last.get("role") == "user" and last.get("content") == user_text):
-            self.messages.append({"role": "user", "content": user_text})  # a retry after a failed call: once
+        if not (last.get("role") == "user" and last.get("content") == sent_text):
+            self.messages.append({"role": "user", "content": sent_text})  # a retry after a failed call: once
         if self.is_main:
             self._attach_mentions(user_text)
 
@@ -389,9 +435,9 @@ class Agent:
                     {"role": "user", "content": "Step limit reached. Stop using tools and report progress now."}
                 )
                 tools = []
-            elif self._stuck >= STUCK_LIMIT:
+            elif self._stuck >= exp["stuck_limit"]:
                 # The model keeps making the same call although told it won't help: end the task, don't loop.
-                if self._stuck == STUCK_LIMIT:
+                if self._stuck == exp["stuck_limit"]:
                     self.host.emit("notice", agent=self.agent_id, level="warning",
                                    text="Stopped: the model kept repeating the same step")
                 self._stuck += 1
@@ -430,7 +476,7 @@ class Agent:
 
             if not turn.tool_calls or not tools:
                 thought_only = turn.finish_reason == "length" and not turn.content.strip() and tools
-                if thought_only and follow_ups < MAX_FOLLOW_UPS:
+                if thought_only and follow_ups < exp["max_follow_ups"]:
                     # The whole reply went on reasoning: "continue" would only make it think more.
                     follow_ups += 1
                     self.messages.append({"role": "user", "content": THOUGHT_ONLY})
@@ -441,7 +487,7 @@ class Agent:
                     self.messages.append({"role": "user", "content": "Continue. If you are done, give your final answer."})
                     continue
                 reminder = self._follow_up(turn, user_text) if tools and steps < max_steps else ""
-                if reminder and follow_ups < MAX_FOLLOW_UPS:
+                if reminder and follow_ups < exp["max_follow_ups"]:
                     # The model announced an action (or skipped a requested artifact) but called no tool.
                     follow_ups += 1
                     self.host.emit("notice", agent=self.agent_id, level="info", text="Reminding the model to follow through")
@@ -666,7 +712,7 @@ class Agent:
                 max_tokens=min(700, self.budget.max_output_tokens),
             )
 
-        report = compact(self.messages, self.budget, summarize, tools)
+        report = compact(self.messages, self.budget, summarize, tools, self.config.experiment)
         if not report:
             return
         if self.todos:
@@ -727,17 +773,9 @@ class Agent:
         function = call.get("function") or {}
         name = function.get("name", "")
         self._track(name, parse_arguments(function.get("arguments")), output)
-        if name in COMPACT_ARG_TOOLS:
-            # The big payload now lives on disk; keep only a stub in context.
-            args = parse_arguments(function.get("arguments"))
-            for key in ("content", "instructions"):
-                value = args.get(key)
-                if isinstance(value, str) and len(value) > 240:
-                    # Make it unmistakable that the payload arrived; a vague stub made models
-                    # believe the save failed and re-save placeholders in a loop.
-                    args[key] = (f"[{len(value)} characters — delivered and stored successfully; "
-                                 "omitted from history only to save context]")
-            function["arguments"] = json.dumps(args)
+        exp = self.config.experiment
+        if exp["payload_stubbing"] and name in exp["payload_stub_tools"]:
+            self._stub_payload(name, function, exp["payload_stub_min_chars"])
         if self.config.hooks:
             try:
                 hooks.run(self.config.hooks, "after_tool", workspace_root(), name, output=output,
@@ -745,11 +783,29 @@ class Agent:
             except Exception:
                 pass  # a broken hook must never break the agent
         if name == "run_command":
-            self._command_outputs = (self._command_outputs + [output])[-REPEAT_LIMIT:]
+            self._command_outputs = (self._command_outputs + [output])[-exp["repeat_limit"]:]
         self.messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "name": name, "content": output})
         self.host.emit(
             "tool_result", agent=self.agent_id, id=call.get("id", ""), name=name, output=output[:PREVIEW_CHARS]
         )
+
+    @staticmethod
+    def _stub_payload(name: str, function: dict[str, Any], min_chars: int) -> None:
+        """The big payload is on disk or was just applied; keep only a stub in context."""
+        args = parse_arguments(function.get("arguments"))
+        for key in STUB_ARG_KEYS:
+            value = args.get(key)
+            if not isinstance(value, str) or len(value) <= min_chars:
+                continue
+            if name in COMPACT_ARG_TOOLS:
+                # Make it unmistakable that the payload arrived; a vague stub made models
+                # believe the save failed and re-save placeholders in a loop.
+                args[key] = (f"[{len(value)} characters — delivered and stored successfully; "
+                             "omitted from history only to save context]")
+            else:  # write_file, edit_file: these can be refused, and the tool result says which it was
+                args[key] = (f"[{len(value)} characters — delivered with this call; omitted from history only "
+                             "to save context. The tool result says whether it worked.]")
+        function["arguments"] = json.dumps(args)
 
     def _safe_execute(self, call: dict[str, Any]) -> str:
         function = call.get("function") or {}
@@ -759,19 +815,20 @@ class Agent:
         if raw and raw.strip() not in ("", "{}") and not args:
             return "Invalid JSON arguments. Call the tool again with valid JSON."
         signature = f"{name}:{json.dumps(args, sort_keys=True)}"
-        self._repeat = (self._repeat + [signature])[-REPEAT_LIMIT:]
-        same = len(self._repeat) == REPEAT_LIMIT and len(set(self._repeat)) == 1
+        limit = self.config.experiment["repeat_limit"]
+        self._repeat = (self._repeat + [signature])[-limit:]
+        same = len(self._repeat) == limit and len(set(self._repeat)) == 1
         if same and name == "run_command":
             # Running a command again is normal (tests after a fix); the same failure each time is not.
-            outputs = self._command_outputs[-(REPEAT_LIMIT - 1):]
-            if len(outputs) == REPEAT_LIMIT - 1 and len(set(outputs)) == 1 and _failed(outputs[0]):
+            outputs = self._command_outputs[-(limit - 1):]
+            if len(outputs) == limit - 1 and len(set(outputs)) == 1 and _failed(outputs[0]):
                 self._stuck += 1
-                return (f"You ran this command {REPEAT_LIMIT - 1} times in a row and it failed the same way each "
+                return (f"You ran this command {limit - 1} times in a row and it failed the same way each "
                         "time. Running it again won't help: read the error, change something, or ask the user.")
         elif same:
             self._stuck += 1
             return (
-                f"You called {name} with identical arguments {REPEAT_LIMIT} times; the result will not change. "
+                f"You called {name} with identical arguments {limit} times; the result will not change. "
                 "Use the information you have or try a different approach."
             )
         if name not in self.tool_names():
@@ -816,6 +873,13 @@ class Agent:
         return self.host.request_approval(kind, detail, self.agent_id)
 
     def _dispatch(self, name: str, args: dict[str, Any]) -> str:
+        if name.startswith("mcp__") and self._mcp_full:
+            target = self._mcp_functions().get(name)
+            if target:
+                try:
+                    return self._mcp_tool("mcp_call", {"server": target["server"], "tool": target["tool"], "arguments": args})
+                except external.MCPError as exc:
+                    return f"MCP error: {exc}"
         if name == "delegate":
             return self._delegate(str(args.get("role") or "explore"), str(args.get("task") or ""))
         if name == "artifact_save" and args.get("append") and args.get("id"):
@@ -1174,7 +1238,7 @@ class Agent:
         except Exception as exc:
             report = f"Sub-agent failed: {exc}"
         finally:
-            configure_limits(self.config.context_window)  # a helper on a smaller model shrank the output caps
+            self._apply_limits(self.config)  # a helper on a smaller model shrank the output caps
         # Cap what flows back into the (small) main context.
         report = _truncate(report, int(self.config.context_window * 3.5 * 0.08))
         self.host.emit("agent_end", agent=agent_id, role=role, ok=True, report=report)

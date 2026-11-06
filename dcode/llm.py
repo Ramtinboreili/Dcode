@@ -228,6 +228,7 @@ SIDE_JOB_ROOM = 2048      # max_tokens for a side job asked again because its th
 BUSY_WAITS = (3, 8, 15)   # seconds to wait on a "rate limited / busy" reply (429, 503) before giving up
 ECHO_CHARS = 8000         # of reasoning sent back to the families whose API asks for it
 _EFFORT_ORDER = ["none", "low", "medium", "high"]
+SAMPLING_FIELDS = ("temperature", "top_p", "seed")
 
 _CONTEXT_ERROR_RE = re.compile(r"context (length|window)|maximum context|too many tokens|prompt is too long|"
                                r"reduce the length|input is too long|exceeds the (max|context)", re.IGNORECASE)
@@ -490,6 +491,10 @@ class LLMClient:
         """(extra body fields, the request) for this family and server."""
         learned, rejected = self._learned, self._learned["rejected"]
         request = dict(kwargs)
+        for key in SAMPLING_FIELDS:  # only when a study sets them; a server that refuses one loses it (see _learn)
+            value = self.config.experiment.get(key)
+            if value is not None and key not in rejected:
+                request[key] = value
         if max_tokens:
             default = "max_completion_tokens" if self.family.completion_tokens or self.server == "openai" else "max_tokens"
             request[learned.get("max_key") or default] = max_tokens
@@ -543,6 +548,7 @@ class LLMClient:
         if _ROLE_ORDER_RE.search(text):
             return flag("roles")
         offered = list(body) + (["stream_options"] if "stream_options" in request else [])
+        offered += [key for key in SAMPLING_FIELDS if key in request]
         named = [key for key in offered if re.search(rf"\b{re.escape(key)}\b", lowered)]
         named += [key for key in body if isinstance(body[key], dict)
                   and any(re.search(rf"\b{re.escape(sub)}\b", lowered) for sub in body[key])]
@@ -590,7 +596,8 @@ class LLMClient:
         """One reply. When the model thinks itself out of room (or in circles), ask again with less thinking."""
         effort = self.config.reasoning_effort
         notes: list[str] = []
-        for attempt in range(THINK_RETRIES + 1):
+        retries = int(self.config.experiment.get("think_retries", THINK_RETRIES))
+        for attempt in range(retries + 1):
             try:
                 turn = self._chat_once(messages, tools, on_delta, should_stop, max_tokens, effort)
                 if not (turn.finish_reason == "length" and not turn.content.strip() and not turn.tool_calls
@@ -600,7 +607,7 @@ class LLMClient:
             except _Overthinking as over:
                 turn, reason = over.turn, over.reason
             lower = self._less_effort(effort, reason)
-            if lower is None or attempt == THINK_RETRIES:
+            if lower is None or attempt == retries:
                 turn.finish_reason = "length"
                 break
             notes.append(f"The model {reason}; asking again with {'no' if lower == 'none' else lower} thinking")
@@ -634,7 +641,8 @@ class LLMClient:
                 turn = self._chat_stream(kwargs, on_delta, should_stop, effort, max_tokens)
                 if tools:
                     self._stream_tools_ok = True
-                return self._finish(turn, tools, bool(tools and self._learned.get("text_tools")))
+                return self._finish(turn, tools, bool(tools and self._learned.get("text_tools")),
+                                    self.config.experiment["text_tool_recovery"])
             except (Interrupted, _Overthinking):
                 raise
             except Exception as exc:
@@ -668,7 +676,8 @@ class LLMClient:
             visible = strip_thinking(turn.content)
             if visible:
                 on_delta(visible)
-        return self._finish(turn, tools, bool(tools and self._learned.get("text_tools")))
+        return self._finish(turn, tools, bool(tools and self._learned.get("text_tools")),
+                            self.config.experiment["text_tool_recovery"])
 
     def complete_text(self, messages: list[dict[str, Any]], max_tokens: int = 800) -> str:
         """One-shot, tool-less completion for side jobs (summaries, titles, routing): no thinking needed."""
@@ -698,11 +707,13 @@ class LLMClient:
     ) -> AssistantTurn:
         stream = self._create(effort=effort, max_tokens=max_tokens,
                               **dict(kwargs, stream=True, stream_options={"include_usage": True}))
-        budget = int(max_tokens * THINK_SHARE * 3.5) if max_tokens else 0  # ~3.5 chars per token
+        experiment = self.config.experiment
+        budget = int(max_tokens * experiment["think_share"] * 3.5) if max_tokens else 0  # ~3.5 chars per token
+        check_every = int(experiment["loop_check_every"])
         turn = AssistantTurn()
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
-        reasoning_size, next_check = 0, LOOP_CHECK_EVERY
+        reasoning_size, next_check = 0, check_every
         visible = _VisibleText()
         calls: dict[int, dict[str, Any]] = {}
         try:
@@ -753,8 +764,8 @@ class LLMClient:
                         arguments = getattr(function, "arguments", None)
                         if arguments:
                             entry["function"]["arguments"] += arguments
-                if reasoning_size >= next_check and not visible.sent and not calls:
-                    next_check += LOOP_CHECK_EVERY
+                if check_every and reasoning_size >= next_check and not visible.sent and not calls:
+                    next_check += check_every
                     so_far = "".join(reasoning_parts) or thinking_text(visible.full)
                     cut = ("thought in circles" if _looping(so_far)
                            else "thought too long" if budget and reasoning_size > budget else "")
@@ -781,7 +792,8 @@ class LLMClient:
         return turn
 
     @staticmethod
-    def _finish(turn: AssistantTurn, tools: list[dict[str, Any]] | None, expected_text: bool = False) -> AssistantTurn:
+    def _finish(turn: AssistantTurn, tools: list[dict[str, Any]] | None, expected_text: bool = False,
+                recover_text: bool = True) -> AssistantTurn:
         inline = thinking_text(turn.content)
         turn.reasoning = "\n\n".join(p for p in (turn.reasoning.strip(), inline) if p)
         turn.content = strip_thinking(turn.content)
@@ -789,7 +801,7 @@ class LLMClient:
             return turn
         names = [t["function"]["name"] for t in tools]
         schemas = {t["function"]["name"]: t["function"].get("parameters") for t in tools}
-        if not turn.tool_calls and turn.content:
+        if not turn.tool_calls and turn.content and (recover_text or expected_text):
             remaining, recovered = parse_text_tool_calls(turn.content, names)
             if recovered:
                 turn.content = remaining

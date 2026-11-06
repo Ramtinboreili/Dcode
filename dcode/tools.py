@@ -35,11 +35,11 @@ _IGNORE_DIRS = {
 _LINE_PREFIX = re.compile(r"^\s*\d+\| ?", re.MULTILINE)
 
 
-def configure_limits(context_window: int) -> None:
+def configure_limits(context_window: int, share: float = 0.12, low: int = 3_000, high: int = 60_000) -> None:
     """Scale output caps so one tool result uses at most ~12% of the window."""
     global MAX_OUTPUT_CHARS, MAX_READ_LINES, MAX_LIST_ENTRIES, MAX_SEARCH_MATCHES
-    chars = int(context_window * 3.5 * 0.12)  # ~3.5 chars per token
-    MAX_OUTPUT_CHARS = max(3_000, min(chars, 60_000))
+    chars = int(context_window * 3.5 * share)  # ~3.5 chars per token
+    MAX_OUTPUT_CHARS = max(low, min(chars, high))
     MAX_READ_LINES = max(80, min(MAX_OUTPUT_CHARS // 45, 1_500))
     MAX_LIST_ENTRIES = max(80, min(MAX_OUTPUT_CHARS // 40, 2_000))
     MAX_SEARCH_MATCHES = max(30, min(MAX_OUTPUT_CHARS // 120, 500))

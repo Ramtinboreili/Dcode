@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import experiment as experiment_section
+
 # --- Paths ---------------------------------------------------------------------
 # Everything lives under one per-user home. DCODE_HOME overrides it (tests,
 # shared servers with custom layouts, read-only $HOME, ...).
@@ -141,6 +143,8 @@ class AppConfig:
     # signed in through a Dcode Manager (dcode/manager_client.py): its URL, the user, and what it says
     # about each model (family, context length) so Dcode shapes requests for the model behind the gateway
     manager: dict[str, Any] = field(default_factory=lambda: {"url": "", "username": "", "models": {}})
+    # What a study switches or tunes (dcode/experiment.py). Always complete; the defaults are normal behaviour.
+    experiment: dict[str, Any] = field(default_factory=experiment_section.defaults)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -273,6 +277,10 @@ def apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         data.setdefault("ui", {})
         if isinstance(data["ui"], dict):
             data["ui"]["enabled"] = False
+    experiment_file = _env("EXPERIMENT")
+    if experiment_file:
+        saved = data.get("experiment")
+        data["experiment"] = {**(saved if isinstance(saved, dict) else {}), **experiment_section.read_file(experiment_file)}
     return data
 
 
@@ -342,6 +350,7 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig | None:
         models=clean_models(data.get("models")),
         enabled_skills=[str(name) for name in enabled_skills],
         manager=clean_manager(data.get("manager")),
+        experiment=experiment_section.clean(data.get("experiment")),
     )
 
 
@@ -350,6 +359,9 @@ def clean_manager(value: Any) -> dict[str, Any]:
     models = value.get("models") if isinstance(value.get("models"), dict) else {}
     return {"url": str(value.get("url") or ""), "username": str(value.get("username") or ""),
             "models": {str(k): dict(v) for k, v in models.items() if isinstance(v, dict)}}
+
+
+PASS_THROUGH_SECTIONS = ("experiment",)
 
 
 def load_raw_config() -> dict[str, Any]:
@@ -370,7 +382,14 @@ def load_config() -> AppConfig | None:
 def save_config(config: AppConfig) -> None:
     ensure_app_dirs()
     # The file contains an API key in plaintext; restrict to owner only.
-    write_private_json(config_file(), config.as_dict())
+    payload = config.as_dict()
+    # A study's settings are the file's (or DCODE_EXPERIMENT's) to give: saving a /model change must neither
+    # lose them nor write an environment override into the file.
+    raw = load_raw_config()
+    for key in PASS_THROUGH_SECTIONS:
+        if key in raw:
+            payload[key] = raw[key]
+    write_private_json(config_file(), payload)
 
 
 # --- Threads (saved conversations) ----------------------------------------------
