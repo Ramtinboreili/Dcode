@@ -41,6 +41,11 @@ class AssistantTurn:
     finish_reason: str = ""  # "stop", "tool_calls", "length" (hit the output limit), …
     reasoning: str = ""      # the model's thinking: shown on request, never stored in the history
     notes: list[str] = field(default_factory=list)  # what the client did about the model's quirks, for the UI
+    # Set by LLMClient.chat. ``usage`` is then the sum of every attempt behind this reply.
+    calls: int = 1                  # HTTP attempts
+    cached: int | None = None       # prompt tokens the server says it reused; None = it doesn't say
+    usage_estimated: bool = False   # some attempt reported nothing, so its share is an estimate
+    calibration_prompt: int | None = None  # the last attempt's reported prompt: only a real figure may tune the estimator
 
     def as_message(self) -> dict[str, Any]:
         message: dict[str, Any] = {"role": "assistant", "content": self.content or ""}
@@ -452,8 +457,9 @@ class _CallLog:
             counted_prompt, counted_completion, estimated = 0, 0, False
         self.last_reported_prompt = numbers["prompt"]
         self.estimated = self.estimated or estimated
+        total = numbers["total"] if reported and numbers["total"] else counted_prompt + counted_completion
         trace.add_usage(self.totals, {"prompt": counted_prompt, "completion": counted_completion,
-                                      "total": counted_prompt + counted_completion, "calls": 1, "cached": cached})
+                                      "total": total, "calls": 1, "cached": cached})
         if self.tracer is None:
             return
         scope = trace.current()
@@ -806,9 +812,16 @@ class LLMClient:
                 notes.append(f"The model {reason}; asking again with {'no' if lower == 'none' else lower} thinking")
                 effort = lower
                 log.next_reason = "think_cutoff"
-        finally:
+        except BaseException:
             log.finish()
+            trace.charge(log.totals)  # the attempts before the failure were still spent
+            raise
+        finally:
             _call_log.reset(token)
+        log.finish()
+        turn.usage = {key: log.totals[key] for key in ("prompt", "completion", "total")}
+        turn.calls, turn.cached = log.totals["calls"], log.totals["cached"]
+        turn.usage_estimated, turn.calibration_prompt = log.estimated, log.last_reported_prompt
         turn.notes = self._notes + notes + turn.notes
         self._notes = []
         return turn
@@ -907,6 +920,7 @@ class LLMClient:
             return text
         finally:
             log.finish()
+            trace.charge(log.totals)  # no reply carries these back: the task's total picks them up
             _call_log.reset(token)
 
     def list_models(self) -> list[str]:

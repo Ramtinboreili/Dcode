@@ -184,6 +184,12 @@ class Agent:
         self.todos: list[dict[str, str]] = []
         self._tool_note = threading.local()  # why the tool call running on this thread was refused, how long it waited
         self._stubbed: dict[str, str] = {}   # calls whose output left the context, for the trace's elision_regret
+        # This task's tokens: its own calls, its helpers and (when the task ends) its side jobs.
+        self.spent: dict[str, Any] = {"prompt": 0, "completion": 0, "total": 0, "calls": 0, "cached": None}
+        self._spent_lock = threading.Lock()
+        self._estimated = False
+        self._steps_done = 0
+        self._end_reason = "final_answer"
         self._db_names: dict[str, str] = {}  # saved connections (name -> engine), refreshed at turn start
         self._db_schemas: dict[str, tuple[float, dict[str, Any]]] = {}
         self._apply_limits(config)
@@ -411,14 +417,18 @@ class Agent:
         tracer = trace.for_config(self.config)
         self._end_reason = "final_answer"
         self._steps_done = 0
+        self._estimated = False
+        self.spent = {"prompt": 0, "completion": 0, "total": 0, "calls": 0, "cached": None}
         with trace.use(agent_id=self.agent_id) as scope:
             try:
                 return self._run_loop(user_text, max_steps)
             except Interrupted:
                 self._end_reason = "interrupted"
+                scope.ledger.add(self.spent)  # no usage event comes now: the next task's total takes these
                 raise
             except Exception:
                 self._end_reason = "error"
+                scope.ledger.add(self.spent)
                 raise
             finally:
                 if tracer is not None and not scope.helper:
@@ -431,7 +441,6 @@ class Agent:
         started = time.perf_counter()
         exp = self.config.experiment
         tracer = trace.for_config(self.config)
-        usage = {"prompt": 0, "completion": 0, "total": 0}
         max_steps = max_steps or (self.config.experiment["main_max_steps"] if self.is_main else int(self.config.agents.get("max_steps", 16)))
         self.current_task = user_text
         self._repeat = []
@@ -500,10 +509,10 @@ class Agent:
                     should_stop=self.host.should_stop,
                     max_tokens=self.budget.max_output_tokens,
                 )
-            for key in usage:
-                usage[key] += turn.usage.get(key, 0)
-            if turn.usage.get("prompt"):
-                self.budget.counter.calibrate(self.messages, tools, turn.usage["prompt"])
+            self._tally(turn)
+            actual = turn.calibration_prompt if turn.calibration_prompt is not None else turn.usage.get("prompt")
+            if actual:
+                self.budget.counter.calibrate(self.messages, tools, actual)
             if not tools:
                 turn.tool_calls = []  # never store calls we won't answer — breaks history
             self._dedupe_call_ids(turn.tool_calls)
@@ -551,8 +560,15 @@ class Agent:
             self._steps_done = steps
 
         if self.is_main and not final and (steps or self._activity["files"] or self._activity["commands"]):
-            final = self._final_report(usage)
+            final = self._final_report()
         elapsed = time.perf_counter() - started
+        scope = trace.current()
+        if tracer is not None and not scope.helper:
+            settle = getattr(self.host, "settle_side_jobs", None)
+            if settle:
+                settle()  # its tokens belong in this task's total
+        trace.add_usage(self.spent, scope.ledger.drain())
+        usage = {key: self.spent[key] for key in ("prompt", "completion", "total")}
         self.host.emit("assistant_message", agent=self.agent_id, text=final)
         self.host.emit(
             "usage",
@@ -565,6 +581,11 @@ class Agent:
             commands=self._activity["commands"],
             commands_failed=self._activity["commands_failed"],
             helpers=self._activity["helpers"],
+            steps=steps,
+            calls=self.spent["calls"],
+            cached=self.spent["cached"],
+            usage_estimated=self._estimated,
+            delegated=scope.helper,  # already inside the parent's total
             **usage,
         )
         return TurnResult(text=final, usage=usage, elapsed=elapsed, steps=steps)
@@ -617,15 +638,18 @@ class Agent:
         "files changed, commands you ran and their outcome, the current status, and anything left to do."
     )
 
-    def _final_report(self, usage: dict[str, int]) -> str:
+    def _tally(self, turn: Any) -> None:
+        trace.add_usage(self.spent, {**turn.usage, "calls": turn.calls, "cached": turn.cached})
+        self._estimated = self._estimated or turn.usage_estimated
+
+    def _final_report(self) -> str:
         """The model stopped without summarizing: ask once, else build a factual report."""
         self.messages.append({"role": "user", "content": self.REPORT_REQUEST})
         try:
             with trace.use(purpose="final_report"):
                 turn = self.llm.chat(self.messages, tools=None, should_stop=self.host.should_stop,
                                      max_tokens=self.budget.max_output_tokens)
-            for key in usage:
-                usage[key] += turn.usage.get(key, 0)
+            self._tally(turn)
             text = turn.content.strip()
         except Interrupted:
             raise
@@ -1371,13 +1395,18 @@ class Agent:
             ok = False
         finally:
             self._apply_limits(self.config)  # a helper on a smaller model shrank the output caps
+            with self._spent_lock:  # helpers may run in parallel; what one spent counts even if it failed
+                trace.add_usage(self.spent, sub.spent)
+                self._estimated = self._estimated or sub._estimated
         # Cap what flows back into the (small) main context.
         raw_report = len(report)
         report = _truncate(report, int(self.config.context_window * 3.5 * 0.08))
         tracer = trace.for_config(self.config)
         if tracer:
             tracer.emit("delegate", role=role, helper_id=agent_id, model=config.model, ok=ok, steps=sub._steps_done,
-                        report_chars=raw_report, report_kept_chars=len(report))
+                        report_chars=raw_report, report_kept_chars=len(report), calls=sub.spent["calls"],
+                        prompt_tokens=sub.spent["prompt"], completion_tokens=sub.spent["completion"],
+                        cached_tokens=sub.spent["cached"])
         self.host.emit("agent_end", agent=agent_id, role=role, ok=True, report=report)
         return f"[{agent_id} report]\n{report}"
 

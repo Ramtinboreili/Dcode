@@ -435,12 +435,13 @@ class Session:
         prompt = ("Write a git commit message for these changes: a concise imperative subject line "
                   "(max 70 chars), optionally a blank line and 1-4 bullet points. Reply with the message only.")
         try:
-            text = self.models.utility_llm().complete_text(
-                [{"role": "system", "content": prompt},
-                 {"role": "user", "content": _truncate(f"{status}\n\n{diff}", int(self.config.context_window * 3.5 * 0.5))}],
-                max_tokens=200,
-                purpose="commit_msg",
-            ).strip().strip("`")
+            with trace.use(ledger=self._side_jobs):
+                text = self.models.utility_llm().complete_text(
+                    [{"role": "system", "content": prompt},
+                     {"role": "user", "content": _truncate(f"{status}\n\n{diff}", int(self.config.context_window * 3.5 * 0.5))}],
+                    max_tokens=200,
+                    purpose="commit_msg",
+                ).strip().strip("`")
         except Exception:
             text = ""
         return text or "Update files"
@@ -654,8 +655,9 @@ class Session:
         if kind == "tool_call" and event.get("by") != "user":
             self._task_tools[str(event.get("name") or "")] += 1
         elif kind == "usage" and event.get("agent", "main") != "main":
-            for key in self._helper_tokens:  # a helper's tokens count toward the task that asked for it
-                self._helper_tokens[key] += int(event.get(key) or 0)
+            if not event.get("delegated"):  # /review's own agent: counts toward the next task. A helper is in its parent's total.
+                for key in self._helper_tokens:
+                    self._helper_tokens[key] += int(event.get(key) or 0)
         elif kind == "usage":
             from . import stats
 
@@ -665,7 +667,9 @@ class Session:
                 "completion": int(event.get("completion") or 0) + self._helper_tokens["completion"],
                 "elapsed": float(event.get("elapsed") or 0.0), "files": len(event.get("files_changed") or []),
                 "commands": int(event.get("commands") or 0), "helpers": int(event.get("helpers") or 0),
-                "tools": dict(self._task_tools),
+                "tools": dict(self._task_tools), "steps": int(event.get("steps") or 0),
+                "calls": int(event.get("calls") or 0), "cached": event.get("cached"),
+                "usage_estimated": bool(event.get("usage_estimated")),
             })
             self._task_tools.clear()
             self._helper_tokens = {"prompt": 0, "completion": 0}
@@ -842,6 +846,7 @@ class Session:
     def _run_helper(self, name: str, task: str) -> None:
         started = time.perf_counter()
         self.agent.messages.append({"role": "user", "content": f"@{name} {task}"})
+        self.agent.spent = {"prompt": 0, "completion": 0, "total": 0, "calls": 0, "cached": None}
         report = self.agent._delegate(name, task)
         text = report.split("\n", 1)[1] if report.startswith("[") and "\n" in report else report
         self.agent.messages.append({"role": "assistant", "content": text})
@@ -849,7 +854,9 @@ class Session:
         self.emit("usage", agent="main", model=self.config.model, elapsed=round(time.perf_counter() - started, 2),
                   context_used=self.agent.budget.usage(self.agent.messages, self.agent.tools()),
                   context_window=self.config.context_window, files_changed=[], commands=0, commands_failed=0,
-                  helpers=1, prompt=0, completion=0, total=0)
+                  helpers=1, steps=0, calls=self.agent.spent["calls"], cached=self.agent.spent["cached"],
+                  prompt=self.agent.spent["prompt"], completion=self.agent.spent["completion"],
+                  total=self.agent.spent["total"])
 
     def _run_review(self, source: str) -> None:
         from .tools import execute_tool
