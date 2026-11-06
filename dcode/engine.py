@@ -141,7 +141,10 @@ def git_summary(cwd: Path | None = None) -> dict[str, Any]:
     }
 
 
-TOOL_ERROR_PREFIXES = ("Tool error:", "Missing required", "Unknown tool", "MCP error:", "Database error:", "Blocked:")
+TOOL_ERROR_PREFIXES = ("Tool error:", "Missing required", "Unknown tool", "MCP error:", "Database error:", "Blocked:",
+                       "File does not exist:", "Path does not exist:", "Path is a directory:", "Not a directory:",
+                       "Directory not empty:", "Commit message is required", "old_text not found", "old_text matches",
+                       "old_text must not be empty", "File is too large to read", "start_line ")
 
 
 def _error_kind(output: str) -> str:
@@ -802,7 +805,7 @@ class Agent:
         after = self.budget.usage(self.messages, self.tools())
         if tracer:
             tracer.emit("compaction", stage=2, trigger="forced", before_tokens=before, after_tokens=after, elided=0,
-                        summarized=len(history), summary_tokens=self.budget.counter.text(summary))
+                        summarized=len(history), summary_tokens=self.budget.counter.text(summary), args_shrunk=0, intra_task=False)
         self.host.emit("compaction", agent=self.agent_id, before=before, after=after, elided=0, summarized=True)
         self.host.emit("summary", agent=self.agent_id, text=summary)
         return {"before": before, "after": after, "summary": summary}
@@ -979,7 +982,8 @@ class Agent:
         kept, measured = len(output), tools.take_raw_chars()
         truncated = (measured is not None and measured > kept) or "(truncated at " in output
         refused = note.refused or ""
-        failed = not refused and (_failed(output) or output.startswith(TOOL_ERROR_PREFIXES))
+        # A command's own output can start with anything: for it, only the return code decides.
+        failed = not refused and (_failed(output) or (name != "run_command" and output.startswith(TOOL_ERROR_PREFIXES)))
         tracer.emit("tool_call", name=name, arg_chars=len(raw), raw_output_chars=measured if measured is not None else (None if truncated else kept),
                     kept_chars=kept, truncated=truncated, duration_ms=round(elapsed * 1000, 1),
                     approval_wait_ms=round(note.waited * 1000, 1), ok=not (refused or failed), error=_error_kind(output) if failed else None,

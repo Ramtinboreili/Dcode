@@ -224,7 +224,8 @@ class Handler(BaseHTTPRequestHandler):
                 name, args = reply["tool"]
                 message["tool_calls"] = [{"id": "c1", "type": "function",
                                           "function": {"name": name, "arguments": json.dumps(args)}}]
-            return self._send({"choices": [{"message": message, "finish_reason": "stop"}], "usage": usage})
+            finish = "tool_calls" if "tool" in reply else "stop"
+            return self._send({"choices": [{"message": message, "finish_reason": finish}], "usage": usage})
 
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -249,6 +250,8 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 for word in reply["content"].split(" "):
                     chunk({"content": word + " "})
+            finish = {"index": 0, "delta": {}, "finish_reason": "tool_calls" if "tool" in reply else "stop"}
+            self.wfile.write(f"data: {json.dumps({'choices': [finish]})}\n\n".encode())
             chunk(None, usage)
             self.wfile.write(b"data: [DONE]\n\n")
             self.wfile.flush()
