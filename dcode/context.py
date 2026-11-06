@@ -25,6 +25,11 @@ EARLIER_TURN_MIN_CHARS = 1500  # smaller outputs cost little and are often what 
 COMPACT_TRIGGER = 0.75
 COMPACT_TARGET = 0.45
 SUMMARY_PREFIX = "[Session summary of earlier conversation]"
+SHRINK_ARG_KEYS = ("content", "old_text", "new_text")
+ARG_STUB = ("[{chars} characters — sent with this call; omitted from history only to save context. "
+            "The tool result says whether it worked.]")
+ARG_STUB_MARK = "omitted from history only to save context"
+USER_SHELL_ID = "shell_"  # the id of a command the user ran with "!", recorded as a tool call in session.py
 
 
 class TokenCounter:
@@ -101,14 +106,40 @@ class ContextBudget:
         return self.usage(messages, tools) > self.compact_threshold
 
 
+def _written_by_dcode(messages: list[Message], index: int) -> bool:
+    """An assistant message the model never wrote: the call and the "Noted." recorded for a user's "!command"."""
+    message = messages[index]
+    calls = message.get("tool_calls") or []
+    if calls:
+        return all(str(c.get("id") or "").startswith(USER_SHELL_ID) for c in calls)
+    before = messages[index - 1] if index else {}
+    return message.get("content") == "Noted." and str(before.get("tool_call_id") or "").startswith(USER_SHELL_ID)
+
+
+def unread_start(messages: list[Message]) -> int:
+    """Where the outputs the model hasn't seen begin: right after the last message it wrote."""
+    for index in range(len(messages) - 1, -1, -1):
+        if messages[index].get("role") == "assistant" and not _written_by_dcode(messages, index):
+            return index + 1
+    return 0
+
+
+def unread_user_outputs(messages: list[Message]) -> set[str]:
+    """Ids of the user's "!command" outputs the model hasn't read yet. Compaction leaves them for as long as it can."""
+    return {str(m.get("tool_call_id")) for m in messages[unread_start(messages):]
+            if m.get("role") == "tool" and str(m.get("tool_call_id") or "").startswith(USER_SHELL_ID)}
+
+
 def elide_tool_results(messages: list[Message], keep_recent: int = KEEP_RECENT_TOOL_RESULTS,
-                       min_chars: int = ELIDE_MIN_CHARS) -> int:
+                       min_chars: int = ELIDE_MIN_CHARS, protect: set[str] | None = None) -> int:
     """Replace bulky old tool outputs with short stubs. Returns how many were elided."""
     tool_indexes = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
     elided = 0
     for index in tool_indexes[:-keep_recent] if keep_recent else tool_indexes:
         content = messages[index].get("content") or ""
         if not isinstance(content, str) or len(content) < min_chars or content.startswith("[elided"):
+            continue
+        if protect and messages[index].get("tool_call_id") in protect:
             continue
         head = content[:200].rstrip()
         messages[index] = dict(messages[index])
@@ -121,15 +152,17 @@ def elide_tool_results(messages: list[Message], keep_recent: int = KEEP_RECENT_T
 
 
 def elide_earlier_turns(messages: list[Message], min_chars: int = EARLIER_TURN_MIN_CHARS) -> int:
-    """At a new user turn, stub the bulky tool outputs of the turns before it.
+    """At a new user turn, stub the bulky tool outputs of the turns the model already answered.
 
     Each call re-sends the whole history, and an answered turn's raw outputs (a 10K-char
     `kubectl get pods -A`) were paid for again on every later call; the answer that used them
     stays. Only done at turn start, with the system prompt refresh, so the cached prompt
-    prefix changes once per turn, not per call.
+    prefix changes once per turn, not per call. What the model hasn't read yet stays whole: the
+    output of a "!command" the user just ran, or of a turn that was interrupted.
     """
     elided = 0
-    for index, message in enumerate(messages):
+    answered = unread_start(messages)
+    for index, message in enumerate(messages[:answered]):
         content = message.get("content") or ""
         if (message.get("role") != "tool" or not isinstance(content, str) or len(content) < min_chars
                 or content.startswith("[elided")):
@@ -167,6 +200,54 @@ def split_for_summary(messages: list[Message], keep_tokens: int, counter: TokenC
     old = [m for m in messages[1:cut]]
     recent = messages[cut:]
     return old, recent
+
+
+def shrink_tool_args(messages: list[Message], keep_recent: int, names: list[str], min_chars: int) -> int:
+    """Stub the big arguments of old calls (a whole file in write_file). Tool results can shrink; without this,
+    the calls that wrote the code stay in full and a long task outgrows any window. Returns how many were cut."""
+    indexes = [i for i, m in enumerate(messages) if m.get("role") == "assistant" and m.get("tool_calls")]
+    shrunk = 0
+    for index in indexes[:-keep_recent] if keep_recent else indexes:
+        calls = []
+        for call in messages[index]["tool_calls"]:
+            function = call.get("function") or {}
+            if function.get("name") in names:
+                try:
+                    args = json.loads(function.get("arguments") or "{}")
+                except (TypeError, ValueError):
+                    args = None
+                big = [k for k in SHRINK_ARG_KEYS if isinstance(args, dict) and isinstance(args.get(k), str)
+                       and len(args[k]) > min_chars and ARG_STUB_MARK not in args[k]]
+                if big:
+                    args.update({k: ARG_STUB.format(chars=len(args[k])) for k in big})
+                    # A copy: these dicts are also what the request that was just logged holds.
+                    call = {**call, "function": {**function, "arguments": json.dumps(args, ensure_ascii=False)}}
+                    shrunk += 1
+            calls.append(call)
+        messages[index] = {**messages[index], "tool_calls": calls}
+    return shrunk
+
+
+def _all_answered(messages: list[Message], cut: int) -> bool:
+    """Cutting here leaves no call without its result, and no result without its call."""
+    called = {c.get("id") for m in messages[:cut] for c in (m.get("tool_calls") or [])}
+    answered = {m.get("tool_call_id") for m in messages[:cut] if m.get("role") == "tool"}
+    return called <= answered
+
+
+def step_cut(messages: list[Message], keep_tokens: int, counter: TokenCounter, floor: int) -> int:
+    """Where to cut inside a running task: before an assistant or user message, never between a call and its
+    result, keeping the newest step and as many before it as fit ``keep_tokens``. 0 = nothing to fold."""
+    starts = [i for i in range(2, min(floor, len(messages) - 1) + 1)
+              if messages[i].get("role") in ("assistant", "user") and _all_answered(messages, i)]
+    cut = 0
+    for start in reversed(starts):
+        if cut and counter.messages(messages[start:]) > keep_tokens:
+            break
+        cut = start
+    if not cut or not any(m.get("role") == "assistant" for m in messages[1:cut]):
+        return 0
+    return cut
 
 
 def render_for_summary(messages: list[Message], limit_chars: int) -> str:
@@ -209,26 +290,57 @@ def compact(
     summarize: Callable[[str], str],
     tools: list[dict[str, Any]] | None = None,
     options: dict[str, Any] | None = None,
+    *,
+    force: bool = False,
+    task: str = "",
 ) -> dict[str, Any] | None:
     """Shrink ``messages`` in place if over budget. Returns a report or None.
 
-    ``options`` is the experiment section (the defaults when absent)."""
+    ``options`` is the experiment section (the defaults when absent). ``force``: the server refused the request
+    as too long, so neither the estimate nor the configured window can be trusted (a server started with a shorter
+    --max-model-len than Dcode was told): at least halve it, whatever the numbers say. ``task``: what the user asked
+    for, kept word for word if the message that said it gets folded into a summary.
+    """
     options = options or {}
     keep_recent = options.get("keep_recent_tool_results", KEEP_RECENT_TOOL_RESULTS)
     min_chars = options.get("elide_min_chars", ELIDE_MIN_CHARS)
     before = budget.usage(messages, tools)
-    if before <= budget.compact_threshold:
+    if before <= budget.compact_threshold and not force:
         return None
+    goal = min(budget.target_after_compaction, before // 2) if force else budget.target_after_compaction
     stage = 1
     folded: list[Message] = []
+    pinned = False
+    intra_task = False
+    protect = unread_user_outputs(messages)
+    if force:
+        keep_recent = min(keep_recent, 1)
 
-    elided = elide_tool_results(messages, keep_recent, min_chars)
+    elided = elide_tool_results(messages, keep_recent, min_chars, protect)
+    shrunk = 0
+    if options.get("shrink_old_args", True):
+        shrunk = shrink_tool_args(messages, keep_recent, options.get("shrink_args_tools", ["write_file", "edit_file"]),
+                                  options.get("shrink_args_min_chars", 240))
     after = budget.usage(messages, tools)
     summary_text = ""
-    if after > budget.compact_threshold and options.get("summarization", True):
+    if (after > budget.compact_threshold or force) and options.get("summarization", True):
         tools_cost = budget.counter.messages([], tools)
-        keep = max(512, budget.target_after_compaction - budget.counter.message(messages[0]) - tools_cost)
+        system_cost = budget.counter.message(messages[0])
+        keep = max(512, goal - system_cost - tools_cost)
+        # Nothing the model hasn't read yet goes into a summary.
+        floor = min((i for i, m in enumerate(messages) if m.get("tool_call_id") in protect), default=len(messages))
+        while floor < len(messages) and floor > 0 and messages[floor].get("role") != "user":
+            floor -= 1
         old, recent = split_for_summary(messages, keep, budget.counter)
+        if old and len(messages) - len(recent) > floor:
+            old, recent = messages[1:floor], messages[floor:]
+        # Turn boundaries can't help a single long task. Only over the input budget by default: below it today's
+        # request still fits, so it stays exactly as it was (intra_task_trigger moves this for a study).
+        remaining = (system_cost + tools_cost + budget.counter.messages(recent)) if old else after
+        if options.get("intra_task_summarize", True) and (force or remaining > budget.input_budget * options.get("intra_task_trigger", 1.0)):
+            cut = step_cut(messages, keep, budget.counter, floor)
+            if cut:
+                old, recent, intra_task = messages[1:cut], messages[cut:], True
         if old:
             previous = [m for m in old if isinstance(m.get("content"), str) and m["content"].startswith(SUMMARY_PREFIX)]
             transcript = render_for_summary(old, limit_chars=int(budget.input_budget * CHARS_PER_TOKEN * 0.6))
@@ -244,18 +356,29 @@ def compact(
             if previous and previous[-1]["content"] not in summary_text:
                 summary_text = previous[-1]["content"][len(SUMMARY_PREFIX):].strip()[:1500] + "\n" + summary_text
             summary_message = {"role": "user", "content": f"{SUMMARY_PREFIX}\n{summary_text}"}
+            if intra_task:
+                pinned = bool(task) and not any(m.get("role") == "user" and task in str(m.get("content")) for m in recent)
+                if pinned:
+                    room = max(1000, int(budget.input_budget * CHARS_PER_TOKEN * 0.1))
+                    summary_message["content"] += f"\n\n[The task you are working on]\n{task[:room]}"
+                summary_message["content"] += "\n\n[Older steps of this task are summarized above. Continue from the steps below.]"
             ack = {"role": "assistant", "content": "Understood. Continuing from the summary."}
-            messages[1:] = [summary_message, ack] + recent
+            # Roles must alternate on strict templates: the summary already leads into an assistant step.
+            bridge = [ack] if not recent or recent[0].get("role") != "assistant" else []
+            messages[1:] = [summary_message] + bridge + recent
             stage, folded = 2, old
         after = budget.usage(messages, tools)
 
-    if after > budget.input_budget:
+    last_resort = goal if force else budget.input_budget
+    if after > last_resort:
         # Last resort: elide every tool result, then drop oldest turns.
         stage = 3
         elide_tool_results(messages, 0, min_chars)
-        while budget.usage(messages, tools) > budget.input_budget and len(_turn_boundaries(messages)) > 1:
+        first = 1 if pinned else 0  # that summary holds the task itself
+        while budget.usage(messages, tools) > last_resort and len(_turn_boundaries(messages)) > first + 1:
             boundaries = _turn_boundaries(messages)
-            del messages[boundaries[0]:boundaries[1]]
+            del messages[boundaries[first]:boundaries[first + 1]]
         after = budget.usage(messages, tools)
 
-    return {"before": before, "after": after, "elided": elided, "summary": summary_text, "stage": stage, "folded": folded}
+    return {"before": before, "after": after, "elided": elided, "summary": summary_text, "stage": stage, "folded": folded,
+            "args_shrunk": shrunk, "intra_task": intra_task}

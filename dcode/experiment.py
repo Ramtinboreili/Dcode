@@ -23,6 +23,13 @@ DEFAULTS: dict[str, Any] = {
     "keep_recent_tool_results": 3,
     "elide_min_chars": 600,
     "summarization": True,
+    # Long tasks (see docs/research/experiment-config.md for why these are on by default)
+    "shrink_old_args": True,         # stage 1 also stubs the big arguments of old calls
+    "shrink_args_tools": ["write_file", "edit_file"],
+    "shrink_args_min_chars": 240,
+    "intra_task_summarize": True,    # stage 2 may summarize older steps of the running task
+    "intra_task_trigger": 1.0,       # ...when still over this share of the input budget after the rest
+    "overflow_recovery": True,       # the server says it's too long: compact hard and try once more
     # Big arguments of calls whose payload is stored elsewhere
     "payload_stubbing": True,
     "payload_stub_tools": ["artifact_save", "skill_save"],
@@ -66,6 +73,8 @@ RANGES: dict[str, tuple[float | None, float | None]] = {
     "keep_recent_tool_results": (0, None),
     "elide_min_chars": (0, None),
     "payload_stub_min_chars": (0, None),
+    "shrink_args_min_chars": (0, None),
+    "intra_task_trigger": (0.01, 1.0),
     "output_cap_share": (0.001, 1.0),
     "output_cap_min": (1, None),
     "output_cap_max": (1, None),

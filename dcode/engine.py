@@ -39,7 +39,7 @@ from .context import (
     render_for_summary,
 )
 from .custom_agents import AgentSpec, load_specs
-from .llm import Interrupted, LLMClient
+from .llm import ContextOverflow, Interrupted, LLMClient, is_context_overflow
 from .memory import MemoryStore
 from .skills import get_skill, list_skills, normalize_name, save_skill
 from .tools import (
@@ -426,6 +426,10 @@ class Agent:
                 self._end_reason = "interrupted"
                 scope.ledger.add(self.spent)  # no usage event comes now: the next task's total takes these
                 raise
+            except ContextOverflow:
+                self._end_reason = "context_overflow"
+                scope.ledger.add(self.spent)
+                raise
             except Exception:
                 self._end_reason = "error"
                 scope.ledger.add(self.spent)
@@ -502,13 +506,7 @@ class Agent:
                 self._end_reason = "stuck_guard"
             self._maybe_compact(tools)
             with trace.use(step=steps, purpose="main_step" if self.is_main else "helper_step"):
-                turn = self.llm.chat(
-                    self.messages,
-                    tools=tools or None,
-                    on_delta=lambda text: self.host.emit("assistant_delta", agent=self.agent_id, text=text),
-                    should_stop=self.host.should_stop,
-                    max_tokens=self.budget.max_output_tokens,
-                )
+                turn = self._ask_model(tools)
             self._tally(turn)
             actual = turn.calibration_prompt if turn.calibration_prompt is not None else turn.usage.get("prompt")
             if actual:
@@ -589,6 +587,43 @@ class Agent:
             **usage,
         )
         return TurnResult(text=final, usage=usage, elapsed=elapsed, steps=steps)
+
+    def _ask_model(self, tools: list[dict[str, Any]]) -> Any:
+        """One model call. If the server says the prompt doesn't fit (our estimate was wrong, or the task outgrew
+        what compaction could do by itself), compact as hard as we can and try once more."""
+        def ask() -> Any:
+            return self.llm.chat(
+                self.messages,
+                tools=tools or None,
+                on_delta=lambda text: self.host.emit("assistant_delta", agent=self.agent_id, text=text),
+                should_stop=self.host.should_stop,
+                max_tokens=self.budget.max_output_tokens,
+            )
+
+        try:
+            return ask()
+        except Interrupted:
+            raise
+        except Exception as exc:
+            if not (self.config.experiment["overflow_recovery"] and is_context_overflow(exc)):
+                raise
+            refusal = exc
+        self.host.emit("notice", agent=self.agent_id, level="warning", text="The model's context is full: compacting and trying again")
+        report = self._maybe_compact(tools, force=True)
+        if report and report["after"] < report["before"]:
+            try:
+                with trace.use(retry_reason="context_overflow"):
+                    return ask()
+            except Interrupted:
+                raise
+            except Exception as exc:
+                if not is_context_overflow(exc):
+                    raise
+                refusal = exc
+        raise ContextOverflow(
+            "The conversation no longer fits the model's context window, even after compacting. Start a new chat, "
+            f"ask for less at a time, or give the model a longer context. The server said: {' '.join(str(refusal).split())[:300]}"
+        ) from refusal
 
     def _attach_mentions(self, user_text: str) -> None:
         """Put @mentioned files into context as if the model had read them (no tool call spent)."""
@@ -783,9 +818,9 @@ class Agent:
                 call["id"] = f"call_{uuid.uuid4().hex[:12]}"
             seen.add(call["id"])
 
-    def _maybe_compact(self, tools: list[dict[str, Any]]) -> None:
-        if not self.budget.needs_compaction(self.messages, tools):
-            return
+    def _maybe_compact(self, tools: list[dict[str, Any]], force: bool = False) -> dict[str, Any] | None:
+        if not force and not self.budget.needs_compaction(self.messages, tools):
+            return None
 
         def summarize(transcript: str) -> str:
             return self.llm.complete_text(
@@ -794,15 +829,17 @@ class Agent:
                 purpose="compaction_summary",
             )
 
-        report = compact(self.messages, self.budget, summarize, tools, self.config.experiment)
+        report = compact(self.messages, self.budget, summarize, tools, self.config.experiment, force=force,
+                         task=self.current_task)
         if not report:
-            return
+            return None
         tracer = trace.for_config(self.config)
         if tracer:
             self._note_stubbed(report["folded"])
-            tracer.emit("compaction", stage=report["stage"], trigger="auto", before_tokens=report["before"],
+            tracer.emit("compaction", stage=report["stage"], trigger="forced" if force else "auto", before_tokens=report["before"],
                         after_tokens=report["after"], elided=report["elided"], summarized=len(report["folded"]),
-                        summary_tokens=self.budget.counter.text(report["summary"]) if report["summary"] else 0)
+                        summary_tokens=self.budget.counter.text(report["summary"]) if report["summary"] else 0,
+                        args_shrunk=report["args_shrunk"], intra_task=report["intra_task"])
         if self.todos:
             self.refresh_system_message()  # the checklist must survive the compaction
         self.host.emit(
@@ -811,6 +848,7 @@ class Agent:
         )
         if report["summary"] and self.is_main:
             self.host.emit("summary", agent=self.agent_id, text=report["summary"])
+        return report
 
     # --- tools --------------------------------------------------------------------------
     def _run_tool_calls(self, calls: list[dict[str, Any]]) -> None:

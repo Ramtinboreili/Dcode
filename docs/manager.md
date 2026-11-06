@@ -40,7 +40,7 @@ scripts or other tools (base URL `<manager>/v1`), and how to connect.
 | Page | What you do there |
 |---|---|
 | **Monitoring** | Requests, tokens in/out, users, errors and refusals; tokens over time per model; each model's p50/p95 latency, time to first token, tokens/s, error rate; whether its server answers right now (and vLLM's running/waiting requests and KV-cache use when a metrics URL is set); top users; recent problems; devices (revoke a key). |
-| **Models** | Add a model by hand or from Discovery. Turn it on/off. Its server URL, the name its server uses, its key, family, context length (longer requests are refused the way vLLM words it, so Dcode compacts), max reply, who may use it, the default token limit per user, guards, and its Kubernetes deployment (start/stop, change `--max-model-len`). *Test it* sends one tiny request. |
+| **Models** | Add a model by hand or from Discovery. Turn it on/off. Its server URL, the name its server uses, its key, family, context length (longer requests are refused the way vLLM words it; Dcode then compacts and tries once more), max reply, who may use it, the default token limit per user, guards, and its Kubernetes deployment (start/stop, change `--max-model-len`). *Test it* sends one tiny request. |
 | **Discovery** | Model servers on the cluster (deployments and their services in the namespaces you choose; one entry per service port) and model weights in the models folder. *Add* fills in the model form. |
 | **Users** | Add users (admin or user), disable them, reset their password, set their total token limit and per-model rights and limits, reset their usage. |
 | **Requests** | The latest requests, by user, model, or only problems. |

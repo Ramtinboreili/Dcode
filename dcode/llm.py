@@ -519,6 +519,15 @@ class ModelBusy(RuntimeError):
     """The server kept answering "rate limited" / "overloaded" after Dcode waited."""
 
 
+class ContextOverflow(RuntimeError):
+    """The server refused the request as too long, even after compacting and trying again."""
+
+
+def is_context_overflow(exc: BaseException) -> bool:
+    """The server says the prompt doesn't fit. "Too many tokens" on a 429 is a rate limit, which waiting can fix."""
+    return getattr(exc, "status_code", None) not in (429, 503) and bool(_CONTEXT_ERROR_RE.search(str(exc)))
+
+
 def _busy(exc: Exception) -> bool:
     """Worth waiting for: rate limited or overloaded, but not a spent quota (a Dcode Manager token limit)."""
     if getattr(exc, "status_code", None) not in (429, 503):
@@ -858,8 +867,8 @@ class LLMClient:
                 raise
             except Exception as exc:
                 rejected = _looks_like_param_error(exc) or "stream" in str(exc).lower()
-                if not tools or self._stream_tools_ok or not rejected:
-                    raise
+                if not tools or self._stream_tools_ok or not rejected or is_context_overflow(exc):
+                    raise  # too long says nothing about streaming: asking again without it would just be refused too
                 # Server can't stream tool calls — fall back permanently.
                 self._stream_tools_ok = False
                 log = _call_log.get()
