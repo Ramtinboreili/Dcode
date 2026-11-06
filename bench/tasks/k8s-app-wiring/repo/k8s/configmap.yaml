@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blog-settings
+  namespace: blog
+data:
+  title: My Blog
+  dbHost: postgres.blog.svc.cluster.local

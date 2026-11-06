@@ -1,0 +1,55 @@
+diff --git a/du.py b/du.py
+index 73fa2f5..917e39e 100644
+--- a/du.py
++++ b/du.py
+@@ -1,6 +1,7 @@
+ #!/usr/bin/env python3
+ """Show the biggest files under a folder."""
+ import argparse
++import json
+ import os
+ import sys
+ 
+@@ -27,11 +28,16 @@ def main(argv=None):
+     parser = argparse.ArgumentParser(description=__doc__)
+     parser.add_argument("root")
+     parser.add_argument("--top", type=int, default=10)
++    parser.add_argument("--json", action="store_true", help="print JSON instead of a table")
+     args = parser.parse_args(argv)
+     if not os.path.isdir(args.root):
+         print(f"not a folder: {args.root}", file=sys.stderr)
+         return 2
+-    for path, size in scan(args.root)[:args.top]:
++    rows = scan(args.root)[:args.top]
++    if args.json:
++        print(json.dumps([{"path": path, "bytes": size, "human": human(size)} for path, size in rows]))
++        return 0
++    for path, size in rows:
+         print(f"{human(size):>10}  {path}")
+     return 0
+ 
+diff --git a/test_du.py b/test_du.py
+new file mode 100644
+index 0000000..b6c35b3
+--- /dev/null
++++ b/test_du.py
+@@ -0,0 +1,19 @@
++import contextlib
++import io
++import json
++import os
++import tempfile
++import unittest
++
++import du
++
++
++class JsonFlag(unittest.TestCase):
++    def test_json(self):
++        with tempfile.TemporaryDirectory() as root:
++            with open(os.path.join(root, "a"), "w") as handle:
++                handle.write("xx")
++            out = io.StringIO()
++            with contextlib.redirect_stdout(out):
++                du.main([root, "--json"])
++            self.assertEqual(json.loads(out.getvalue()), [{"path": "a", "bytes": 2, "human": "2B"}])

@@ -1,0 +1,15 @@
+{
+  "id": "py-rate-limiter",
+  "category": "coding",
+  "difficulty": "hard",
+  "prompt": "the rate limiter lets bursts through and sometimes rejects when it shouldn't. it's a token bucket, per key. fix it, and add retry_after(key, cost=1) returning seconds until that many tokens are available (0 if available now). the clock is injected, there's a fake one in the tests",
+  "timeout_s": 600,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "python",
+    "bugfix",
+    "feature"
+  ]
+}

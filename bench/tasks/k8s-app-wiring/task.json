@@ -1,0 +1,13 @@
+{
+  "id": "k8s-app-wiring",
+  "category": "devops",
+  "difficulty": "hard",
+  "prompt": "the blog stack won't come up in the cluster and nobody remembers how it was wired. pods crash or stay pending, the ingress 503s. go through k8s/ and fix whatever is mismatched between the manifests. don't rename the deployments or services, other teams point at them. the app reads DB_PASSWORD, DB_HOST and BLOG_TITLE from env, and stores uploads in /data",
+  "timeout_s": 600,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "kubernetes"
+  ]
+}

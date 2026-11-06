@@ -1,0 +1,23 @@
+diff --git a/backup.sh b/backup.sh
+index a22cfe3..d457c32 100644
+--- a/backup.sh
++++ b/backup.sh
+@@ -1,8 +1,14 @@
+ #!/bin/bash
++set -euo pipefail
+ src=$1
+ dest=$2
+-name=$(basename $src)
+-mkdir -p $dest
+-cd $(dirname $src)
+-tar czf $dest/$name.tar.gz $name
++if [ ! -e "$src" ]; then
++    echo "backup: no such path: $src" >&2
++    exit 1
++fi
++mkdir -p "$dest"
++dest=$(cd "$dest" && pwd)
++name=$(basename "$src")
++cd "$(dirname "$src")"
++tar czf "$dest/$name.tar.gz" "$name"
+ echo "backup done: $dest/$name.tar.gz"

@@ -1,0 +1,29 @@
+diff --git a/nginx.conf b/nginx.conf
+index 41a9c89..393f526 100644
+--- a/nginx.conf
++++ b/nginx.conf
+@@ -6,7 +6,7 @@ http {
+     access_log off;
+ 
+     upstream app_backend {
+-        server 127.0.0.1:8080
++        server 127.0.0.1:8080;
+     }
+ 
+     server {
+@@ -14,11 +14,13 @@ http {
+         server_name site.example.internal;
+ 
+         location /api/ {
+-            proxy_pass http://app-backend;
++            proxy_pass http://app_backend;
+             proxy_set_header Host $host;
+         }
+ 
+         location / {
+-            root /var/www/site
++            root /var/www/site;
+             index index.html;
+         }
++    }
++}

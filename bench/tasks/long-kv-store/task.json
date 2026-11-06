@@ -1,0 +1,15 @@
+{
+  "id": "long-kv-store",
+  "category": "long",
+  "difficulty": "hard",
+  "prompt": "implement the kv store described in README.md, stdlib only. I'll test the crash recovery hard so be careful. write your own tests too",
+  "timeout_s": 2400,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "feature",
+    "from-scratch"
+  ],
+  "max_steps": 150
+}

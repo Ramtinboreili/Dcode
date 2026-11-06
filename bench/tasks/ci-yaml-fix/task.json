@@ -1,0 +1,14 @@
+{
+  "id": "ci-yaml-fix",
+  "category": "devops",
+  "difficulty": "medium",
+  "prompt": "github actions is a mess. the workflow doesn't run on pushes to main, the deploy job errors with \"needs unknown job\", the matrix doesn't actually change the python version, and deploy runs on every branch when it should only run on main. also DEPLOY_TOKEN isn't reaching the deploy step. fix .github/workflows/ci.yml",
+  "timeout_s": 450,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "ci",
+    "github-actions"
+  ]
+}

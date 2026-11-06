@@ -1,0 +1,13 @@
+{
+  "id": "k8s-api-versions",
+  "category": "devops",
+  "difficulty": "medium",
+  "prompt": "we're moving to k8s 1.33 and these old manifests get rejected (\"no matches for kind\"). update them to apis that still exist, without changing what they do",
+  "timeout_s": 450,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "kubernetes"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "id": "py-extract-pricing",
+  "category": "coding",
+  "difficulty": "medium",
+  "prompt": "the discount and tax logic is copy-pasted in cart.py, invoice.py and quote.py and they've drifted. pull it into one module pricing.py with a function total(subtotal, customer_type, region) and use it from all three. the behaviour in cart.py is the correct one. tests in test_totals.py need to keep passing",
+  "timeout_s": 450,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "python",
+    "refactor"
+  ]
+}

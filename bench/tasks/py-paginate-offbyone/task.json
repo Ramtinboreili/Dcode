@@ -1,0 +1,15 @@
+{
+  "id": "py-paginate-offbyone",
+  "category": "coding",
+  "difficulty": "easy",
+  "prompt": "the pagination tests are failing, can you fix it?",
+  "timeout_s": 300,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "python",
+    "bugfix",
+    "tests"
+  ]
+}

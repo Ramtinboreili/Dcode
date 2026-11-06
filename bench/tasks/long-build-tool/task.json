@@ -1,0 +1,16 @@
+{
+  "id": "long-build-tool",
+  "category": "long",
+  "difficulty": "hard",
+  "prompt": "we need the tool described in README.md. stdlib only, python 3.10. the spec is exact about messages and exit codes because CI greps for them. write tests as you go",
+  "timeout_s": 2400,
+  "requires": [
+    "python3",
+    "sh"
+  ],
+  "tags": [
+    "feature",
+    "from-scratch"
+  ],
+  "max_steps": 150
+}

@@ -1,0 +1,65 @@
+diff --git a/manifests/api.yaml b/manifests/api.yaml
+index f30a5a3..622b85c 100644
+--- a/manifests/api.yaml
++++ b/manifests/api.yaml
+@@ -1,9 +1,12 @@
+-apiVersion: extensions/v1beta1
++apiVersion: apps/v1
+ kind: Deployment
+ metadata:
+   name: api
+ spec:
+   replicas: 3
++  selector:
++    matchLabels:
++      app: api
+   template:
+     metadata:
+       labels:
+diff --git a/manifests/budget.yaml b/manifests/budget.yaml
+index c2f2563..992a6a7 100644
+--- a/manifests/budget.yaml
++++ b/manifests/budget.yaml
+@@ -1,4 +1,4 @@
+-apiVersion: policy/v1beta1
++apiVersion: policy/v1
+ kind: PodDisruptionBudget
+ metadata:
+   name: api
+diff --git a/manifests/cleanup.yaml b/manifests/cleanup.yaml
+index 2d67186..dd8fb73 100644
+--- a/manifests/cleanup.yaml
++++ b/manifests/cleanup.yaml
+@@ -1,4 +1,4 @@
+-apiVersion: batch/v1beta1
++apiVersion: batch/v1
+ kind: CronJob
+ metadata:
+   name: cleanup
+diff --git a/manifests/ingress.yaml b/manifests/ingress.yaml
+index 3edb162..11768b4 100644
+--- a/manifests/ingress.yaml
++++ b/manifests/ingress.yaml
+@@ -1,15 +1,17 @@
+-apiVersion: networking.k8s.io/v1beta1
++apiVersion: networking.k8s.io/v1
+ kind: Ingress
+ metadata:
+   name: api
+-  annotations:
+-    kubernetes.io/ingress.class: traefik
+ spec:
++  ingressClassName: traefik
+   rules:
+     - host: api.example.internal
+       http:
+         paths:
+           - path: /v1
++            pathType: Prefix
+             backend:
+-              serviceName: api
+-              servicePort: 9000
++              service:
++                name: api
++                port:
++                  number: 9000

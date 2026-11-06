@@ -1,0 +1,13 @@
+{
+  "id": "shell-log-rotate",
+  "category": "devops",
+  "difficulty": "medium",
+  "prompt": "rotate.sh ate some logs in prod last night. usage: rotate.sh DIR KEEP. for every *.log in DIR (filenames can have spaces) it should move app.log to app.log.1, shifting older ones up (.1 to .2 etc), delete anything past KEEP, and leave an empty app.log behind with the same permissions. it must never lose the current log if something fails, and running it on an empty dir should be fine and exit 0. there's a date dependency I'd also like gone, the behaviour shouldn't depend on when it runs",
+  "timeout_s": 450,
+  "requires": [
+    "bash"
+  ],
+  "tags": [
+    "shell"
+  ]
+}

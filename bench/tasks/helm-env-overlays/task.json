@@ -1,0 +1,13 @@
+{
+  "id": "helm-env-overlays",
+  "category": "devops",
+  "difficulty": "hard",
+  "prompt": "prod is running with staging's settings. values-prod.yaml is supposed to override values.yaml but half of it has no effect, I think keys are nested wrong or misspelled. prod needs 5 replicas, image tag 4.2.0 (never latest), the ingress on shop.example.com with tls secret shop-tls, autoscaling on from 5 to 12 pods, and memory limit 2Gi while cpu stays whatever the default is. only touch values-prod.yaml, staging uses the base file",
+  "timeout_s": 600,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "helm"
+  ]
+}

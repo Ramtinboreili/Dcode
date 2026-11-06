@@ -1,0 +1,32 @@
+diff --git a/deps.py b/deps.py
+index 6ca3128..e192b30 100644
+--- a/deps.py
++++ b/deps.py
+@@ -1,13 +1,27 @@
+ """Work out the order to install plugins in."""
+ 
+ 
++class CycleError(Exception):
++    """The plugins depend on each other in a circle."""
++
++
+ def resolve(graph, root):
+     """Return `root` and everything it needs, dependencies before what needs them."""
+     order = []
++    done = set()
++    path = []
+ 
+     def visit(name):
++        if name in done:
++            return
++        if name in path:
++            cycle = path[path.index(name):] + [name]
++            raise CycleError("circular dependency: " + " -> ".join(cycle))
++        path.append(name)
+         for dep in graph.get(name, []):
+             visit(dep)
++        path.pop()
++        done.add(name)
+         order.append(name)
+ 
+     visit(root)

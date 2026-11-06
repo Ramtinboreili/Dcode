@@ -1,0 +1,202 @@
+diff --git a/lib/collections_util.py b/lib/collections_util.py
+index 32991d9..02f65a0 100644
+--- a/lib/collections_util.py
++++ b/lib/collections_util.py
+@@ -1,21 +1,26 @@
+-def first(items, default=0):
++def first(items: list[int], default: int = 0) -> int:
++    """The first item or the default."""
+     return items[0] if items else default
+ 
+ 
+-def group_by_len(words):
++def group_by_len(words: list[str]) -> dict[int, list[str]]:
++    """Group words by their length."""
+     out = {}
+     for word in words:
+         out.setdefault(len(word), []).append(word)
+     return out
+ 
+ 
+-def pairs(items):
++def pairs(items: list[int]) -> list[tuple[int, int]]:
++    """Neighbouring pairs."""
+     return list(zip(items, items[1:]))
+ 
+ 
+-def top_n(scores, n):
++def top_n(scores: dict[str, int], n: int) -> list[str]:
++    """The n best keys."""
+     return sorted(scores, key=lambda k: -scores[k])[:n]
+ 
+ 
+-def compact(items):
++def compact(items: list[int]) -> list[int]:
++    """Drop falsy items."""
+     return [item for item in items if item]
+diff --git a/lib/config_util.py b/lib/config_util.py
+index 48b9b76..9a22e99 100644
+--- a/lib/config_util.py
++++ b/lib/config_util.py
+@@ -1,18 +1,23 @@
+-def get_bool(value):
++def get_bool(value: str) -> bool:
++    """Parse a boolean setting."""
+     return value.lower() in ('1', 'true', 'yes')
+ 
+ 
+-def get_list(value, sep=','):
++def get_list(value: str, sep: str = ',') -> list[str]:
++    """Parse a list setting."""
+     return [part.strip() for part in value.split(sep) if part.strip()]
+ 
+ 
+-def merge(base, extra):
++def merge(base: dict[str, str], extra: dict[str, str]) -> dict[str, str]:
++    """Merge two settings maps."""
+     return {**base, **extra}
+ 
+ 
+-def env_name(key, prefix='APP'):
++def env_name(key: str, prefix: str = 'APP') -> str:
++    """The environment variable of a key."""
+     return f'{prefix}_{key}'.upper().replace('.', '_')
+ 
+ 
+-def redact(value):
++def redact(value: str) -> str:
++    """Hide all but the start of a secret."""
+     return value[:2] + '*' * max(len(value) - 2, 0)
+diff --git a/lib/dates_util.py b/lib/dates_util.py
+index 8689c3c..650d6cd 100644
+--- a/lib/dates_util.py
++++ b/lib/dates_util.py
+@@ -1,18 +1,23 @@
+-def is_weekend(day):
++def is_weekend(day: int) -> bool:
++    """Tell whether a weekday number is a weekend."""
+     return day in (5, 6)
+ 
+ 
+-def days_in_month(month, leap=False):
++def days_in_month(month: int, leap: bool = False) -> int:
++    """The number of days in a month."""
+     return 29 if month == 2 and leap else [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]
+ 
+ 
+-def to_minutes(hours, minutes):
++def to_minutes(hours: int, minutes: int) -> int:
++    """Hours and minutes as minutes."""
+     return hours * 60 + minutes
+ 
+ 
+-def format_hm(minutes):
++def format_hm(minutes: int) -> str:
++    """Minutes as HH:MM."""
+     return f'{minutes // 60:02d}:{minutes % 60:02d}'
+ 
+ 
+-def quarter(month):
++def quarter(month: int) -> int:
++    """The quarter of a month."""
+     return (month - 1) // 3 + 1
+diff --git a/lib/numbers.py b/lib/numbers.py
+index 5673664..38186df 100644
+--- a/lib/numbers.py
++++ b/lib/numbers.py
+@@ -1,18 +1,23 @@
+-def average(values):
++def average(values: list[float]) -> float:
++    """The mean, 0.0 when empty."""
+     return sum(values) / len(values) if values else 0.0
+ 
+ 
+-def factorial(n):
++def factorial(n: int) -> int:
++    """n factorial."""
+     return 1 if n < 2 else n * factorial(n - 1)
+ 
+ 
+-def is_prime(n):
++def is_prime(n: int) -> bool:
++    """Tell whether n is prime."""
+     return n > 1 and all(n % d for d in range(2, int(n ** 0.5) + 1))
+ 
+ 
+-def digits(n):
++def digits(n: int) -> list[int]:
++    """The decimal digits of n."""
+     return [int(ch) for ch in str(abs(n))]
+ 
+ 
+-def round_to(value, step):
++def round_to(value: float, step: float) -> float:
++    """Round to the nearest step."""
+     return round(value / step) * step
+diff --git a/lib/paths_util.py b/lib/paths_util.py
+index 8aa4898..6a05e47 100644
+--- a/lib/paths_util.py
++++ b/lib/paths_util.py
+@@ -1,18 +1,23 @@
+-def extension(path):
++def extension(path: str) -> str:
++    """The file extension."""
+     return path.rsplit('.', 1)[-1] if '.' in path else ''
+ 
+ 
+-def join_url(base, path):
++def join_url(base: str, path: str) -> str:
++    """Join a base url and a path."""
+     return base.rstrip('/') + '/' + path.lstrip('/')
+ 
+ 
+-def depth(path):
++def depth(path: str) -> int:
++    """How many folders deep."""
+     return len([p for p in path.split('/') if p])
+ 
+ 
+-def stem(path):
++def stem(path: str) -> str:
++    """The file name without extension."""
+     return path.rsplit('/', 1)[-1].split('.')[0]
+ 
+ 
+-def is_hidden(path):
++def is_hidden(path: str) -> bool:
++    """Tell whether the file is hidden."""
+     return path.rsplit('/', 1)[-1].startswith('.')
+diff --git a/lib/strings.py b/lib/strings.py
+index d59dc45..5b74434 100644
+--- a/lib/strings.py
++++ b/lib/strings.py
+@@ -1,19 +1,24 @@
+-def reverse_words(text):
++def reverse_words(text: str) -> str:
++    """Reverse the order of the words."""
+     return ' '.join(reversed(text.split()))
+ 
+ 
+-def count_vowels(text):
++def count_vowels(text: str) -> int:
++    """Count the vowels."""
+     return sum(ch in 'aeiou' for ch in text.lower())
+ 
+ 
+-def is_palindrome(text):
++def is_palindrome(text: str) -> bool:
++    """Tell whether the text reads the same both ways."""
+     cleaned = [ch for ch in text.lower() if ch.isalnum()]
+     return cleaned == cleaned[::-1]
+ 
+ 
+-def pad_left(text, width, fill=' '):
++def pad_left(text: str, width: int, fill: str = ' ') -> str:
++    """Pad the text on the left."""
+     return text.rjust(width, fill)
+ 
+ 
+-def initials(name):
++def initials(name: str) -> str:
++    """The initials of a name."""
+     return ''.join(part[0].upper() for part in name.split())

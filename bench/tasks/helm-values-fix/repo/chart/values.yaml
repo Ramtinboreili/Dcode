@@ -1,0 +1,5 @@
+replicas: 2
+image: registry.local/shop:2.1
+service:
+  externalPort: 80
+containerPort: 8080

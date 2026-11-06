@@ -1,0 +1,29 @@
+diff --git a/site.yml b/site.yml
+index f2ec8c6..34ecf13 100644
+--- a/site.yml
++++ b/site.yml
+@@ -1,4 +1,4 @@
+-- hosts: web_servers
++- hosts: web
+   become: yes
+   vars:
+     nginx_port: 8080
+@@ -12,14 +12,14 @@
+       template:
+         src: nginx.conf.j2
+         dest: /etc/nginx/nginx.conf
+-      notify: restart nginx service
++      notify: restart nginx
+     - name: start nginx
+       service:
+         name: nginx
+         state: started
+-      when: "{{ ansible_os_family == 'Debian' }}"
++      when: ansible_os_family == 'Debian'
+   handlers:
+-    - name: Restart Nginx
++    - name: restart nginx
+       service:
+         name: nginx
+-        state: restart
++        state: restarted

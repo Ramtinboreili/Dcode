@@ -1,0 +1,15 @@
+{
+  "id": "py-semver-ranges",
+  "category": "coding",
+  "difficulty": "hard",
+  "prompt": "we need npm style ranges in the version resolver: ^1.2.3, ~1.2.3, >=1.0.0 <2.0.0 (space = and), || for or, and exact versions. the Version class also sorts prereleases wrong right now (1.0.0-rc.1 should be below 1.0.0, and rc.2 below rc.10). satisfies() lives in ranges.py, currently it only does exact. best_match(versions, range) should return the highest match and skip prereleases unless the range itself names one",
+  "timeout_s": 600,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "python",
+    "feature",
+    "multifile"
+  ]
+}

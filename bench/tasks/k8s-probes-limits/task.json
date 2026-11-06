@@ -1,0 +1,13 @@
+{
+  "id": "k8s-probes-limits",
+  "category": "devops",
+  "difficulty": "medium",
+  "prompt": "the payments deployment keeps getting traffic before it's ready and took down a node last week because it has no limits. add readiness and liveness probes on /healthz (port 8080, http) and resource requests and limits for the app container. give it time to boot, it takes about 30s to start. requests 250m/256Mi, limits 1 cpu/512Mi. leave the log shipper sidecar alone, ops own that",
+  "timeout_s": 450,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "kubernetes"
+  ]
+}

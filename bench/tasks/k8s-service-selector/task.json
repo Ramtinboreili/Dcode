@@ -1,0 +1,13 @@
+{
+  "id": "k8s-service-selector",
+  "category": "devops",
+  "difficulty": "easy",
+  "prompt": "the web service has no endpoints, curl to it just hangs. pods are running fine. manifests are in k8s/",
+  "timeout_s": 300,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "kubernetes"
+  ]
+}

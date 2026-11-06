@@ -1,0 +1,13 @@
+{
+  "id": "traefik-dynamic",
+  "category": "devops",
+  "difficulty": "medium",
+  "prompt": "traefik dashboard shows the grafana router in error and https doesn't work. dynamic config is traefik/dynamic.yaml. grafana should be on grafana.example.internal over https only with the letsencrypt resolver, behind the auth middleware, going to http://10.0.0.5:3000. http on that host should redirect to https",
+  "timeout_s": 450,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "traefik"
+  ]
+}

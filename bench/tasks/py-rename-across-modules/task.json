@@ -1,0 +1,14 @@
+{
+  "id": "py-rename-across-modules",
+  "category": "coding",
+  "difficulty": "medium",
+  "prompt": "rename get_user_data to fetch_user everywhere, and the UserData class to UserRecord. the old names shouldn't be left anywhere. tests must still pass",
+  "timeout_s": 450,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "python",
+    "refactor"
+  ]
+}

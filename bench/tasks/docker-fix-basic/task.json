@@ -1,0 +1,13 @@
+{
+  "id": "docker-fix-basic",
+  "category": "devops",
+  "difficulty": "easy",
+  "prompt": "the container exits right away with \"can't open file '/app/server.py'\" and even when I start it by hand nothing answers on the exposed port. fix the Dockerfile. the app is app.py and it listens on 8080",
+  "timeout_s": 300,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "docker"
+  ]
+}

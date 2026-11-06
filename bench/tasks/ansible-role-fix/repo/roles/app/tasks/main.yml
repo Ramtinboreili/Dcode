@@ -1,0 +1,22 @@
+- name: create user
+  user:
+    name: "{{ service_user }}"
+    system: true
+
+- name: download release
+  command: curl -fsSL -o /opt/app-{{ version }}.tgz https://releases.example.internal/app-{{ version }}.tgz
+
+- name: write config
+  template:
+    src: app.conf.j2
+    dest: /etc/app.conf
+    mode: "0644"
+  notify: restart
+
+- name: set db password
+  command: /usr/local/bin/app-admin set-password {{ app_db_password }}
+
+- name: start service
+  service:
+    name: app
+    state: started

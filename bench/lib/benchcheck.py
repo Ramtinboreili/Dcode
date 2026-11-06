@@ -107,3 +107,82 @@ def docker_build_if_possible(base_image: str, context: str = ".", dockerfile: st
         return True
     print(built.stderr[-1500:], flush=True)
     return False
+
+
+def nginx_parse(text: str) -> list[tuple[str, list[str], Any]]:
+    """nginx config as (directive, args, children or None). Raises ValueError for unbalanced braces or a missing
+    final semicolon. A semicolon missing in the middle shows up as extra args, which a check's asserts catch."""
+    tokens: list[str] = []
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char.isspace():
+            index += 1
+        elif char == "#":
+            while index < len(text) and text[index] != "\n":
+                index += 1
+        elif char in "{};":
+            tokens.append(char)
+            index += 1
+        elif char in "\"'":
+            end = text.find(char, index + 1)
+            if end < 0:
+                raise ValueError("unterminated string")
+            tokens.append(text[index + 1:end])
+            index = end + 1
+        else:
+            start = index
+            while index < len(text) and not text[index].isspace() and text[index] not in "{};":
+                index += 1
+            tokens.append(text[start:index])
+
+    def block(position: int, nested: bool) -> tuple[list[tuple[str, list[str], Any]], int]:
+        out: list[tuple[str, list[str], Any]] = []
+        words: list[str] = []
+        while position < len(tokens):
+            token = tokens[position]
+            position += 1
+            if token == ";":
+                if not words:
+                    raise ValueError("a stray ;")
+                out.append((words[0], words[1:], None))
+                words = []
+            elif token == "{":
+                if not words:
+                    raise ValueError("a block without a name")
+                children, position = block(position, True)
+                out.append((words[0], words[1:], children))
+                words = []
+            elif token == "}":
+                if not nested or words:
+                    raise ValueError("unexpected }, or a directive before it has no ;")
+                return out, position
+            else:
+                words.append(token)
+        if nested or words:
+            raise ValueError("unexpected end of file: a missing } or ;")
+        return out, position
+
+    return block(0, False)[0]
+
+
+def nginx_find(tree: list[tuple[str, list[str], Any]], name: str) -> list[tuple[str, list[str], Any]]:
+    """Every directive with this name, at any depth."""
+    found = []
+    for entry in tree:
+        if entry[0] == name:
+            found.append(entry)
+        if entry[2]:
+            found += nginx_find(entry[2], name)
+    return found
+
+
+def nginx_test_if_possible(config: str) -> bool | None:
+    """``nginx -t`` when nginx is here. None if it can't be tried."""
+    if not tool_enabled("nginx"):
+        print("SKIP nginx -t: nginx isn't available", flush=True)
+        return None
+    prefix = os.path.abspath(os.path.dirname(config) or ".")
+    result = run("nginx", "-t", "-e", "stderr", "-p", prefix + "/", "-c", os.path.abspath(config), "-g", f"pid {prefix}/nginx.pid;", timeout=30)
+    print(result.stderr[-1000:], flush=True)
+    return result.returncode == 0

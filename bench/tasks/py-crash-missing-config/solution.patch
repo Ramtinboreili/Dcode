@@ -1,0 +1,29 @@
+diff --git a/notifier/app.py b/notifier/app.py
+index c689962..e1f5ea7 100644
+--- a/notifier/app.py
++++ b/notifier/app.py
+@@ -8,7 +8,8 @@ class App:
+ 
+     def notify(self, text):
+         sent = [f"posted to {self.channel}: {text}"]
+-        sent.append(self.mailer.send(text))
++        if self.mailer:
++            sent.append(self.mailer.send(text))
+         return sent
+ 
+ 
+diff --git a/notifier/mail.py b/notifier/mail.py
+index 0f7d1c2..04149e8 100644
+--- a/notifier/mail.py
++++ b/notifier/mail.py
+@@ -8,6 +8,7 @@ class Mailer:
+ 
+ 
+ def make_mailer(config):
+-    host = config["smtp"]["host"]
+-    port = config["smtp"]["port"]
+-    return Mailer(host, port)
++    smtp = config.get("smtp")
++    if not smtp:
++        return None
++    return Mailer(smtp["host"], smtp["port"])

@@ -1,0 +1,16 @@
+{
+  "id": "long-typehints-docs",
+  "category": "long",
+  "difficulty": "easy",
+  "prompt": "every public function in lib/ needs a one line docstring and full type hints, params and return. don't change any logic, no renames",
+  "timeout_s": 1800,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "docs",
+    "typing",
+    "many-files"
+  ],
+  "max_steps": 150
+}

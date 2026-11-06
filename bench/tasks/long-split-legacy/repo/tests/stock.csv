@@ -1,0 +1,12 @@
+sku,name,category,qty,cost,price,warehouse
+A100,Hammer,tools,12,6.50,14.00,W1
+A101,Saw,tools,3,9.00,11.00,W1
+B200,Apples,food,200,0.20,0.65,W2
+B201,Rice,food,0,1.10,1.90,W2
+C300,Novel,books,40,4.00,12.00,W1
+C301,Atlas,books,2,22.00,25.00,W3
+D400,Robot,toys,7,15.00,39.00,W3
+D401,Kite,toys,120,2.00,5.50,W2
+E500,Spade,garden,16,8.00,10.50,W3
+# a comment row
+F600,Mystery,misc,5,1.00,2.00,W1

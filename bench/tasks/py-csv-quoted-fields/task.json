@@ -1,0 +1,15 @@
+{
+  "id": "py-csv-quoted-fields",
+  "category": "coding",
+  "difficulty": "medium",
+  "prompt": "our importer breaks on rows with quoted commas. we can't use the csv module here (long story, the format has a custom comment syntax). fix parse_line and make the tests pass",
+  "timeout_s": 450,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "python",
+    "bugfix",
+    "tests"
+  ]
+}

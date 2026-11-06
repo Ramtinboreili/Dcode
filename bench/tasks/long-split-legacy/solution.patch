@@ -1,0 +1,862 @@
+diff --git a/inventory/__init__.py b/inventory/__init__.py
+new file mode 100644
+index 0000000..b8addfd
+--- /dev/null
++++ b/inventory/__init__.py
+@@ -0,0 +1 @@
++"""Inventory tool."""
+diff --git a/inventory/cli.py b/inventory/cli.py
+new file mode 100644
+index 0000000..6a652d8
+--- /dev/null
++++ b/inventory/cli.py
+@@ -0,0 +1,79 @@
++"""The command line."""
++import argparse
++import sys
++
++from inventory.models import ValidationError
++from inventory.pricing import order_total
++from inventory.reports import REPORTS, warehouse_summary
++from inventory.storage import build_warehouses, load_count, load_items, save_items
++
++def cmd_report(args):
++    items = load_items(args.file)
++    fn = REPORTS.get(args.name)
++    if fn is None:
++        print(f"unknown report {args.name}", file=sys.stderr)
++        return 2
++    print(fn(items))
++    return 0
++
++
++def cmd_all(args):
++    items = load_items(args.file)
++    for name in sorted(REPORTS):
++        print("== " + name)
++        print(REPORTS[name](items))
++    print(f"(loaded {load_count()} times)")
++    return 0
++
++
++def cmd_summary(args):
++    print(warehouse_summary(build_warehouses(load_items(args.file))))
++    return 0
++
++
++def cmd_quote(args):
++    items = {item.sku: item for item in load_items(args.file)}
++    if args.sku not in items:
++        print(f"no such sku {args.sku}", file=sys.stderr)
++        return 2
++    try:
++        print(f"{order_total(items[args.sku], args.qty):.2f}")
++    except ValidationError as exc:
++        print(exc, file=sys.stderr)
++        return 3
++    return 0
++
++
++def cmd_restock(args):
++    items = load_items(args.file)
++    for item in items:
++        if item.sku == args.sku:
++            item.qty += args.qty
++    save_items(args.file, items)
++    print("ok")
++    return 0
++
++
++def main(argv=None):
++    parser = argparse.ArgumentParser(prog="inventory")
++    parser.add_argument("file")
++    commands = parser.add_subparsers(dest="command", required=True)
++    report = commands.add_parser("report")
++    report.add_argument("name")
++    report.set_defaults(run=cmd_report)
++    commands.add_parser("all").set_defaults(run=cmd_all)
++    commands.add_parser("summary").set_defaults(run=cmd_summary)
++    quote = commands.add_parser("quote")
++    quote.add_argument("sku")
++    quote.add_argument("qty", type=int)
++    quote.set_defaults(run=cmd_quote)
++    restock = commands.add_parser("restock")
++    restock.add_argument("sku")
++    restock.add_argument("qty", type=int)
++    restock.set_defaults(run=cmd_restock)
++    args = parser.parse_args(argv)
++    try:
++        return args.run(args)
++    except ValidationError as exc:
++        print(f"invalid: {exc}", file=sys.stderr)
++        return 4
+diff --git a/inventory/models.py b/inventory/models.py
+new file mode 100644
+index 0000000..4dcbf8c
+--- /dev/null
++++ b/inventory/models.py
+@@ -0,0 +1,45 @@
++"""The data model."""
++
++class Item:
++    def __init__(self, sku, name, category, qty, cost, price, warehouse):
++        self.sku = sku
++        self.name = name
++        self.category = category
++        self.qty = qty
++        self.cost = cost
++        self.price = price
++        self.warehouse = warehouse
++
++    def margin(self):
++        return self.price - self.cost
++
++    def stock_value(self):
++        return self.qty * self.cost
++
++    def retail_value(self):
++        return self.qty * self.price
++
++    def __repr__(self):
++        return f"Item({self.sku}, {self.qty})"
++
++
++class Warehouse:
++    def __init__(self, code):
++        self.code = code
++        self.items = []
++
++    def add(self, item):
++        self.items.append(item)
++
++    def total_qty(self):
++        return sum(item.qty for item in self.items)
++
++    def total_value(self):
++        return sum(item.stock_value() for item in self.items)
++
++    def categories(self):
++        return sorted({item.category for item in self.items})
++
++
++class ValidationError(Exception):
++    pass
+diff --git a/inventory/pricing.py b/inventory/pricing.py
+new file mode 100644
+index 0000000..faf574a
+--- /dev/null
++++ b/inventory/pricing.py
+@@ -0,0 +1,39 @@
++"""Tax and discounts."""
++from inventory.models import ValidationError
++
++TAX = {"food": 0.05, "books": 0.0, "tools": 0.2, "toys": 0.2, "garden": 0.1}
++DISCOUNT_STEPS = [(100, 0.15), (50, 0.1), (10, 0.05)]
++
++
++def tax_rate(category):
++    return TAX.get(category, 0.2)
++
++
++def price_with_tax(item):
++    return round(item.price * (1 + tax_rate(item.category)), 2)
++
++
++def volume_discount(qty):
++    for threshold, rate in DISCOUNT_STEPS:
++        if qty >= threshold:
++            return rate
++    return 0.0
++
++
++def order_total(item, qty):
++    if qty > item.qty:
++        raise ValidationError(f"only {item.qty} of {item.sku}")
++    gross = price_with_tax(item) * qty
++    return round(gross * (1 - volume_discount(qty)), 2)
++
++
++def markup(item):
++    return (item.price - item.cost) / item.cost if item.cost else 0.0
++
++
++def needs_reprice(item, floor=0.25):
++    return markup(item) < floor
++
++
++def suggested_price(item, target=0.4):
++    return round(item.cost * (1 + target), 2)
+diff --git a/inventory/reports.py b/inventory/reports.py
+new file mode 100644
+index 0000000..baadfd8
+--- /dev/null
++++ b/inventory/reports.py
+@@ -0,0 +1,187 @@
++"""Text reports."""
++from inventory.pricing import markup, needs_reprice, price_with_tax, tax_rate
++
++def report_qty_by_category(items):
++    totals = {}
++    for item in items:
++        totals[item.category] = totals.get(item.category, 0) + item.qty
++    lines = [f"{'CATEGORY':<10} {'QTY':>12}"]
++    for name in sorted(totals):
++        lines.append(f"{name:<10} {totals[name]:>12.2f}")
++    lines.append(f"{'TOTAL':<10} {sum(totals.values()):>12.2f}")
++    return "\n".join(lines)
++
++def report_value_by_category(items):
++    totals = {}
++    for item in items:
++        totals[item.category] = totals.get(item.category, 0) + item.stock_value()
++    lines = [f"{'CATEGORY':<10} {'VALUE':>12}"]
++    for name in sorted(totals):
++        lines.append(f"{name:<10} {totals[name]:>12.2f}")
++    lines.append(f"{'TOTAL':<10} {sum(totals.values()):>12.2f}")
++    return "\n".join(lines)
++
++def report_retail_by_category(items):
++    totals = {}
++    for item in items:
++        totals[item.category] = totals.get(item.category, 0) + item.retail_value()
++    lines = [f"{'CATEGORY':<10} {'RETAIL':>12}"]
++    for name in sorted(totals):
++        lines.append(f"{name:<10} {totals[name]:>12.2f}")
++    lines.append(f"{'TOTAL':<10} {sum(totals.values()):>12.2f}")
++    return "\n".join(lines)
++
++def report_margin_by_category(items):
++    totals = {}
++    for item in items:
++        totals[item.category] = totals.get(item.category, 0) + item.margin() * item.qty
++    lines = [f"{'CATEGORY':<10} {'MARGIN':>12}"]
++    for name in sorted(totals):
++        lines.append(f"{name:<10} {totals[name]:>12.2f}")
++    lines.append(f"{'TOTAL':<10} {sum(totals.values()):>12.2f}")
++    return "\n".join(lines)
++
++def report_qty_by_warehouse(items):
++    totals = {}
++    for item in items:
++        totals[item.warehouse] = totals.get(item.warehouse, 0) + item.qty
++    lines = [f"{'WAREHOUSE':<10} {'QTY':>12}"]
++    for name in sorted(totals):
++        lines.append(f"{name:<10} {totals[name]:>12.2f}")
++    lines.append(f"{'TOTAL':<10} {sum(totals.values()):>12.2f}")
++    return "\n".join(lines)
++
++def report_value_by_warehouse(items):
++    totals = {}
++    for item in items:
++        totals[item.warehouse] = totals.get(item.warehouse, 0) + item.stock_value()
++    lines = [f"{'WAREHOUSE':<10} {'VALUE':>12}"]
++    for name in sorted(totals):
++        lines.append(f"{name:<10} {totals[name]:>12.2f}")
++    lines.append(f"{'TOTAL':<10} {sum(totals.values()):>12.2f}")
++    return "\n".join(lines)
++
++def report_retail_by_warehouse(items):
++    totals = {}
++    for item in items:
++        totals[item.warehouse] = totals.get(item.warehouse, 0) + item.retail_value()
++    lines = [f"{'WAREHOUSE':<10} {'RETAIL':>12}"]
++    for name in sorted(totals):
++        lines.append(f"{name:<10} {totals[name]:>12.2f}")
++    lines.append(f"{'TOTAL':<10} {sum(totals.values()):>12.2f}")
++    return "\n".join(lines)
++
++def report_margin_by_warehouse(items):
++    totals = {}
++    for item in items:
++        totals[item.warehouse] = totals.get(item.warehouse, 0) + item.margin() * item.qty
++    lines = [f"{'WAREHOUSE':<10} {'MARGIN':>12}"]
++    for name in sorted(totals):
++        lines.append(f"{name:<10} {totals[name]:>12.2f}")
++    lines.append(f"{'TOTAL':<10} {sum(totals.values()):>12.2f}")
++    return "\n".join(lines)
++
++def report_low_stock(items, limit=5):
++    rows = [item for item in items if item.qty < limit]
++    rows.sort(key=lambda item: (item.qty, item.sku))
++    lines = [f"LOW STOCK ({len(rows)})"]
++    for item in rows:
++        lines.append(f"{item.sku:<8} {item.name:<20} {item.qty:>5} {item.warehouse:<4} {price_with_tax(item):>9.2f}")
++    return "\n".join(lines)
++
++def report_overstock(items, limit=5):
++    rows = [item for item in items if item.qty > limit * 20]
++    rows.sort(key=lambda item: (item.qty, item.sku))
++    lines = [f"OVERSTOCK ({len(rows)})"]
++    for item in rows:
++        lines.append(f"{item.sku:<8} {item.name:<20} {item.qty:>5} {item.warehouse:<4} {price_with_tax(item):>9.2f}")
++    return "\n".join(lines)
++
++def report_reprice(items, limit=5):
++    rows = [item for item in items if needs_reprice(item)]
++    rows.sort(key=lambda item: (item.qty, item.sku))
++    lines = [f"REPRICE ({len(rows)})"]
++    for item in rows:
++        lines.append(f"{item.sku:<8} {item.name:<20} {item.qty:>5} {item.warehouse:<4} {price_with_tax(item):>9.2f}")
++    return "\n".join(lines)
++
++def report_out_of_stock(items, limit=5):
++    rows = [item for item in items if item.qty == 0]
++    rows.sort(key=lambda item: (item.qty, item.sku))
++    lines = [f"OUT OF STOCK ({len(rows)})"]
++    for item in rows:
++        lines.append(f"{item.sku:<8} {item.name:<20} {item.qty:>5} {item.warehouse:<4} {price_with_tax(item):>9.2f}")
++    return "\n".join(lines)
++
++def report_high_margin(items, limit=5):
++    rows = [item for item in items if markup(item) > 1]
++    rows.sort(key=lambda item: (item.qty, item.sku))
++    lines = [f"HIGH MARGIN ({len(rows)})"]
++    for item in rows:
++        lines.append(f"{item.sku:<8} {item.name:<20} {item.qty:>5} {item.warehouse:<4} {price_with_tax(item):>9.2f}")
++    return "\n".join(lines)
++
++def report_untaxed(items, limit=5):
++    rows = [item for item in items if tax_rate(item.category) == 0]
++    rows.sort(key=lambda item: (item.qty, item.sku))
++    lines = [f"UNTAXED ({len(rows)})"]
++    for item in rows:
++        lines.append(f"{item.sku:<8} {item.name:<20} {item.qty:>5} {item.warehouse:<4} {price_with_tax(item):>9.2f}")
++    return "\n".join(lines)
++
++def report_top_value(items, count=3):
++    rows = sorted(items, key=lambda item: (-(item.stock_value()), item.sku))[:count]
++    lines = [f"TOP VALUE"]
++    for rank, item in enumerate(rows, 1):
++        lines.append(f"{rank}. {item.sku:<8} {item.name:<20} {item.stock_value():>10.2f}")
++    return "\n".join(lines)
++
++def report_top_retail(items, count=3):
++    rows = sorted(items, key=lambda item: (-(item.retail_value()), item.sku))[:count]
++    lines = [f"TOP RETAIL"]
++    for rank, item in enumerate(rows, 1):
++        lines.append(f"{rank}. {item.sku:<8} {item.name:<20} {item.retail_value():>10.2f}")
++    return "\n".join(lines)
++
++def report_top_margin(items, count=3):
++    rows = sorted(items, key=lambda item: (-(item.margin()), item.sku))[:count]
++    lines = [f"TOP MARGIN"]
++    for rank, item in enumerate(rows, 1):
++        lines.append(f"{rank}. {item.sku:<8} {item.name:<20} {item.margin():>10.2f}")
++    return "\n".join(lines)
++
++def report_top_qty(items, count=3):
++    rows = sorted(items, key=lambda item: (-(item.qty), item.sku))[:count]
++    lines = [f"TOP QTY"]
++    for rank, item in enumerate(rows, 1):
++        lines.append(f"{rank}. {item.sku:<8} {item.name:<20} {item.qty:>10.2f}")
++    return "\n".join(lines)
++
++REPORTS = {
++    "qty_by_category": report_qty_by_category,
++    "value_by_category": report_value_by_category,
++    "retail_by_category": report_retail_by_category,
++    "margin_by_category": report_margin_by_category,
++    "qty_by_warehouse": report_qty_by_warehouse,
++    "value_by_warehouse": report_value_by_warehouse,
++    "retail_by_warehouse": report_retail_by_warehouse,
++    "margin_by_warehouse": report_margin_by_warehouse,
++    "low_stock": report_low_stock,
++    "overstock": report_overstock,
++    "reprice": report_reprice,
++    "out_of_stock": report_out_of_stock,
++    "high_margin": report_high_margin,
++    "untaxed": report_untaxed,
++    "top_value": report_top_value,
++    "top_retail": report_top_retail,
++    "top_margin": report_top_margin,
++    "top_qty": report_top_qty,
++}
++
++
++def warehouse_summary(warehouses):
++    lines = []
++    for code in sorted(warehouses):
++        house = warehouses[code]
++        lines.append(f"{code}: {house.total_qty()} units, {house.total_value():.2f}, {', '.join(house.categories())}")
++    return "\n".join(lines)
+diff --git a/inventory/storage.py b/inventory/storage.py
+new file mode 100644
+index 0000000..246bf87
+--- /dev/null
++++ b/inventory/storage.py
+@@ -0,0 +1,64 @@
++"""Reading and writing the CSV."""
++import csv
++
++from inventory.models import Item, ValidationError, Warehouse
++
++COLUMNS = ["sku", "name", "category", "qty", "cost", "price", "warehouse"]
++_LOAD_COUNT = {"n": 0}
++
++
++def load_count():
++    return _LOAD_COUNT["n"]
++
++
++def parse_row(row, line):
++    if len(row) != len(COLUMNS):
++        raise ValidationError(f"line {line}: expected {len(COLUMNS)} columns, got {len(row)}")
++    sku, name, category, qty, cost, price, warehouse = row
++    if not sku:
++        raise ValidationError(f"line {line}: empty sku")
++    try:
++        qty = int(qty)
++    except ValueError:
++        raise ValidationError(f"line {line}: bad qty {qty!r}")
++    try:
++        cost, price = float(cost), float(price)
++    except ValueError:
++        raise ValidationError(f"line {line}: bad money")
++    if qty < 0:
++        raise ValidationError(f"line {line}: negative qty")
++    return Item(sku, name, category, qty, cost, price, warehouse)
++
++
++def load_items(path):
++    _LOAD_COUNT["n"] += 1
++    items, seen = [], set()
++    with open(path, newline="") as handle:
++        reader = csv.reader(handle)
++        header = next(reader)
++        if header != COLUMNS:
++            raise ValidationError("bad header")
++        for line, row in enumerate(reader, 2):
++            if not row or row[0].startswith("#"):
++                continue
++            item = parse_row(row, line)
++            if item.sku in seen:
++                raise ValidationError(f"line {line}: duplicate sku {item.sku}")
++            seen.add(item.sku)
++            items.append(item)
++    return items
++
++
++def build_warehouses(items):
++    out = {}
++    for item in items:
++        out.setdefault(item.warehouse, Warehouse(item.warehouse)).add(item)
++    return out
++
++
++def save_items(path, items):
++    with open(path, "w", newline="") as handle:
++        writer = csv.writer(handle, lineterminator="\n")
++        writer.writerow(COLUMNS)
++        for item in items:
++            writer.writerow([item.sku, item.name, item.category, item.qty, f"{item.cost:.2f}", f"{item.price:.2f}", item.warehouse])
+diff --git a/legacy_inventory.py b/legacy_inventory.py
+index 5402e5f..82a7933 100644
+--- a/legacy_inventory.py
++++ b/legacy_inventory.py
+@@ -1,405 +1,8 @@
+ #!/usr/bin/env python3
+ """Inventory tool. Started as a quick script in 2017."""
+-import argparse
+-import csv
+ import sys
+ 
+-class Item:
+-    def __init__(self, sku, name, category, qty, cost, price, warehouse):
+-        self.sku = sku
+-        self.name = name
+-        self.category = category
+-        self.qty = qty
+-        self.cost = cost
+-        self.price = price
+-        self.warehouse = warehouse
+-
+-    def margin(self):
+-        return self.price - self.cost
+-
+-    def stock_value(self):
+-        return self.qty * self.cost
+-
+-    def retail_value(self):
+-        return self.qty * self.price
+-
+-    def __repr__(self):
+-        return f"Item({self.sku}, {self.qty})"
+-
+-
+-class Warehouse:
+-    def __init__(self, code):
+-        self.code = code
+-        self.items = []
+-
+-    def add(self, item):
+-        self.items.append(item)
+-
+-    def total_qty(self):
+-        return sum(item.qty for item in self.items)
+-
+-    def total_value(self):
+-        return sum(item.stock_value() for item in self.items)
+-
+-    def categories(self):
+-        return sorted({item.category for item in self.items})
+-
+-
+-class ValidationError(Exception):
+-    pass
+-
+-COLUMNS = ["sku", "name", "category", "qty", "cost", "price", "warehouse"]
+-_LOAD_COUNT = {"n": 0}
+-
+-
+-def load_count():
+-    return _LOAD_COUNT["n"]
+-
+-
+-def parse_row(row, line):
+-    if len(row) != len(COLUMNS):
+-        raise ValidationError(f"line {line}: expected {len(COLUMNS)} columns, got {len(row)}")
+-    sku, name, category, qty, cost, price, warehouse = row
+-    if not sku:
+-        raise ValidationError(f"line {line}: empty sku")
+-    try:
+-        qty = int(qty)
+-    except ValueError:
+-        raise ValidationError(f"line {line}: bad qty {qty!r}")
+-    try:
+-        cost, price = float(cost), float(price)
+-    except ValueError:
+-        raise ValidationError(f"line {line}: bad money")
+-    if qty < 0:
+-        raise ValidationError(f"line {line}: negative qty")
+-    return Item(sku, name, category, qty, cost, price, warehouse)
+-
+-
+-def load_items(path):
+-    _LOAD_COUNT["n"] += 1
+-    items, seen = [], set()
+-    with open(path, newline="") as handle:
+-        reader = csv.reader(handle)
+-        header = next(reader)
+-        if header != COLUMNS:
+-            raise ValidationError("bad header")
+-        for line, row in enumerate(reader, 2):
+-            if not row or row[0].startswith("#"):
+-                continue
+-            item = parse_row(row, line)
+-            if item.sku in seen:
+-                raise ValidationError(f"line {line}: duplicate sku {item.sku}")
+-            seen.add(item.sku)
+-            items.append(item)
+-    return items
+-
+-
+-def build_warehouses(items):
+-    out = {}
+-    for item in items:
+-        out.setdefault(item.warehouse, Warehouse(item.warehouse)).add(item)
+-    return out
+-
+-
+-def save_items(path, items):
+-    with open(path, "w", newline="") as handle:
+-        writer = csv.writer(handle, lineterminator="\n")
+-        writer.writerow(COLUMNS)
+-        for item in items:
+-            writer.writerow([item.sku, item.name, item.category, item.qty, f"{item.cost:.2f}", f"{item.price:.2f}", item.warehouse])
+-
+-TAX = {"food": 0.05, "books": 0.0, "tools": 0.2, "toys": 0.2, "garden": 0.1}
+-DISCOUNT_STEPS = [(100, 0.15), (50, 0.1), (10, 0.05)]
+-
+-
+-def tax_rate(category):
+-    return TAX.get(category, 0.2)
+-
+-
+-def price_with_tax(item):
+-    return round(item.price * (1 + tax_rate(item.category)), 2)
+-
+-
+-def volume_discount(qty):
+-    for threshold, rate in DISCOUNT_STEPS:
+-        if qty >= threshold:
+-            return rate
+-    return 0.0
+-
+-
+-def order_total(item, qty):
+-    if qty > item.qty:
+-        raise ValidationError(f"only {item.qty} of {item.sku}")
+-    gross = price_with_tax(item) * qty
+-    return round(gross * (1 - volume_discount(qty)), 2)
+-
+-
+-def markup(item):
+-    return (item.price - item.cost) / item.cost if item.cost else 0.0
+-
+-
+-def needs_reprice(item, floor=0.25):
+-    return markup(item) < floor
+-
+-
+-def suggested_price(item, target=0.4):
+-    return round(item.cost * (1 + target), 2)
+-
+-def report_qty_by_category(items):
+-    totals = {}
+-    for item in items:
+-        totals[item.category] = totals.get(item.category, 0) + item.qty
+-    lines = [f"{'CATEGORY':<10} {'QTY':>12}"]
+-    for name in sorted(totals):
+-        lines.append(f"{name:<10} {totals[name]:>12.2f}")
+-    lines.append(f"{'TOTAL':<10} {sum(totals.values()):>12.2f}")
+-    return "\n".join(lines)
+-
+-def report_value_by_category(items):
+-    totals = {}
+-    for item in items:
+-        totals[item.category] = totals.get(item.category, 0) + item.stock_value()
+-    lines = [f"{'CATEGORY':<10} {'VALUE':>12}"]
+-    for name in sorted(totals):
+-        lines.append(f"{name:<10} {totals[name]:>12.2f}")
+-    lines.append(f"{'TOTAL':<10} {sum(totals.values()):>12.2f}")
+-    return "\n".join(lines)
+-
+-def report_retail_by_category(items):
+-    totals = {}
+-    for item in items:
+-        totals[item.category] = totals.get(item.category, 0) + item.retail_value()
+-    lines = [f"{'CATEGORY':<10} {'RETAIL':>12}"]
+-    for name in sorted(totals):
+-        lines.append(f"{name:<10} {totals[name]:>12.2f}")
+-    lines.append(f"{'TOTAL':<10} {sum(totals.values()):>12.2f}")
+-    return "\n".join(lines)
+-
+-def report_margin_by_category(items):
+-    totals = {}
+-    for item in items:
+-        totals[item.category] = totals.get(item.category, 0) + item.margin() * item.qty
+-    lines = [f"{'CATEGORY':<10} {'MARGIN':>12}"]
+-    for name in sorted(totals):
+-        lines.append(f"{name:<10} {totals[name]:>12.2f}")
+-    lines.append(f"{'TOTAL':<10} {sum(totals.values()):>12.2f}")
+-    return "\n".join(lines)
+-
+-def report_qty_by_warehouse(items):
+-    totals = {}
+-    for item in items:
+-        totals[item.warehouse] = totals.get(item.warehouse, 0) + item.qty
+-    lines = [f"{'WAREHOUSE':<10} {'QTY':>12}"]
+-    for name in sorted(totals):
+-        lines.append(f"{name:<10} {totals[name]:>12.2f}")
+-    lines.append(f"{'TOTAL':<10} {sum(totals.values()):>12.2f}")
+-    return "\n".join(lines)
+-
+-def report_value_by_warehouse(items):
+-    totals = {}
+-    for item in items:
+-        totals[item.warehouse] = totals.get(item.warehouse, 0) + item.stock_value()
+-    lines = [f"{'WAREHOUSE':<10} {'VALUE':>12}"]
+-    for name in sorted(totals):
+-        lines.append(f"{name:<10} {totals[name]:>12.2f}")
+-    lines.append(f"{'TOTAL':<10} {sum(totals.values()):>12.2f}")
+-    return "\n".join(lines)
+-
+-def report_retail_by_warehouse(items):
+-    totals = {}
+-    for item in items:
+-        totals[item.warehouse] = totals.get(item.warehouse, 0) + item.retail_value()
+-    lines = [f"{'WAREHOUSE':<10} {'RETAIL':>12}"]
+-    for name in sorted(totals):
+-        lines.append(f"{name:<10} {totals[name]:>12.2f}")
+-    lines.append(f"{'TOTAL':<10} {sum(totals.values()):>12.2f}")
+-    return "\n".join(lines)
+-
+-def report_margin_by_warehouse(items):
+-    totals = {}
+-    for item in items:
+-        totals[item.warehouse] = totals.get(item.warehouse, 0) + item.margin() * item.qty
+-    lines = [f"{'WAREHOUSE':<10} {'MARGIN':>12}"]
+-    for name in sorted(totals):
+-        lines.append(f"{name:<10} {totals[name]:>12.2f}")
+-    lines.append(f"{'TOTAL':<10} {sum(totals.values()):>12.2f}")
+-    return "\n".join(lines)
+-
+-def report_low_stock(items, limit=5):
+-    rows = [item for item in items if item.qty < limit]
+-    rows.sort(key=lambda item: (item.qty, item.sku))
+-    lines = [f"LOW STOCK ({len(rows)})"]
+-    for item in rows:
+-        lines.append(f"{item.sku:<8} {item.name:<20} {item.qty:>5} {item.warehouse:<4} {price_with_tax(item):>9.2f}")
+-    return "\n".join(lines)
+-
+-def report_overstock(items, limit=5):
+-    rows = [item for item in items if item.qty > limit * 20]
+-    rows.sort(key=lambda item: (item.qty, item.sku))
+-    lines = [f"OVERSTOCK ({len(rows)})"]
+-    for item in rows:
+-        lines.append(f"{item.sku:<8} {item.name:<20} {item.qty:>5} {item.warehouse:<4} {price_with_tax(item):>9.2f}")
+-    return "\n".join(lines)
+-
+-def report_reprice(items, limit=5):
+-    rows = [item for item in items if needs_reprice(item)]
+-    rows.sort(key=lambda item: (item.qty, item.sku))
+-    lines = [f"REPRICE ({len(rows)})"]
+-    for item in rows:
+-        lines.append(f"{item.sku:<8} {item.name:<20} {item.qty:>5} {item.warehouse:<4} {price_with_tax(item):>9.2f}")
+-    return "\n".join(lines)
+-
+-def report_out_of_stock(items, limit=5):
+-    rows = [item for item in items if item.qty == 0]
+-    rows.sort(key=lambda item: (item.qty, item.sku))
+-    lines = [f"OUT OF STOCK ({len(rows)})"]
+-    for item in rows:
+-        lines.append(f"{item.sku:<8} {item.name:<20} {item.qty:>5} {item.warehouse:<4} {price_with_tax(item):>9.2f}")
+-    return "\n".join(lines)
+-
+-def report_high_margin(items, limit=5):
+-    rows = [item for item in items if markup(item) > 1]
+-    rows.sort(key=lambda item: (item.qty, item.sku))
+-    lines = [f"HIGH MARGIN ({len(rows)})"]
+-    for item in rows:
+-        lines.append(f"{item.sku:<8} {item.name:<20} {item.qty:>5} {item.warehouse:<4} {price_with_tax(item):>9.2f}")
+-    return "\n".join(lines)
+-
+-def report_untaxed(items, limit=5):
+-    rows = [item for item in items if tax_rate(item.category) == 0]
+-    rows.sort(key=lambda item: (item.qty, item.sku))
+-    lines = [f"UNTAXED ({len(rows)})"]
+-    for item in rows:
+-        lines.append(f"{item.sku:<8} {item.name:<20} {item.qty:>5} {item.warehouse:<4} {price_with_tax(item):>9.2f}")
+-    return "\n".join(lines)
+-
+-def report_top_value(items, count=3):
+-    rows = sorted(items, key=lambda item: (-(item.stock_value()), item.sku))[:count]
+-    lines = [f"TOP VALUE"]
+-    for rank, item in enumerate(rows, 1):
+-        lines.append(f"{rank}. {item.sku:<8} {item.name:<20} {item.stock_value():>10.2f}")
+-    return "\n".join(lines)
+-
+-def report_top_retail(items, count=3):
+-    rows = sorted(items, key=lambda item: (-(item.retail_value()), item.sku))[:count]
+-    lines = [f"TOP RETAIL"]
+-    for rank, item in enumerate(rows, 1):
+-        lines.append(f"{rank}. {item.sku:<8} {item.name:<20} {item.retail_value():>10.2f}")
+-    return "\n".join(lines)
+-
+-def report_top_margin(items, count=3):
+-    rows = sorted(items, key=lambda item: (-(item.margin()), item.sku))[:count]
+-    lines = [f"TOP MARGIN"]
+-    for rank, item in enumerate(rows, 1):
+-        lines.append(f"{rank}. {item.sku:<8} {item.name:<20} {item.margin():>10.2f}")
+-    return "\n".join(lines)
+-
+-def report_top_qty(items, count=3):
+-    rows = sorted(items, key=lambda item: (-(item.qty), item.sku))[:count]
+-    lines = [f"TOP QTY"]
+-    for rank, item in enumerate(rows, 1):
+-        lines.append(f"{rank}. {item.sku:<8} {item.name:<20} {item.qty:>10.2f}")
+-    return "\n".join(lines)
+-
+-REPORTS = {
+-    "qty_by_category": report_qty_by_category,
+-    "value_by_category": report_value_by_category,
+-    "retail_by_category": report_retail_by_category,
+-    "margin_by_category": report_margin_by_category,
+-    "qty_by_warehouse": report_qty_by_warehouse,
+-    "value_by_warehouse": report_value_by_warehouse,
+-    "retail_by_warehouse": report_retail_by_warehouse,
+-    "margin_by_warehouse": report_margin_by_warehouse,
+-    "low_stock": report_low_stock,
+-    "overstock": report_overstock,
+-    "reprice": report_reprice,
+-    "out_of_stock": report_out_of_stock,
+-    "high_margin": report_high_margin,
+-    "untaxed": report_untaxed,
+-    "top_value": report_top_value,
+-    "top_retail": report_top_retail,
+-    "top_margin": report_top_margin,
+-    "top_qty": report_top_qty,
+-}
+-
+-
+-def warehouse_summary(warehouses):
+-    lines = []
+-    for code in sorted(warehouses):
+-        house = warehouses[code]
+-        lines.append(f"{code}: {house.total_qty()} units, {house.total_value():.2f}, {', '.join(house.categories())}")
+-    return "\n".join(lines)
+-
+-def cmd_report(args):
+-    items = load_items(args.file)
+-    fn = REPORTS.get(args.name)
+-    if fn is None:
+-        print(f"unknown report {args.name}", file=sys.stderr)
+-        return 2
+-    print(fn(items))
+-    return 0
+-
+-
+-def cmd_all(args):
+-    items = load_items(args.file)
+-    for name in sorted(REPORTS):
+-        print("== " + name)
+-        print(REPORTS[name](items))
+-    print(f"(loaded {load_count()} times)")
+-    return 0
+-
+-
+-def cmd_summary(args):
+-    print(warehouse_summary(build_warehouses(load_items(args.file))))
+-    return 0
+-
+-
+-def cmd_quote(args):
+-    items = {item.sku: item for item in load_items(args.file)}
+-    if args.sku not in items:
+-        print(f"no such sku {args.sku}", file=sys.stderr)
+-        return 2
+-    try:
+-        print(f"{order_total(items[args.sku], args.qty):.2f}")
+-    except ValidationError as exc:
+-        print(exc, file=sys.stderr)
+-        return 3
+-    return 0
+-
+-
+-def cmd_restock(args):
+-    items = load_items(args.file)
+-    for item in items:
+-        if item.sku == args.sku:
+-            item.qty += args.qty
+-    save_items(args.file, items)
+-    print("ok")
+-    return 0
+-
+-
+-def main(argv=None):
+-    parser = argparse.ArgumentParser(prog="inventory")
+-    parser.add_argument("file")
+-    commands = parser.add_subparsers(dest="command", required=True)
+-    report = commands.add_parser("report")
+-    report.add_argument("name")
+-    report.set_defaults(run=cmd_report)
+-    commands.add_parser("all").set_defaults(run=cmd_all)
+-    commands.add_parser("summary").set_defaults(run=cmd_summary)
+-    quote = commands.add_parser("quote")
+-    quote.add_argument("sku")
+-    quote.add_argument("qty", type=int)
+-    quote.set_defaults(run=cmd_quote)
+-    restock = commands.add_parser("restock")
+-    restock.add_argument("sku")
+-    restock.add_argument("qty", type=int)
+-    restock.set_defaults(run=cmd_restock)
+-    args = parser.parse_args(argv)
+-    try:
+-        return args.run(args)
+-    except ValidationError as exc:
+-        print(f"invalid: {exc}", file=sys.stderr)
+-        return 4
++from inventory.cli import main
+ 
+ 
+ if __name__ == "__main__":

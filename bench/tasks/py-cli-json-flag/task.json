@@ -1,0 +1,14 @@
+{
+  "id": "py-cli-json-flag",
+  "category": "coding",
+  "difficulty": "medium",
+  "prompt": "add a --json flag to the du tool so it prints json instead of the table. fields: path, bytes, human. --top should still work with it. add a test too",
+  "timeout_s": 450,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "python",
+    "feature"
+  ]
+}

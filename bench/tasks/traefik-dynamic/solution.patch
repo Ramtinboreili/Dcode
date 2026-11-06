@@ -1,0 +1,42 @@
+diff --git a/traefik/dynamic.yaml b/traefik/dynamic.yaml
+index 2dce62e..6763af7 100644
+--- a/traefik/dynamic.yaml
++++ b/traefik/dynamic.yaml
+@@ -1,20 +1,31 @@
+ http:
+   routers:
+     grafana:
+-      rule: "Host(grafana.example.internal)"
++      rule: "Host(`grafana.example.internal`)"
+       entryPoints:
+-        - https
+-      service: grafana-svc
++        - websecure
++      service: grafana
+       middlewares:
+-        - auth
++        - basic-auth
+       tls:
+-        certResolver: lets-encrypt
++        certResolver: letsencrypt
++    grafana-redirect:
++      rule: "Host(`grafana.example.internal`)"
++      entryPoints:
++        - web
++      service: grafana
++      middlewares:
++        - to-https
+   middlewares:
+     basic-auth:
+       basicAuth:
+         usersFile: /etc/traefik/users
++    to-https:
++      redirectScheme:
++        scheme: https
++        permanent: true
+   services:
+     grafana:
+       loadBalancer:
+         servers:
+-          - url: 10.0.0.5:3000
++          - url: http://10.0.0.5:3000

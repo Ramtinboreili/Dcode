@@ -1,0 +1,211 @@
+diff --git a/utils/bisect_find.py b/utils/bisect_find.py
+index 23009b5..a32b36d 100644
+--- a/utils/bisect_find.py
++++ b/utils/bisect_find.py
+@@ -1,6 +1,6 @@
+ def find(items, target):
+     low, high = 0, len(items) - 1
+-    while low < high:
++    while low <= high:
+         mid = (low + high) // 2
+         if items[mid] == target:
+             return mid
+diff --git a/utils/bytesize.py b/utils/bytesize.py
+index a8e0ceb..7377ebc 100644
+--- a/utils/bytesize.py
++++ b/utils/bytesize.py
+@@ -1,6 +1,6 @@
+ def human_bytes(n):
+     for unit in ['B', 'KB', 'MB', 'GB']:
+-        if n <= 1024:
++        if n < 1024:
+             return f'{n:.1f} {unit}'
+         n /= 1024
+     return f'{n:.1f} TB'
+diff --git a/utils/caesar.py b/utils/caesar.py
+index d10f355..7c3ce90 100644
+--- a/utils/caesar.py
++++ b/utils/caesar.py
+@@ -2,7 +2,7 @@ def caesar(text, shift):
+     out = ''
+     for ch in text:
+         if ch.islower():
+-            out += chr(ord(ch) + shift)
++            out += chr((ord(ch) - 97 + shift) % 26 + 97)
+         else:
+             out += ch
+     return out
+diff --git a/utils/chunks.py b/utils/chunks.py
+index 8df1f5c..783777a 100644
+--- a/utils/chunks.py
++++ b/utils/chunks.py
+@@ -1,2 +1,2 @@
+ def chunks(items, size):
+-    return [items[i:i + size] for i in range(0, len(items) - size, size)]
++    return [items[i:i + size] for i in range(0, len(items), size)]
+diff --git a/utils/clamp.py b/utils/clamp.py
+index ac9b130..7b7864c 100644
+--- a/utils/clamp.py
++++ b/utils/clamp.py
+@@ -1,2 +1,2 @@
+ def clamp(x, low, high):
+-    return min(low, max(high, x))
++    return max(low, min(high, x))
+diff --git a/utils/dedupe.py b/utils/dedupe.py
+index 05d8c25..a304e3d 100644
+--- a/utils/dedupe.py
++++ b/utils/dedupe.py
+@@ -1,2 +1,2 @@
+ def dedupe(items):
+-    return list(set(items))
++    return list(dict.fromkeys(items))
+diff --git a/utils/flatten.py b/utils/flatten.py
+index 24f4196..96b38a8 100644
+--- a/utils/flatten.py
++++ b/utils/flatten.py
+@@ -2,7 +2,7 @@ def flatten(items):
+     out = []
+     for item in items:
+         if isinstance(item, list):
+-            out.extend(item)
++            out.extend(flatten(item))
+         else:
+             out.append(item)
+     return out
+diff --git a/utils/invert.py b/utils/invert.py
+index 0da495f..4be9809 100644
+--- a/utils/invert.py
++++ b/utils/invert.py
+@@ -1,5 +1,5 @@
+ def invert(mapping):
+     out = {}
+     for key, value in mapping.items():
+-        out[value] = [key]
++        out.setdefault(value, []).append(key)
+     return out
+diff --git a/utils/kvparse.py b/utils/kvparse.py
+index d3d28c9..59778ea 100644
+--- a/utils/kvparse.py
++++ b/utils/kvparse.py
+@@ -1,6 +1,8 @@
+ def parse_kv(line):
+     out = {}
+     for part in line.split(';'):
+-        key, value = part.split('=')
++        if not part.strip():
++            continue
++        key, value = part.split('=', 1)
+         out[key.strip()] = value.strip()
+     return out
+diff --git a/utils/leap.py b/utils/leap.py
+index aee07c0..16c5304 100644
+--- a/utils/leap.py
++++ b/utils/leap.py
+@@ -1,2 +1,2 @@
+ def is_leap(year):
+-    return year % 4 == 0
++    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+diff --git a/utils/median.py b/utils/median.py
+index d0debc5..130ab7c 100644
+--- a/utils/median.py
++++ b/utils/median.py
+@@ -1,3 +1,4 @@
+ def median(values):
+     data = sorted(values)
+-    return data[len(data) // 2]
++    mid = len(data) // 2
++    return data[mid] if len(data) % 2 else (data[mid - 1] + data[mid]) / 2
+diff --git a/utils/merge.py b/utils/merge.py
+index 2c710af..862953b 100644
+--- a/utils/merge.py
++++ b/utils/merge.py
+@@ -7,4 +7,4 @@ def merge_sorted(a, b):
+         else:
+             out.append(b[j])
+             j += 1
+-    return out
++    return out + a[i:] + b[j:]
+diff --git a/utils/moving.py b/utils/moving.py
+index 905fb19..9cb9e1e 100644
+--- a/utils/moving.py
++++ b/utils/moving.py
+@@ -1,2 +1,2 @@
+ def moving_average(values, window):
+-    return [sum(values[i:i + window]) / window for i in range(len(values))]
++    return [sum(values[i:i + window]) / window for i in range(len(values) - window + 1)]
+diff --git a/utils/percent.py b/utils/percent.py
+index ccd96e4..cabd54a 100644
+--- a/utils/percent.py
++++ b/utils/percent.py
+@@ -1,2 +1,4 @@
+ def percent(part, total):
++    if total == 0:
++        return 0
+     return round(part / total * 100)
+diff --git a/utils/rangeparse.py b/utils/rangeparse.py
+index abc4494..4ec513a 100644
+--- a/utils/rangeparse.py
++++ b/utils/rangeparse.py
+@@ -3,7 +3,7 @@ def parse_ranges(spec):
+     for part in spec.split(','):
+         if '-' in part:
+             a, b = part.split('-')
+-            out.extend(range(int(a), int(b)))
++            out.extend(range(int(a), int(b) + 1))
+         else:
+             out.append(int(part))
+     return out
+diff --git a/utils/rle.py b/utils/rle.py
+index 68994d8..ae4028d 100644
+--- a/utils/rle.py
++++ b/utils/rle.py
+@@ -2,7 +2,7 @@ def rle(text):
+     out, count = [], 0
+     for i, ch in enumerate(text):
+         count += 1
+-        if i + 1 < len(text) and text[i + 1] != ch:
++        if i + 1 == len(text) or text[i + 1] != ch:
+             out.append((ch, count))
+             count = 0
+     return out
+diff --git a/utils/roman.py b/utils/roman.py
+index 1ee8f14..8f1dbc4 100644
+--- a/utils/roman.py
++++ b/utils/roman.py
+@@ -1,4 +1,4 @@
+-TABLE = [(1000, 'M'), (500, 'D'), (100, 'C'), (50, 'L'), (10, 'X'), (5, 'V'), (1, 'I')]
++TABLE = [(1000, 'M'), (900, 'CM'), (500, 'D'), (400, 'CD'), (100, 'C'), (90, 'XC'), (50, 'L'), (40, 'XL'), (10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I')]
+ 
+ 
+ def to_roman(n):
+diff --git a/utils/slug.py b/utils/slug.py
+index 7ec169b..a1e31b1 100644
+--- a/utils/slug.py
++++ b/utils/slug.py
+@@ -2,4 +2,4 @@ import re
+ 
+ 
+ def slug(text):
+-    return re.sub(r'[^a-z0-9]', '-', text)
++    return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
+diff --git a/utils/truncate.py b/utils/truncate.py
+index 776970d..1b570cc 100644
+--- a/utils/truncate.py
++++ b/utils/truncate.py
+@@ -1,4 +1,4 @@
+ def truncate(text, limit):
+     if len(text) <= limit:
+         return text
+-    return text[:limit] + '...'
++    return text[:limit - 3] + '...'
+diff --git a/utils/wordcount.py b/utils/wordcount.py
+index f4d55c1..3a93427 100644
+--- a/utils/wordcount.py
++++ b/utils/wordcount.py
+@@ -1,5 +1,5 @@
+ def word_count(text):
+     counts = {}
+-    for word in text.split(' '):
++    for word in text.lower().split():
+         counts[word] = counts.get(word, 0) + 1
+     return counts

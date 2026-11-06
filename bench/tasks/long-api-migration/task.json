@@ -1,0 +1,15 @@
+{
+  "id": "long-api-migration",
+  "category": "long",
+  "difficulty": "easy",
+  "prompt": "time to get rid of fetch() in httpkit. move every service over to request(), mapping is in the httpkit docstring, then delete fetch. behaviour has to stay exactly the same",
+  "timeout_s": 1800,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "refactor",
+    "many-files"
+  ],
+  "max_steps": 150
+}

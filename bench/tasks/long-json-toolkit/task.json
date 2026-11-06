@@ -1,0 +1,15 @@
+{
+  "id": "long-json-toolkit",
+  "category": "long",
+  "difficulty": "hard",
+  "prompt": "please build jsonkit as described in README.md. it has to be strict, we feed it stuff from outside. add your own tests in tests/",
+  "timeout_s": 2400,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "feature",
+    "from-scratch"
+  ],
+  "max_steps": 150
+}

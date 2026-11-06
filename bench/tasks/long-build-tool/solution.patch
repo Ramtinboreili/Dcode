@@ -1,0 +1,272 @@
+diff --git a/minibuild/__init__.py b/minibuild/__init__.py
+new file mode 100644
+index 0000000..b7bfa76
+--- /dev/null
++++ b/minibuild/__init__.py
+@@ -0,0 +1 @@
++"""A small make."""
+diff --git a/minibuild/__main__.py b/minibuild/__main__.py
+new file mode 100644
+index 0000000..fe569c9
+--- /dev/null
++++ b/minibuild/__main__.py
+@@ -0,0 +1,259 @@
++"""A small make-like build tool."""
++import argparse
++import os
++import re
++import subprocess
++import sys
++import threading
++from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
++
++
++class BuildError(Exception):
++    pass
++
++
++class Rule:
++    def __init__(self, name, deps, line):
++        self.name = name
++        self.deps = deps
++        self.commands = []
++        self.line = line
++
++
++class Buildfile:
++    def __init__(self, path):
++        self.path = path
++        self.vars = {}
++        self.rules = {}
++        self.order = []
++        self.phony = set()
++        self.parse()
++
++    def fail(self, line, message):
++        raise BuildError(f"{self.path}:{line}: {message}")
++
++    def parse(self):
++        current = None
++        with open(self.path) as handle:
++            for number, raw in enumerate(handle, 1):
++                text = raw.rstrip("\n")
++                if not text.strip() or text.lstrip().startswith("#"):
++                    continue
++                if text[0] in " \t":
++                    if current is None:
++                        self.fail(number, "a command with no target")
++                    current.commands.append(text.strip())
++                    continue
++                found = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)", text)
++                if found:
++                    self.vars[found.group(1)] = found.group(2).strip()
++                    current = None
++                    continue
++                found = re.fullmatch(r"([^:\s=][^:\s=]*(?:\s+[^:\s=]+)*)\s*:\s*(.*)", text)
++                if not found:
++                    self.fail(number, f"can't read {text!r}")
++                names, deps = found.group(1).split(), found.group(2).split()
++                if names == [".phony"]:
++                    self.phony.update(deps)
++                    current = None
++                    continue
++                current = None
++                for name in names:
++                    rule = self.rules.get(name)
++                    if rule is None:
++                        rule = Rule(name, [], number)
++                        self.rules[name] = rule
++                        self.order.append(name)
++                    rule.deps += deps
++                    current = rule
++
++    def expand(self, text, overrides, local=None, seen=()):
++        local = local or {}
++
++        def replace(match):
++            token = match.group(0)
++            if token == "$$":
++                return "\0"
++            if token in local:
++                return local[token]
++            name = match.group(1)
++            if name in seen:
++                raise BuildError(f"variable {name} refers to itself")
++            value = overrides.get(name, self.vars.get(name, ""))
++            return self.expand(value, overrides, local, (*seen, name))
++
++        out = re.sub(r"\$\$|\$[@<^]|\$\(([A-Za-z_][A-Za-z0-9_]*)\)", replace, text)
++        return out if seen else out.replace("\0", "$")
++
++
++def mtime(path):
++    try:
++        return os.stat(path).st_mtime_ns
++    except OSError:
++        return None
++
++
++class Builder:
++    def __init__(self, book, overrides, folder, dry, keep, jobs):
++        self.book = book
++        self.overrides = overrides
++        self.folder = folder
++        self.dry = dry
++        self.keep = keep
++        self.jobs = max(jobs, 1)
++        self.rebuilt = set()
++        self.failed = set()
++        self.lock = threading.Lock()
++
++    def path(self, name):
++        return os.path.join(self.folder, name)
++
++    def closure(self, targets):
++        """Every target needed, checked for cycles and missing rules before anything runs."""
++        order, state, stack = [], {}, []
++
++        def visit(name, parent):
++            if state.get(name) == 2:
++                return
++            if state.get(name) == 1:
++                start = stack.index(name)
++                raise BuildError("cycle: " + " -> ".join(stack[start:] + [name]))
++            rule = self.book.rules.get(name)
++            if rule is None:
++                if mtime(self.path(name)) is None:
++                    if parent is None:
++                        raise BuildError(f"no rule to make '{name}'")
++                    raise BuildError(f"no rule to make '{name}' (needed by '{parent}')")
++                state[name] = 2
++                return
++            state[name] = 1
++            stack.append(name)
++            for dep in rule.deps:
++                visit(dep, name)
++            stack.pop()
++            state[name] = 2
++            order.append(name)
++
++        for target in targets:
++            visit(target, None)
++        return order
++
++    def stale(self, name):
++        rule = self.book.rules[name]
++        if name in self.book.phony:
++            return True
++        mine = mtime(self.path(name))
++        if mine is None:
++            return True
++        for dep in rule.deps:
++            if dep in self.rebuilt:
++                return True
++            theirs = mtime(self.path(dep))
++            if theirs is not None and theirs > mine:
++                return True
++        return False
++
++    def run_rule(self, name):
++        rule = self.book.rules[name]
++        local = {"$@": name, "$<": rule.deps[0] if rule.deps else "", "$^": " ".join(rule.deps)}
++        for command in rule.commands:
++            ignore, quiet = False, False
++            while command[:1] in ("@", "-"):
++                quiet = quiet or command[0] == "@"
++                ignore = ignore or command[0] == "-"
++                command = command[1:]
++            line = self.book.expand(command, self.overrides, local)
++            if self.dry or not quiet:
++                with self.lock:
++                    print(line, flush=True)
++            if self.dry:
++                continue
++            done = subprocess.run(["sh", "-c", line], cwd=self.folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
++            with self.lock:
++                sys.stdout.write(done.stdout)
++                sys.stdout.flush()
++            if done.returncode and not ignore:
++                return done.returncode
++        return 0
++
++    def build(self, targets):
++        order = self.closure(targets)
++        pending = set(order)
++        running = {}
++        ran = False
++        stop = False
++        with ThreadPoolExecutor(self.jobs) as pool:
++            while (pending and not stop) or running:
++                for name in [n for n in order if n in pending]:
++                    if stop or len(running) >= self.jobs:
++                        break
++                    deps = [d for d in self.book.rules[name].deps if d in self.book.rules]
++                    if any(d in self.failed for d in deps):
++                        self.failed.add(name)
++                        pending.discard(name)
++                        continue
++                    if any(d in pending or d in running.values() for d in deps):
++                        continue
++                    pending.discard(name)
++                    if not self.stale(name):
++                        continue
++                    if not self.book.rules[name].commands and name not in self.book.phony and mtime(self.path(name)) is not None:
++                        self.rebuilt.add(name)
++                        continue
++                    running[pool.submit(self.run_rule, name)] = name
++                if not running:
++                    if not pending or all(any(d in pending for d in self.book.rules[n].deps) for n in pending):
++                        break
++                    continue
++                finished, _ = wait(list(running), return_when=FIRST_COMPLETED)
++                for future in finished:
++                    name = running.pop(future)
++                    code = future.result()
++                    if code:
++                        print(f"minibuild: target '{name}' failed (exit {code})", file=sys.stderr, flush=True)
++                        self.failed.add(name)
++                        if not self.keep:
++                            stop = True
++                    else:
++                        self.rebuilt.add(name)
++                        if self.book.rules[name].commands:
++                            ran = True
++        if self.failed:
++            return 1
++        if not ran:
++            for target in targets:
++                if target not in self.rebuilt or not self.book.rules.get(target, Rule("", [], 0)).commands:
++                    print(f"minibuild: '{target}' is up to date", flush=True)
++        return 0
++
++
++def main(argv=None):
++    parser = argparse.ArgumentParser(prog="minibuild")
++    parser.add_argument("-f", default="Buildfile")
++    parser.add_argument("-n", action="store_true")
++    parser.add_argument("-k", action="store_true")
++    parser.add_argument("-j", type=int, default=1)
++    parser.add_argument("targets", nargs="*")
++    args = parser.parse_args(argv)
++    overrides, targets = {}, []
++    for item in args.targets:
++        found = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", item)
++        if found:
++            overrides[found.group(1)] = found.group(2)
++        else:
++            targets.append(item)
++    try:
++        book = Buildfile(args.f)
++        if not targets:
++            if not book.order:
++                raise BuildError("nothing to build")
++            targets = [book.order[0]]
++        folder = os.path.dirname(os.path.abspath(args.f))
++        return Builder(book, overrides, folder, args.n, args.k, args.j).build(targets)
++    except (BuildError, OSError) as exc:
++        print(f"minibuild: {exc}", file=sys.stderr)
++        return 2
++
++
++if __name__ == "__main__":
++    sys.exit(main())

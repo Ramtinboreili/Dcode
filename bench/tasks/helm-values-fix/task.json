@@ -1,0 +1,13 @@
+{
+  "id": "helm-values-fix",
+  "category": "devops",
+  "difficulty": "medium",
+  "prompt": "helm template fails with nil pointer on our chart and the image comes out wrong. values.yaml has gotten out of sync with the templates. templates are right, fix values.yaml. image should be registry.local/shop:2.1, 2 replicas, service port 80 to container 8080",
+  "timeout_s": 450,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "helm"
+  ]
+}

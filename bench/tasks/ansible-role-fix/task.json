@@ -1,0 +1,13 @@
+{
+  "id": "ansible-role-fix",
+  "category": "devops",
+  "difficulty": "hard",
+  "prompt": "the deploy role half works. the app config comes out with empty values, the service is never enabled on boot, the db password shows up in logs, and the role isn't idempotent (the download task runs every time and reports changed). fix roles/app. app_port should default to 9000, version comes from app_version. keep it using the vars that group_vars sets",
+  "timeout_s": 600,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "ansible"
+  ]
+}

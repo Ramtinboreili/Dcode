@@ -1,0 +1,38 @@
+diff --git a/importer.py b/importer.py
+index 603f954..6a48fa0 100644
+--- a/importer.py
++++ b/importer.py
+@@ -2,7 +2,32 @@
+ 
+ 
+ def parse_line(line):
+-    return [field.strip().strip('"') for field in line.split(",")]
++    fields, current, quoted, was_quoted = [], [], False, False
++    index = 0
++    while index < len(line):
++        char = line[index]
++        if quoted:
++            if char == '"':
++                if line[index + 1:index + 2] == '"':
++                    current.append('"')
++                    index += 1
++                else:
++                    quoted = False
++            else:
++                current.append(char)
++        elif char == '"':
++            quoted = was_quoted = True
++            current = []
++        elif char == ",":
++            text = "".join(current)
++            fields.append(text if was_quoted else text.strip())
++            current, was_quoted = [], False
++        elif not (was_quoted and char.isspace()):
++            current.append(char)
++        index += 1
++    text = "".join(current)
++    fields.append(text if was_quoted else text.strip())
++    return fields
+ 
+ 
+ def parse(text):

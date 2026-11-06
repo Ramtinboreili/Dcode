@@ -1,0 +1,83 @@
+diff --git a/k8s/deployment.yaml b/k8s/deployment.yaml
+index bf3d6c9..537b5c5 100644
+--- a/k8s/deployment.yaml
++++ b/k8s/deployment.yaml
+@@ -2,7 +2,7 @@ apiVersion: apps/v1
+ kind: Deployment
+ metadata:
+   name: blog
+-  namespace: default
++  namespace: blog
+ spec:
+   replicas: 1
+   selector:
+@@ -24,22 +24,22 @@ spec:
+             - name: BLOG_TITLE
+               valueFrom:
+                 configMapKeyRef:
+-                  name: blog-config
++                  name: blog-settings
+                   key: title
+             - name: DB_HOST
+               valueFrom:
+                 configMapKeyRef:
+                   name: blog-settings
+-                  key: db_host
++                  key: dbHost
+             - name: DB_PASSWORD
+               valueFrom:
+                 secretKeyRef:
+                   name: blog-db
+-                  key: password
++                  key: db-password
+           volumeMounts:
+             - name: uploads
+-              mountPath: /uploads
++              mountPath: /data
+       volumes:
+         - name: uploads
+           persistentVolumeClaim:
+-            claimName: uploads
++            claimName: blog-uploads
+diff --git a/k8s/ingress.yaml b/k8s/ingress.yaml
+index 1f53295..93b2fc7 100644
+--- a/k8s/ingress.yaml
++++ b/k8s/ingress.yaml
+@@ -13,6 +13,6 @@ spec:
+             pathType: Prefix
+             backend:
+               service:
+-                name: blog-web
++                name: blog
+                 port:
+-                  number: 8080
++                  number: 80
+diff --git a/k8s/networkpolicy.yaml b/k8s/networkpolicy.yaml
+index 7dab140..f5978b3 100644
+--- a/k8s/networkpolicy.yaml
++++ b/k8s/networkpolicy.yaml
+@@ -6,7 +6,7 @@ metadata:
+ spec:
+   podSelector:
+     matchLabels:
+-      app: blogs
++      app: blog
+   ingress:
+     - ports:
+-        - port: 8080
++        - port: 3000
+diff --git a/k8s/service.yaml b/k8s/service.yaml
+index e91e317..7816fa4 100644
+--- a/k8s/service.yaml
++++ b/k8s/service.yaml
+@@ -6,8 +6,8 @@ metadata:
+ spec:
+   selector:
+     app: blog
+-    component: frontend
++    component: web
+   ports:
+     - name: http
+       port: 80
+-      targetPort: http
++      targetPort: web

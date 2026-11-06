@@ -1,0 +1,24 @@
+diff --git a/Makefile b/Makefile
+index 34041d8..0bce3d4 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,14 +1,16 @@
+ OUT_DIR = out
+ BUNDLE = $(OUT_DIR)/bundle.txt
+ 
++.PHONY: build test clean
++
+ build: $(BUNDLE)
+ 
+ $(BUNDLE): $(wildcard src/*.txt)
+-    mkdir -p $(OUT_DIR)
+-    cat $^ > $@
++	mkdir -p $(OUT_DIR)
++	cat $^ > $@
+ 
+ test:
+ 	./run_tests.sh
+ 
+ clean:
+-	rm -rf $(OUTDIR)
++	rm -rf $(OUT_DIR)

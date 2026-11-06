@@ -1,0 +1,19 @@
+diff --git a/slug.js b/slug.js
+index 58f0987..3dc1c5a 100644
+--- a/slug.js
++++ b/slug.js
+@@ -2,9 +2,12 @@
+ 
+ function slugify(title) {
+   return title
++    .normalize('NFKD')
++    .replace(/[̀-ͯ]/g, '')
+     .toLowerCase()
+-    .replace(' ', '-')
+-    .replace(/[^a-z0-9-]/, '');
++    .replace(/['\u2019]/g, '')
++    .replace(/[^a-z0-9]+/g, '-')
++    .replace(/^-+|-+$/g, '');
+ }
+ 
+ module.exports = { slugify };

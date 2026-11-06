@@ -1,0 +1,63 @@
+diff --git a/pool.js b/pool.js
+index 99511ad..24ef5bd 100644
+--- a/pool.js
++++ b/pool.js
+@@ -1,17 +1,47 @@
+ 'use strict';
+ 
+ function mapLimit(items, limit, fn) {
+-  return new Promise((resolve) => {
+-    const results = [];
+-    let done = 0;
+-    items.forEach((item, index) => {
+-      fn(item, index).then((value) => {
+-        results.push(value);
+-        done += 1;
+-        if (done === items.length) resolve(results);
+-      });
+-    });
++  if (!(limit >= 1)) {
++    return Promise.reject(new RangeError('limit must be at least 1'));
++  }
++  return new Promise((resolve, reject) => {
++    const results = new Array(items.length);
++    let next = 0;
++    let running = 0;
++    let failed = false;
++
++    const launch = () => {
++      if (failed) return;
++      if (next >= items.length && running === 0) {
++        resolve(results);
++        return;
++      }
++      while (running < limit && next < items.length) {
++        const index = next++;
++        running += 1;
++        Promise.resolve()
++          .then(() => fn(items[index], index))
++          .then((value) => {
++            results[index] = value;
++            running -= 1;
++            launch();
++          }, (error) => {
++            running -= 1;
++            if (!failed) {
++              failed = true;
++              reject(error);
++            }
++          });
++      }
++    };
++    launch();
+   });
+ }
+ 
+-module.exports = { mapLimit };
++function mapSettled(items, limit, fn) {
++  return mapLimit(items, limit, (item, index) => Promise.resolve()
++    .then(() => fn(item, index))
++    .then((value) => ({ status: 'fulfilled', value }), (reason) => ({ status: 'rejected', reason })));
++}
++
++module.exports = { mapLimit, mapSettled };

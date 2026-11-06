@@ -1,0 +1,12 @@
+replicas: 5
+image: registry.local/shop:4.2.0
+ingress:
+  host: shop.example.com
+  tls:
+    secretName: shop-tls
+autoscale:
+  enabled: true
+  min: 5
+  max: 12
+limits:
+  memory: 2Gi

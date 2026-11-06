@@ -1,0 +1,14 @@
+{
+  "id": "make-fix",
+  "category": "devops",
+  "difficulty": "easy",
+  "prompt": "make is broken in this repo. make build complains about a missing separator, make test always says up to date, and make clean doesn't clean. fix the Makefile. build should concat src/*.txt into out/bundle.txt, test should run ./run_tests.sh every time",
+  "timeout_s": 300,
+  "requires": [
+    "make",
+    "bash"
+  ],
+  "tags": [
+    "make"
+  ]
+}

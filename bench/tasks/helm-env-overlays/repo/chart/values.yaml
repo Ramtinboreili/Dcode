@@ -1,0 +1,24 @@
+replicaCount: 1
+image:
+  repository: registry.local/shop
+  tag: latest
+  pullPolicy: IfNotPresent
+ingress:
+  enabled: true
+  className: traefik
+  hosts:
+    - host: shop.staging.internal
+      paths:
+        - /
+  tls: []
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 2
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi

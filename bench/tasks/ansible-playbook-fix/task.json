@@ -1,0 +1,13 @@
+{
+  "id": "ansible-playbook-fix",
+  "category": "devops",
+  "difficulty": "easy",
+  "prompt": "this playbook used to work. now it fails, and even when it runs nginx doesn't restart after the config change. fix site.yml",
+  "timeout_s": 300,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "ansible"
+  ]
+}

@@ -1,0 +1,435 @@
+diff --git a/jsonkit/__init__.py b/jsonkit/__init__.py
+new file mode 100644
+index 0000000..30aad4b
+--- /dev/null
++++ b/jsonkit/__init__.py
+@@ -0,0 +1,3 @@
++from jsonkit.core import JsonError, dumps, loads
++
++__all__ = ["JsonError", "dumps", "loads"]
+diff --git a/jsonkit/core.py b/jsonkit/core.py
+new file mode 100644
+index 0000000..2505834
+--- /dev/null
++++ b/jsonkit/core.py
+@@ -0,0 +1,234 @@
++"""A strict JSON reader and writer."""
++import math
++import re
++
++MAX_DEPTH = 200
++_NUMBER = re.compile(r"-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?")
++_ESCAPES = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
++_HEX = set("0123456789abcdefABCDEF")
++
++
++class JsonError(ValueError):
++    def __init__(self, message, text, pos):
++        self.pos = pos
++        self.line = text.count("\n", 0, pos) + 1
++        self.col = pos - (text.rfind("\n", 0, pos) + 1) + 1
++        super().__init__(f"{message} at line {self.line} column {self.col}")
++
++
++class _Reader:
++    def __init__(self, text):
++        self.text = text
++        self.pos = 0
++
++    def fail(self, message, pos=None):
++        raise JsonError(message, self.text, self.pos if pos is None else pos)
++
++    def space(self):
++        text, pos = self.text, self.pos
++        while pos < len(text) and text[pos] in " \t\n\r":
++            pos += 1
++        self.pos = pos
++
++    def value(self, depth):
++        if depth > MAX_DEPTH:
++            self.fail("too deep")
++        self.space()
++        if self.pos >= len(self.text):
++            self.fail("unexpected end")
++        char = self.text[self.pos]
++        if char == "{":
++            return self.obj(depth)
++        if char == "[":
++            return self.arr(depth)
++        if char == '"':
++            return self.string()
++        for word, result in (("true", True), ("false", False), ("null", None)):
++            if self.text.startswith(word, self.pos):
++                self.pos += len(word)
++                return result
++        return self.number()
++
++    def number(self):
++        found = _NUMBER.match(self.text, self.pos)
++        if not found:
++            self.fail("expected a value")
++        self.pos = found.end()
++        if found.group(2) or found.group(3):
++            result = float(found.group(0))
++            if math.isinf(result):
++                self.fail("number out of range", found.start())
++            return result
++        return int(found.group(0))
++
++    def hex4(self):
++        chunk = self.text[self.pos:self.pos + 4]
++        if len(chunk) != 4 or not set(chunk) <= _HEX:
++            self.fail("bad \\u escape")
++        self.pos += 4
++        return int(chunk, 16)
++
++    def string(self):
++        start = self.pos
++        self.pos += 1
++        out = []
++        text = self.text
++        while True:
++            if self.pos >= len(text):
++                self.fail("unterminated string", start)
++            char = text[self.pos]
++            if char == '"':
++                self.pos += 1
++                return "".join(out)
++            if ord(char) < 0x20:
++                self.fail("control character in a string")
++            if 0xD800 <= ord(char) <= 0xDFFF:
++                self.fail("lone surrogate")
++            if char != "\\":
++                out.append(char)
++                self.pos += 1
++                continue
++            self.pos += 1
++            if self.pos >= len(text):
++                self.fail("unterminated string", start)
++            escape = text[self.pos]
++            if escape in _ESCAPES:
++                out.append(_ESCAPES[escape])
++                self.pos += 1
++            elif escape == "u":
++                at = self.pos - 1
++                self.pos += 1
++                code = self.hex4()
++                if 0xDC00 <= code <= 0xDFFF:
++                    self.fail("lone surrogate", at)
++                if 0xD800 <= code <= 0xDBFF:
++                    if text[self.pos:self.pos + 2] != "\\u":
++                        self.fail("lone surrogate", at)
++                    self.pos += 2
++                    low = self.hex4()
++                    if not 0xDC00 <= low <= 0xDFFF:
++                        self.fail("lone surrogate", at)
++                    code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00)
++                out.append(chr(code))
++            else:
++                self.fail("bad escape")
++
++    def arr(self, depth):
++        self.pos += 1
++        out = []
++        self.space()
++        if self.text.startswith("]", self.pos):
++            self.pos += 1
++            return out
++        while True:
++            out.append(self.value(depth + 1))
++            self.space()
++            char = self.text[self.pos:self.pos + 1]
++            self.pos += 1
++            if char == "]":
++                return out
++            if char != ",":
++                self.fail("expected , or ]", self.pos - 1)
++
++    def obj(self, depth):
++        self.pos += 1
++        out = {}
++        self.space()
++        if self.text.startswith("}", self.pos):
++            self.pos += 1
++            return out
++        while True:
++            self.space()
++            if not self.text.startswith('"', self.pos):
++                self.fail("expected a string key")
++            key = self.string()
++            self.space()
++            if not self.text.startswith(":", self.pos):
++                self.fail("expected :")
++            self.pos += 1
++            out[key] = self.value(depth + 1)
++            self.space()
++            char = self.text[self.pos:self.pos + 1]
++            self.pos += 1
++            if char == "}":
++                return out
++            if char != ",":
++                self.fail("expected , or }", self.pos - 1)
++
++
++def loads(text):
++    if not isinstance(text, str):
++        raise TypeError("loads takes a str")
++    reader = _Reader(text)
++    result = reader.value(0)
++    reader.space()
++    if reader.pos != len(text):
++        reader.fail("extra data")
++    return result
++
++
++def _quote(text, ascii_only):
++    out = ['"']
++    for char in text:
++        code = ord(char)
++        if char == '"':
++            out.append('\\"')
++        elif char == "\\":
++            out.append("\\\\")
++        elif code < 0x20:
++            out.append({8: "\\b", 9: "\\t", 10: "\\n", 12: "\\f", 13: "\\r"}.get(code, f"\\u{code:04x}"))
++        elif ascii_only and code > 0x7E:
++            if code > 0xFFFF:
++                code -= 0x10000
++                out.append(f"\\u{0xD800 + (code >> 10):04x}\\u{0xDC00 + (code & 0x3FF):04x}")
++            else:
++                out.append(f"\\u{code:04x}")
++        elif 0xD800 <= code <= 0xDFFF:
++            raise ValueError("lone surrogate")
++        else:
++            out.append(char)
++    out.append('"')
++    return "".join(out)
++
++
++def dumps(value, indent=None, sort_keys=False, ascii_only=False):
++    def write(item, level, seen):
++        if item is None:
++            return "null"
++        if item is True:
++            return "true"
++        if item is False:
++            return "false"
++        if isinstance(item, int):
++            return str(int(item))
++        if isinstance(item, float):
++            if math.isnan(item) or math.isinf(item):
++                raise ValueError("not a JSON number")
++            return repr(float(item))
++        if isinstance(item, str):
++            return _quote(item, ascii_only)
++        if isinstance(item, (list, tuple, dict)):
++            if id(item) in seen:
++                raise ValueError("circular reference")
++            seen = seen | {id(item)}
++            if isinstance(item, dict):
++                for key in item:
++                    if not isinstance(key, str):
++                        raise TypeError("keys must be strings")
++                keys = sorted(item) if sort_keys else list(item)
++                parts = [(_quote(k, ascii_only), item[k]) for k in keys]
++                opening, closing = "{", "}"
++            else:
++                parts = [(None, v) for v in item]
++                opening, closing = "[", "]"
++            if not parts:
++                return opening + closing
++            if indent is None:
++                body = ",".join((f"{k}:" if k else "") + write(v, level, seen) for k, v in parts)
++                return opening + body + closing
++            pad = " " * (indent * (level + 1))
++            body = (",\n").join(pad + (f"{k}: " if k else "") + write(v, level + 1, seen) for k, v in parts)
++            return f"{opening}\n{body}\n{' ' * (indent * level)}{closing}"
++        raise TypeError(f"can't serialize {type(item).__name__}")
++
++    return write(value, 0, frozenset())
+diff --git a/jsonkit/patch.py b/jsonkit/patch.py
+new file mode 100644
+index 0000000..b037b52
+--- /dev/null
++++ b/jsonkit/patch.py
+@@ -0,0 +1,129 @@
++"""RFC 6902 JSON Patch, and a diff that produces it."""
++import copy
++
++from jsonkit.pointer import PointerError, index_of, resolve, split
++
++
++class PatchError(ValueError):
++    pass
++
++
++def _same(a, b):
++    """JSON equality: 1 == 1.0, but true is not 1."""
++    if isinstance(a, bool) or isinstance(b, bool):
++        return a is b
++    if isinstance(a, dict) and isinstance(b, dict):
++        return a.keys() == b.keys() and all(_same(a[k], b[k]) for k in a)
++    if isinstance(a, list) and isinstance(b, list):
++        return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
++    return a == b
++
++
++def _parent(doc, tokens):
++    parent = doc
++    for token in tokens[:-1]:
++        if isinstance(parent, dict):
++            if token not in parent:
++                raise PatchError(f"no key {token!r}")
++            parent = parent[token]
++        elif isinstance(parent, list):
++            parent = parent[index_of(token, len(parent))]
++        else:
++            raise PatchError("path goes through a scalar")
++    return parent, tokens[-1]
++
++
++def _add(doc, path, value):
++    tokens = split(path)
++    if not tokens:
++        return value
++    parent, token = _parent(doc, tokens)
++    if isinstance(parent, dict):
++        parent[token] = value
++    elif isinstance(parent, list):
++        parent.insert(index_of(token, len(parent), allow_end=True), value)
++    else:
++        raise PatchError("can't add into a scalar")
++    return doc
++
++
++def _remove(doc, path):
++    tokens = split(path)
++    if not tokens:
++        return None
++    parent, token = _parent(doc, tokens)
++    if isinstance(parent, dict):
++        if token not in parent:
++            raise PatchError(f"no key {token!r}")
++        del parent[token]
++    elif isinstance(parent, list):
++        del parent[index_of(token, len(parent))]
++    else:
++        raise PatchError("can't remove from a scalar")
++    return doc
++
++
++def apply_patch(doc, ops):
++    doc = copy.deepcopy(doc)
++    try:
++        for op in ops:
++            kind = op["op"]
++            path = op["path"]
++            if kind == "add":
++                doc = _add(doc, path, copy.deepcopy(op["value"]))
++            elif kind == "remove":
++                resolve(doc, path)
++                doc = _remove(doc, path)
++            elif kind == "replace":
++                resolve(doc, path)
++                doc = _add(_remove(doc, path), path, copy.deepcopy(op["value"])) if path else copy.deepcopy(op["value"])
++            elif kind == "move":
++                source = op["from"]
++                if path == source:
++                    resolve(doc, source)
++                    continue
++                if path.startswith(source + "/"):
++                    raise PatchError("can't move into itself")
++                value = resolve(doc, source)
++                doc = _add(_remove(doc, source), path, value)
++            elif kind == "copy":
++                doc = _add(doc, path, copy.deepcopy(resolve(doc, op["from"])))
++            elif kind == "test":
++                if not _same(resolve(doc, path), op["value"]):
++                    raise PatchError(f"test failed at {path}")
++            else:
++                raise PatchError(f"unknown op {kind!r}")
++    except (PointerError, KeyError, TypeError, AttributeError) as exc:
++        raise PatchError(str(exc)) from exc
++    return doc
++
++
++def _escape(token):
++    return str(token).replace("~", "~0").replace("/", "~1")
++
++
++def diff(a, b, path=""):
++    if _same(a, b):
++        return []
++    if isinstance(a, dict) and isinstance(b, dict):
++        ops = []
++        for key in a:
++            if key not in b:
++                ops.append({"op": "remove", "path": f"{path}/{_escape(key)}"})
++        for key in b:
++            where = f"{path}/{_escape(key)}"
++            if key in a:
++                ops += diff(a[key], b[key], where)
++            else:
++                ops.append({"op": "add", "path": where, "value": copy.deepcopy(b[key])})
++        return ops
++    if isinstance(a, list) and isinstance(b, list):
++        ops = []
++        for index in range(min(len(a), len(b))):
++            ops += diff(a[index], b[index], f"{path}/{index}")
++        for index in range(len(a) - 1, len(b) - 1, -1):
++            ops.append({"op": "remove", "path": f"{path}/{index}"})
++        for index in range(len(a), len(b)):
++            ops.append({"op": "add", "path": f"{path}/{index}", "value": copy.deepcopy(b[index])})
++        return ops
++    return [{"op": "replace", "path": path, "value": copy.deepcopy(b)}]
+diff --git a/jsonkit/pointer.py b/jsonkit/pointer.py
+new file mode 100644
+index 0000000..c89418f
+--- /dev/null
++++ b/jsonkit/pointer.py
+@@ -0,0 +1,45 @@
++"""RFC 6901 JSON Pointer."""
++import re
++
++_INDEX = re.compile(r"0|[1-9][0-9]*")
++
++
++class PointerError(ValueError):
++    pass
++
++
++def split(pointer):
++    if pointer == "":
++        return []
++    if not isinstance(pointer, str) or not pointer.startswith("/"):
++        raise PointerError(f"bad pointer {pointer!r}")
++    parts = pointer[1:].split("/")
++    for part in parts:
++        if re.search(r"~(?![01])", part):
++            raise PointerError(f"bad escape in {pointer!r}")
++    return [part.replace("~1", "/").replace("~0", "~") for part in parts]
++
++
++def index_of(token, length, allow_end=False):
++    if allow_end and token == "-":
++        return length
++    if not _INDEX.fullmatch(token):
++        raise PointerError(f"bad array index {token!r}")
++    index = int(token)
++    if index > length or (index == length and not allow_end):
++        raise PointerError(f"index {token} out of range")
++    return index
++
++
++def resolve(doc, pointer):
++    current = doc
++    for token in split(pointer):
++        if isinstance(current, dict):
++            if token not in current:
++                raise PointerError(f"no key {token!r}")
++            current = current[token]
++        elif isinstance(current, list):
++            current = current[index_of(token, len(current))]
++        else:
++            raise PointerError(f"can't go into a {type(current).__name__}")
++    return current

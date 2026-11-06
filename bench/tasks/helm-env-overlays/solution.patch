@@ -1,0 +1,33 @@
+diff --git a/chart/values-prod.yaml b/chart/values-prod.yaml
+index 629a749..c58679e 100644
+--- a/chart/values-prod.yaml
++++ b/chart/values-prod.yaml
+@@ -1,12 +1,19 @@
+-replicas: 5
+-image: registry.local/shop:4.2.0
++replicaCount: 5
++image:
++  tag: 4.2.0
+ ingress:
+-  host: shop.example.com
++  hosts:
++    - host: shop.example.com
++      paths:
++        - /
+   tls:
+-    secretName: shop-tls
+-autoscale:
++    - secretName: shop-tls
++      hosts:
++        - shop.example.com
++autoscaling:
+   enabled: true
+-  min: 5
+-  max: 12
+-limits:
+-  memory: 2Gi
++  minReplicas: 5
++  maxReplicas: 12
++resources:
++  limits:
++    memory: 2Gi

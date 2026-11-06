@@ -1,0 +1,15 @@
+{
+  "id": "js-map-limit",
+  "category": "coding",
+  "difficulty": "hard",
+  "prompt": "mapLimit in pool.js is broken: it runs everything at once, results come back in completion order and one rejection leaves the rest hanging. it should run at most `limit` at a time, keep results in input order, stop starting new work after the first failure and reject with that error. also add mapSettled(items, limit, fn) that never rejects and returns {status, value|reason} objects like Promise.allSettled",
+  "timeout_s": 600,
+  "requires": [
+    "node"
+  ],
+  "tags": [
+    "javascript",
+    "async",
+    "bugfix"
+  ]
+}

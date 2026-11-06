@@ -1,0 +1,37 @@
+diff --git a/rotate.sh b/rotate.sh
+index d3bf371..c68b5cc 100644
+--- a/rotate.sh
++++ b/rotate.sh
+@@ -1,17 +1,21 @@
+ #!/bin/bash
++set -u
+ dir=$1
+ keep=$2
+-cd $dir
+-for f in `ls *.log`; do
+-    i=$keep
+-    while [ $i -gt 0 ]; do
+-        mv $f.$i $f.$((i+1))
+-        i=$((i-1))
++cd "$dir" || exit 1
++shopt -s nullglob
++for f in *.log; do
++    rm -f -- "$f.$keep"
++    i=$((keep - 1))
++    while [ "$i" -gt 0 ]; do
++        if [ -e "$f.$i" ]; then
++            mv -- "$f.$i" "$f.$((i + 1))" || exit 1
++        fi
++        i=$((i - 1))
+     done
+-    mv $f $f.1
+-    rm $f.$keep
+-    touch $f
+-    if [ `date +%d` = "01" ]; then
+-        rm -f $f.*
++    if [ "$keep" -gt 0 ]; then
++        cp -p -- "$f" "$f.1" || exit 1
+     fi
++    : > "$f" || exit 1
+ done
++exit 0

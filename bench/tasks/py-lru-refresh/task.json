@@ -1,0 +1,15 @@
+{
+  "id": "py-lru-refresh",
+  "category": "coding",
+  "difficulty": "medium",
+  "prompt": "our LRU cache evicts the wrong entries under load, there's a failing test. please fix the cache, not the test",
+  "timeout_s": 450,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "python",
+    "bugfix",
+    "tests"
+  ]
+}

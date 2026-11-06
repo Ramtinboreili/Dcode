@@ -1,0 +1,11 @@
+2025-03-02 08:14:11 INFO  starting notifier env=staging
+Traceback (most recent call last):
+  File "/srv/notifier/main.py", line 12, in <module>
+    main("config/staging.json")
+  File "/srv/notifier/main.py", line 8, in main
+    app = build(load(path))
+  File "/srv/notifier/notifier/app.py", line 9, in build
+    mailer = make_mailer(config)
+  File "/srv/notifier/notifier/mail.py", line 14, in make_mailer
+    host = config["smtp"]["host"]
+KeyError: 'smtp'

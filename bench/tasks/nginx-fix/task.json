@@ -1,0 +1,13 @@
+{
+  "id": "nginx-fix",
+  "category": "devops",
+  "difficulty": "easy",
+  "prompt": "nginx won't reload after my last edit and I can't see why. the site should proxy /api to the app backend on 127.0.0.1:8080 and serve everything else from /var/www/site. config is nginx.conf",
+  "timeout_s": 300,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "nginx"
+  ]
+}

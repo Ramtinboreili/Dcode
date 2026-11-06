@@ -1,0 +1,626 @@
+diff --git a/httpkit.py b/httpkit.py
+index 93009a0..2423bcc 100644
+--- a/httpkit.py
++++ b/httpkit.py
+@@ -1,11 +1,4 @@
+-"""HTTP helpers.
+-
+-fetch() is deprecated, use request():
+-    fetch(url, True)            -> request("GET", url).json()
+-    fetch(url, False)           -> request("GET", url).text
+-    fetch(url, True, 3)         -> request("GET", url, retries=3).json()
+-    fetch(url, as_json=False, timeout=5) -> request("GET", url, timeout=5).text
+-"""
++"""HTTP helpers."""
+ import json
+ 
+ 
+@@ -23,8 +16,3 @@ def _send(method, url, timeout, retries):
+ 
+ def request(method, url, retries=0, timeout=10):
+     return Response(_send(method, url, timeout, retries))
+-
+-
+-def fetch(url, as_json=True, retries=0, timeout=10):
+-    response = request("GET", url, retries=retries, timeout=timeout)
+-    return response.json() if as_json else response.text
+diff --git a/services/accounts.py b/services/accounts.py
+index 1ee0a45..8035326 100644
+--- a/services/accounts.py
++++ b/services/accounts.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/accounts"
+ 
+ 
+ def load():
+     """Load accounts."""
+-    data = fetch(URL, True)
++    data = request("GET", URL).json()
+     return data
+diff --git a/services/alerts.py b/services/alerts.py
+index a73618c..df30329 100644
+--- a/services/alerts.py
++++ b/services/alerts.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/alerts"
+ 
+ 
+ def load():
+     """Load alerts."""
+-    data = fetch(URL, False)
++    data = request("GET", URL).text
+     return data
+diff --git a/services/audit.py b/services/audit.py
+index cb3b649..0b54f46 100644
+--- a/services/audit.py
++++ b/services/audit.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/audit"
+ 
+ 
+ def load():
+     """Load audit."""
+-    data = fetch(URL, True, 3)
++    data = request("GET", URL, retries=3).json()
+     return data
+diff --git a/services/billing.py b/services/billing.py
+index d4aa03c..1137ab9 100644
+--- a/services/billing.py
++++ b/services/billing.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/billing"
+ 
+ 
+ def load():
+     """Load billing."""
+-    data = fetch(URL, as_json=False, timeout=5)
++    data = request("GET", URL, timeout=5).text
+     return data
+diff --git a/services/cart.py b/services/cart.py
+index db7d31d..cb557a3 100644
+--- a/services/cart.py
++++ b/services/cart.py
+@@ -5,5 +5,5 @@ URL = "https://api.internal/cart"
+ 
+ def load():
+     """Load cart."""
+-    data = hk.fetch(URL)
++    data = hk.request("GET", URL).json()
+     return data
+diff --git a/services/catalog.py b/services/catalog.py
+index fff92fd..e6032d9 100644
+--- a/services/catalog.py
++++ b/services/catalog.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/catalog"
+ 
+ 
+ def load():
+     """Load catalog."""
+-    data = fetch(URL, False, 2, 30)
++    data = request("GET", URL, retries=2, timeout=30).text
+     return data
+diff --git a/services/checkout.py b/services/checkout.py
+index 802f139..c34a237 100644
+--- a/services/checkout.py
++++ b/services/checkout.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/checkout"
+ 
+ 
+ def load():
+     """Load checkout."""
+-    data = fetch(URL, True)
++    data = request("GET", URL).json()
+     return data
+diff --git a/services/coupons.py b/services/coupons.py
+index a7ae486..29141f9 100644
+--- a/services/coupons.py
++++ b/services/coupons.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/coupons"
+ 
+ 
+ def load():
+     """Load coupons."""
+-    data = fetch(URL, False)
++    data = request("GET", URL).text
+     return data
+diff --git a/services/customers.py b/services/customers.py
+index 150b5d8..78d50f3 100644
+--- a/services/customers.py
++++ b/services/customers.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/customers"
+ 
+ 
+ def load():
+     """Load customers."""
+-    data = fetch(URL, True, 3)
++    data = request("GET", URL, retries=3).json()
+     return data
+diff --git a/services/dashboards.py b/services/dashboards.py
+index ff43c90..50075b9 100644
+--- a/services/dashboards.py
++++ b/services/dashboards.py
+@@ -5,5 +5,5 @@ URL = "https://api.internal/dashboards"
+ 
+ def load():
+     """Load dashboards."""
+-    data = hk.fetch(URL, as_json=False, timeout=5)
++    data = hk.request("GET", URL, timeout=5).text
+     return data
+diff --git a/services/deliveries.py b/services/deliveries.py
+index 2a5ab8d..e35c6ad 100644
+--- a/services/deliveries.py
++++ b/services/deliveries.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/deliveries"
+ 
+ 
+ def load():
+     """Load deliveries."""
+-    data = fetch(URL)
++    data = request("GET", URL).json()
+     return data
+diff --git a/services/devices.py b/services/devices.py
+index 832b912..92d2ae2 100644
+--- a/services/devices.py
++++ b/services/devices.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/devices"
+ 
+ 
+ def load():
+     """Load devices."""
+-    data = fetch(URL, False, 2, 30)
++    data = request("GET", URL, retries=2, timeout=30).text
+     return data
+diff --git a/services/discounts.py b/services/discounts.py
+index 4c1e644..b7bc5ed 100644
+--- a/services/discounts.py
++++ b/services/discounts.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/discounts"
+ 
+ 
+ def load():
+     """Load discounts."""
+-    data = fetch(URL, True)
++    data = request("GET", URL).json()
+     return data
+diff --git a/services/events.py b/services/events.py
+index 571a284..730cedc 100644
+--- a/services/events.py
++++ b/services/events.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/events"
+ 
+ 
+ def load():
+     """Load events."""
+-    data = fetch(URL, False)
++    data = request("GET", URL).text
+     return data
+diff --git a/services/exports.py b/services/exports.py
+index 61522e2..9e18da8 100644
+--- a/services/exports.py
++++ b/services/exports.py
+@@ -5,5 +5,5 @@ URL = "https://api.internal/exports"
+ 
+ def load():
+     """Load exports."""
+-    data = hk.fetch(URL, True, 3)
++    data = hk.request("GET", URL, retries=3).json()
+     return data
+diff --git a/services/feeds.py b/services/feeds.py
+index 21b2e70..879c897 100644
+--- a/services/feeds.py
++++ b/services/feeds.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/feeds"
+ 
+ 
+ def load():
+     """Load feeds."""
+-    data = fetch(URL, as_json=False, timeout=5)
++    data = request("GET", URL, timeout=5).text
+     return data
+diff --git a/services/files.py b/services/files.py
+index 970debd..62793ad 100644
+--- a/services/files.py
++++ b/services/files.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/files"
+ 
+ 
+ def load():
+     """Load files."""
+-    data = fetch(URL)
++    data = request("GET", URL).json()
+     return data
+diff --git a/services/gifts.py b/services/gifts.py
+index cc4d079..6ccae20 100644
+--- a/services/gifts.py
++++ b/services/gifts.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/gifts"
+ 
+ 
+ def load():
+     """Load gifts."""
+-    data = fetch(URL, False, 2, 30)
++    data = request("GET", URL, retries=2, timeout=30).text
+     return data
+diff --git a/services/groups.py b/services/groups.py
+index ce880e0..6180dda 100644
+--- a/services/groups.py
++++ b/services/groups.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/groups"
+ 
+ 
+ def load():
+     """Load groups."""
+-    data = fetch(URL, True)
++    data = request("GET", URL).json()
+     return data
+diff --git a/services/history.py b/services/history.py
+index 3e7a6d0..5e6c2c1 100644
+--- a/services/history.py
++++ b/services/history.py
+@@ -5,5 +5,5 @@ URL = "https://api.internal/history"
+ 
+ def load():
+     """Load history."""
+-    data = hk.fetch(URL, False)
++    data = hk.request("GET", URL).text
+     return data
+diff --git a/services/inventory.py b/services/inventory.py
+index 09a5588..2fc43d1 100644
+--- a/services/inventory.py
++++ b/services/inventory.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/inventory"
+ 
+ 
+ def load():
+     """Load inventory."""
+-    data = fetch(URL, True, 3)
++    data = request("GET", URL, retries=3).json()
+     return data
+diff --git a/services/invoices.py b/services/invoices.py
+index a231812..fd98303 100644
+--- a/services/invoices.py
++++ b/services/invoices.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/invoices"
+ 
+ 
+ def load():
+     """Load invoices."""
+-    data = fetch(URL, as_json=False, timeout=5)
++    data = request("GET", URL, timeout=5).text
+     return data
+diff --git a/services/jobs.py b/services/jobs.py
+index ed4e5ba..1ae1216 100644
+--- a/services/jobs.py
++++ b/services/jobs.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/jobs"
+ 
+ 
+ def load():
+     """Load jobs."""
+-    data = fetch(URL)
++    data = request("GET", URL).json()
+     return data
+diff --git a/services/labels.py b/services/labels.py
+index 41dd804..1e75a6f 100644
+--- a/services/labels.py
++++ b/services/labels.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/labels"
+ 
+ 
+ def load():
+     """Load labels."""
+-    data = fetch(URL, False, 2, 30)
++    data = request("GET", URL, retries=2, timeout=30).text
+     return data
+diff --git a/services/leads.py b/services/leads.py
+index 06132e5..5c59a64 100644
+--- a/services/leads.py
++++ b/services/leads.py
+@@ -5,5 +5,5 @@ URL = "https://api.internal/leads"
+ 
+ def load():
+     """Load leads."""
+-    data = hk.fetch(URL, True)
++    data = hk.request("GET", URL).json()
+     return data
+diff --git a/services/metrics.py b/services/metrics.py
+index 54aa9d9..170e62b 100644
+--- a/services/metrics.py
++++ b/services/metrics.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/metrics"
+ 
+ 
+ def load():
+     """Load metrics."""
+-    data = fetch(URL, False)
++    data = request("GET", URL).text
+     return data
+diff --git a/services/notes.py b/services/notes.py
+index 1eeb442..7666749 100644
+--- a/services/notes.py
++++ b/services/notes.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/notes"
+ 
+ 
+ def load():
+     """Load notes."""
+-    data = fetch(URL, True, 3)
++    data = request("GET", URL, retries=3).json()
+     return data
+diff --git a/services/offers.py b/services/offers.py
+index 5616769..30541a5 100644
+--- a/services/offers.py
++++ b/services/offers.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/offers"
+ 
+ 
+ def load():
+     """Load offers."""
+-    data = fetch(URL, as_json=False, timeout=5)
++    data = request("GET", URL, timeout=5).text
+     return data
+diff --git a/services/orders.py b/services/orders.py
+index 77d06df..883eff1 100644
+--- a/services/orders.py
++++ b/services/orders.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/orders"
+ 
+ 
+ def load():
+     """Load orders."""
+-    data = fetch(URL)
++    data = request("GET", URL).json()
+     return data
+diff --git a/services/partners.py b/services/partners.py
+index 61443f9..b2ebb33 100644
+--- a/services/partners.py
++++ b/services/partners.py
+@@ -5,5 +5,5 @@ URL = "https://api.internal/partners"
+ 
+ def load():
+     """Load partners."""
+-    data = hk.fetch(URL, False, 2, 30)
++    data = hk.request("GET", URL, retries=2, timeout=30).text
+     return data
+diff --git a/services/payments.py b/services/payments.py
+index 6123eb6..0713bfb 100644
+--- a/services/payments.py
++++ b/services/payments.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/payments"
+ 
+ 
+ def load():
+     """Load payments."""
+-    data = fetch(URL, True)
++    data = request("GET", URL).json()
+     return data
+diff --git a/services/plans.py b/services/plans.py
+index 3d6704b..be7d02b 100644
+--- a/services/plans.py
++++ b/services/plans.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/plans"
+ 
+ 
+ def load():
+     """Load plans."""
+-    data = fetch(URL, False)
++    data = request("GET", URL).text
+     return data
+diff --git a/services/quotes.py b/services/quotes.py
+index 0cdfa93..cef8b3f 100644
+--- a/services/quotes.py
++++ b/services/quotes.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/quotes"
+ 
+ 
+ def load():
+     """Load quotes."""
+-    data = fetch(URL, True, 3)
++    data = request("GET", URL, retries=3).json()
+     return data
+diff --git a/services/refunds.py b/services/refunds.py
+index a7524f2..fa602c1 100644
+--- a/services/refunds.py
++++ b/services/refunds.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/refunds"
+ 
+ 
+ def load():
+     """Load refunds."""
+-    data = fetch(URL, as_json=False, timeout=5)
++    data = request("GET", URL, timeout=5).text
+     return data
+diff --git a/services/reports.py b/services/reports.py
+index 8a4e64a..7d2650c 100644
+--- a/services/reports.py
++++ b/services/reports.py
+@@ -5,5 +5,5 @@ URL = "https://api.internal/reports"
+ 
+ def load():
+     """Load reports."""
+-    data = hk.fetch(URL)
++    data = hk.request("GET", URL).json()
+     return data
+diff --git a/services/returns.py b/services/returns.py
+index e46ffff..f5d69e0 100644
+--- a/services/returns.py
++++ b/services/returns.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/returns"
+ 
+ 
+ def load():
+     """Load returns."""
+-    data = fetch(URL, False, 2, 30)
++    data = request("GET", URL, retries=2, timeout=30).text
+     return data
+diff --git a/services/reviews.py b/services/reviews.py
+index ccafbf5..5898280 100644
+--- a/services/reviews.py
++++ b/services/reviews.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/reviews"
+ 
+ 
+ def load():
+     """Load reviews."""
+-    data = fetch(URL, True)
++    data = request("GET", URL).json()
+     return data
+diff --git a/services/sessions.py b/services/sessions.py
+index 1644da9..615da67 100644
+--- a/services/sessions.py
++++ b/services/sessions.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/sessions"
+ 
+ 
+ def load():
+     """Load sessions."""
+-    data = fetch(URL, False)
++    data = request("GET", URL).text
+     return data
+diff --git a/services/stock.py b/services/stock.py
+index f8837ec..ab1a561 100644
+--- a/services/stock.py
++++ b/services/stock.py
+@@ -1,9 +1,9 @@
+-from httpkit import fetch
++from httpkit import request
+ 
+ URL = "https://api.internal/stock"
+ 
+ 
+ def load():
+     """Load stock."""
+-    data = fetch(URL, True, 3)
++    data = request("GET", URL, retries=3).json()
+     return data
+diff --git a/services/tickets.py b/services/tickets.py
+index 228fc8e..49d8b91 100644
+--- a/services/tickets.py
++++ b/services/tickets.py
+@@ -5,5 +5,5 @@ URL = "https://api.internal/tickets"
+ 
+ def load():
+     """Load tickets."""
+-    data = hk.fetch(URL, as_json=False, timeout=5)
++    data = hk.request("GET", URL, timeout=5).text
+     return data

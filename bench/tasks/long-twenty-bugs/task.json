@@ -1,0 +1,15 @@
+{
+  "id": "long-twenty-bugs",
+  "category": "long",
+  "difficulty": "medium",
+  "prompt": "python3 -m unittest discover -s tests -t . is red everywhere. every module in utils/ has a bug. please go through them all and get the suite green, fix the code not the tests",
+  "timeout_s": 1800,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "bugs",
+    "many-files"
+  ],
+  "max_steps": 150
+}

@@ -1,0 +1,20 @@
+http:
+  routers:
+    grafana:
+      rule: "Host(grafana.example.internal)"
+      entryPoints:
+        - https
+      service: grafana-svc
+      middlewares:
+        - auth
+      tls:
+        certResolver: lets-encrypt
+  middlewares:
+    basic-auth:
+      basicAuth:
+        usersFile: /etc/traefik/users
+  services:
+    grafana:
+      loadBalancer:
+        servers:
+          - url: 10.0.0.5:3000

@@ -1,0 +1,30 @@
+diff --git a/deploy/payments.yaml b/deploy/payments.yaml
+index a85c923..b9450ec 100644
+--- a/deploy/payments.yaml
++++ b/deploy/payments.yaml
+@@ -22,6 +22,25 @@ spec:
+           env:
+             - name: DB_HOST
+               value: db.prod
++          readinessProbe:
++            httpGet:
++              path: /healthz
++              port: 8080
++            initialDelaySeconds: 30
++            periodSeconds: 5
++          livenessProbe:
++            httpGet:
++              path: /healthz
++              port: 8080
++            initialDelaySeconds: 45
++            periodSeconds: 10
++          resources:
++            requests:
++              cpu: 250m
++              memory: 256Mi
++            limits:
++              cpu: "1"
++              memory: 512Mi
+         - name: log-shipper
+           image: registry.local/fluent-bit:3.0
+           volumeMounts:

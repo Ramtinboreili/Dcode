@@ -1,0 +1,15 @@
+{
+  "id": "py-expr-precedence",
+  "category": "coding",
+  "difficulty": "hard",
+  "prompt": "the calculator gets precedence wrong: 2+3*4 gives 20. 2^3^2 should be 512 (right assoc), -2^2 should be -4, unary minus has to work in general, and 7/0 should raise CalcError not ZeroDivisionError. bad input like \"2+\" or \"(1\" should raise CalcError too. it's split across tokenizer.py and parser.py",
+  "timeout_s": 600,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "python",
+    "bugfix",
+    "parser"
+  ]
+}

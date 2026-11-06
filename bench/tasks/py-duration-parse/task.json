@@ -1,0 +1,15 @@
+{
+  "id": "py-duration-parse",
+  "category": "coding",
+  "difficulty": "easy",
+  "prompt": "parse_duration gives wrong numbers for things like 1h30m. fix please",
+  "timeout_s": 300,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "python",
+    "bugfix",
+    "tests"
+  ]
+}

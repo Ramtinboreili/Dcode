@@ -1,0 +1,31 @@
+diff --git a/retry.js b/retry.js
+index 489cd4d..80ef277 100644
+--- a/retry.js
++++ b/retry.js
+@@ -5,19 +5,19 @@ const realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+ async function withRetry(fn, { maxAttempts = 3, baseDelayMs = 100, sleep = realSleep, shouldRetry = () => true } = {}) {
+   let delay = baseDelayMs;
+   let lastError;
+-  for (let attempt = 0; attempt <= maxAttempts; attempt++) {
++  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+     try {
+-      return fn(attempt);
++      return await fn(attempt);
+     } catch (err) {
+       lastError = err;
+-      if (!shouldRetry) {
+-        throw err;
++      if (!shouldRetry(err) || attempt === maxAttempts - 1) {
++        break;
+       }
+-      sleep(delay);
+-      delay += delay;
++      await sleep(delay);
++      delay *= 2;
+     }
+   }
+-  throw new Error('retries exhausted');
++  throw lastError;
+ }
+ 
+ module.exports = { withRetry };

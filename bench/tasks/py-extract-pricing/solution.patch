@@ -1,0 +1,69 @@
+diff --git a/cart.py b/cart.py
+index 258a056..ecee472 100644
+--- a/cart.py
++++ b/cart.py
+@@ -1,8 +1,6 @@
++from pricing import total
++
++
+ def cart_total(items, customer_type, region):
+     subtotal = sum(price * qty for price, qty in items)
+-    if customer_type == "wholesale":
+-        subtotal *= 0.8
+-    elif customer_type == "member" and subtotal >= 100:
+-        subtotal *= 0.95
+-    rate = {"eu": 0.2, "us": 0.07, "uk": 0.2}.get(region, 0.0)
+-    return round(subtotal * (1 + rate), 2)
++    return total(subtotal, customer_type, region)
+diff --git a/invoice.py b/invoice.py
+index 9129cce..8b2a438 100644
+--- a/invoice.py
++++ b/invoice.py
+@@ -1,10 +1,6 @@
++from pricing import total
++
++
+ def invoice_total(lines, customer_type, region):
+-    subtotal = 0
+-    for line in lines:
+-        subtotal += line["amount"]
+-    if customer_type == "wholesale":
+-        subtotal *= 0.8
+-    elif customer_type == "member":
+-        subtotal *= 0.95
+-    rate = {"eu": 0.2, "us": 0.07}.get(region, 0.0)
+-    return round(subtotal * (1 + rate), 2)
++    subtotal = sum(line["amount"] for line in lines)
++    return total(subtotal, customer_type, region)
+diff --git a/pricing.py b/pricing.py
+new file mode 100644
+index 0000000..474df34
+--- /dev/null
++++ b/pricing.py
+@@ -0,0 +1,9 @@
++TAX_RATES = {"eu": 0.2, "us": 0.07, "uk": 0.2}
++
++
++def total(subtotal, customer_type, region):
++    if customer_type == "wholesale":
++        subtotal *= 0.8
++    elif customer_type == "member" and subtotal >= 100:
++        subtotal *= 0.95
++    return round(subtotal * (1 + TAX_RATES.get(region, 0.0)), 2)
+diff --git a/quote.py b/quote.py
+index 69adc00..199ec95 100644
+--- a/quote.py
++++ b/quote.py
+@@ -1,8 +1,5 @@
++from pricing import total
++
++
+ def quote_total(amount, customer_type, region):
+-    subtotal = amount
+-    if customer_type == "wholesale":
+-        subtotal *= 0.75
+-    elif customer_type == "member" and subtotal >= 100:
+-        subtotal *= 0.95
+-    rate = {"eu": 0.2, "us": 0.07, "uk": 0.2}.get(region, 0.0)
+-    return round(subtotal + subtotal * rate)
++    return total(amount, customer_type, region)

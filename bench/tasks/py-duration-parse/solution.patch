@@ -1,0 +1,25 @@
+diff --git a/duration.py b/duration.py
+index a9db3a5..6e5363f 100644
+--- a/duration.py
++++ b/duration.py
+@@ -5,10 +5,10 @@ UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+ 
+ 
+ def parse_duration(text):
+-    match = re.match(r"(\d+)([smhd])", text.strip())
+-    if not match:
++    text = text.strip()
++    if not re.fullmatch(r"(\d+[smhd])+", text):
+         raise ValueError(f"bad duration: {text!r}")
+-    return int(match.group(1)) * UNITS[match.group(2)]
++    return sum(int(amount) * UNITS[unit] for amount, unit in re.findall(r"(\d+)([smhd])", text))
+ 
+ 
+ def format_duration(seconds):
+@@ -18,5 +18,5 @@ def format_duration(seconds):
+         amount = seconds // UNITS[unit]
+         if amount:
+             parts.append(f"{amount}{unit}")
+-            seconds -= amount
++            seconds -= amount * UNITS[unit]
+     return "".join(parts) or "0s"

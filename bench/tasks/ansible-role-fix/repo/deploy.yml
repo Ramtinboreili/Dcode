@@ -1,0 +1,4 @@
+- hosts: app
+  become: true
+  roles:
+    - app

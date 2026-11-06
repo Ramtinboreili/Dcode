@@ -1,0 +1,13 @@
+{
+  "id": "docker-multistage",
+  "category": "devops",
+  "difficulty": "hard",
+  "prompt": "our image is 1.2GB and runs as root, security flagged it. we build a C extension so gcc is needed at build time only. make it a multi stage build: build stage named builder, final stage without gcc or the build tools, runs as a non root user, requirements get installed before copying the source so the layer cache works. also tests and git junk shouldn't end up in the image, add a .dockerignore. pin the base image to the 3.12-slim-bookworm tag in both stages",
+  "timeout_s": 600,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "docker"
+  ]
+}

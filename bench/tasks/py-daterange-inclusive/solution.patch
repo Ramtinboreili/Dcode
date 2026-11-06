@@ -1,0 +1,13 @@
+diff --git a/report.py b/report.py
+index 0564eb5..2e79c29 100644
+--- a/report.py
++++ b/report.py
+@@ -6,7 +6,7 @@ def days_between(start, end):
+     """Every date from start to end, both included."""
+     days = []
+     current = start
+-    while current < end:
++    while current <= end:
+         days.append(current)
+         current += timedelta(days=1)
+     return days

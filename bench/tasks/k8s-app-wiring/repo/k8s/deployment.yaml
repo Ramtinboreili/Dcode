@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blog
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: blog
+  template:
+    metadata:
+      labels:
+        app: blog
+        component: web
+    spec:
+      containers:
+        - name: blog
+          image: registry.local/blog:3.1
+          ports:
+            - name: web
+              containerPort: 3000
+          env:
+            - name: BLOG_TITLE
+              valueFrom:
+                configMapKeyRef:
+                  name: blog-config
+                  key: title
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: blog-settings
+                  key: db_host
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: blog-db
+                  key: password
+          volumeMounts:
+            - name: uploads
+              mountPath: /uploads
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: uploads

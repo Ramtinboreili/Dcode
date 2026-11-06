@@ -1,0 +1,13 @@
+{
+  "id": "logs-correlate-requests",
+  "category": "devops",
+  "difficulty": "hard",
+  "prompt": "we had a bad checkout hour. logs from the gateway, orders and payments are in logs/. the gateway has the status of each request and the other two log the same request id under their own field name. I need answer.json with: checkout_failures (POST /checkout that didn't return 200), how many of those were caused by a bank timeout in payments (payments_timeout, note payments sometimes retries and recovers, those don't count), a db error in orders (orders_db), a stock conflict (stock_conflict), and slowest_ok_checkout which is the request id of the slowest successful checkout",
+  "timeout_s": 600,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "logs"
+  ]
+}

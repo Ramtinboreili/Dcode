@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "install.py", line 21, in <module>
+    print(resolve(PLUGINS, "alpha"))
+  File "/srv/plugins/deps.py", line 14, in resolve
+    visit(root)
+  File "/srv/plugins/deps.py", line 11, in visit
+    visit(dep)
+  File "/srv/plugins/deps.py", line 11, in visit
+    visit(dep)
+  File "/srv/plugins/deps.py", line 11, in visit
+    visit(dep)
+  [Previous line repeated 995 more times]
+RecursionError: maximum recursion depth exceeded

@@ -1,0 +1,28 @@
+diff --git a/limiter.py b/limiter.py
+index 1a54698..d47898f 100644
+--- a/limiter.py
++++ b/limiter.py
+@@ -21,12 +21,20 @@ class RateLimiter:
+         now = self.clock()
+         bucket = self.buckets.get(key)
+         if bucket is None:
+-            bucket = self.buckets.setdefault("default", Bucket(0, now))
+-        bucket.tokens = bucket.tokens + (now - bucket.updated) * self.rate
++            bucket = self.buckets[key] = Bucket(self.capacity, now)
++        bucket.tokens = min(self.capacity, bucket.tokens + (now - bucket.updated) * self.rate)
++        bucket.updated = now
+         return bucket
+ 
+     def allow(self, key, cost=1):
+         """Take `cost` tokens if there are enough. True when the request may go ahead."""
+         bucket = self._bucket(key)
++        if bucket.tokens < cost:
++            return False
+         bucket.tokens -= cost
+-        return bucket.tokens > 0
++        return True
++
++    def retry_after(self, key, cost=1):
++        """Seconds until `cost` tokens are available; 0 if they are now."""
++        bucket = self._bucket(key)
++        return max(0, (cost - bucket.tokens) / self.rate)

@@ -1,0 +1,13 @@
+{
+  "id": "shell-backup-quoting",
+  "category": "devops",
+  "difficulty": "easy",
+  "prompt": "backup.sh breaks when a path has spaces in it, and when the source doesn't exist it still says success. make it work with any path. usage is backup.sh SRC DEST_DIR, it should create DEST_DIR/<basename of SRC>.tar.gz and exit non zero with a message on stderr if SRC is missing",
+  "timeout_s": 300,
+  "requires": [
+    "bash"
+  ],
+  "tags": [
+    "shell"
+  ]
+}

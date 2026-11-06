@@ -1,0 +1,14 @@
+{
+  "id": "long-split-legacy",
+  "category": "long",
+  "difficulty": "medium",
+  "prompt": "legacy_inventory.py has grown out of control. split it into a package called inventory with modules models, storage, pricing, reports and cli. keep legacy_inventory.py as a tiny entry point because cron calls it. the output has to stay byte for byte the same",
+  "timeout_s": 1800,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "refactor"
+  ],
+  "max_steps": 150
+}

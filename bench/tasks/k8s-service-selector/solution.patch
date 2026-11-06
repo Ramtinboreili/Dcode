@@ -1,0 +1,15 @@
+diff --git a/k8s/service.yaml b/k8s/service.yaml
+index 19df424..ad41ab5 100644
+--- a/k8s/service.yaml
++++ b/k8s/service.yaml
+@@ -5,8 +5,8 @@ metadata:
+ spec:
+   type: ClusterIP
+   selector:
+-    app: webapp
++    app: web
+     tier: frontend
+   ports:
+     - port: 80
+-      targetPort: 80
++      targetPort: 8080

@@ -1,0 +1,13 @@
+{
+  "id": "logs-first-oom",
+  "category": "devops",
+  "difficulty": "medium",
+  "prompt": "which pod in prod got OOMKilled first? event logs are in logs/ (rotated, normal logrotate naming). write it to answer.json like {\"pod\": \"name\", \"time\": \"2026-01-01T00:00:00Z\"}",
+  "timeout_s": 450,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "logs"
+  ]
+}

@@ -1,0 +1,1073 @@
+diff --git a/k8s/admin/deployment.yaml b/k8s/admin/deployment.yaml
+new file mode 100644
+index 0000000..ec845ad
+--- /dev/null
++++ b/k8s/admin/deployment.yaml
+@@ -0,0 +1,48 @@
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  name: admin
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: admin
++    app.kubernetes.io/part-of: shop
++spec:
++  replicas: 1
++  selector:
++    matchLabels:
++      app.kubernetes.io/name: admin
++  template:
++    metadata:
++      labels:
++        app.kubernetes.io/name: admin
++        app.kubernetes.io/part-of: shop
++    spec:
++      securityContext:
++        runAsNonRoot: true
++      containers:
++        - name: admin
++          image: registry.local/admin:3.11.0
++          securityContext:
++            allowPrivilegeEscalation: false
++          ports:
++            - name: http
++              containerPort: 9950
++          env:
++            - name: API_URL
++              value: api-url.shop.svc
++          readinessProbe:
++            httpGet:
++              path: /ready
++              port: http
++          livenessProbe:
++            httpGet:
++              path: /healthz
++              port: http
++            initialDelaySeconds: 15
++          resources:
++            requests:
++              cpu: 500m
++              memory: 512Mi
++            limits:
++              cpu: 1000m
++              memory: 1024Mi
+diff --git a/k8s/admin/ingress.yaml b/k8s/admin/ingress.yaml
+new file mode 100644
+index 0000000..1b09c4f
+--- /dev/null
++++ b/k8s/admin/ingress.yaml
+@@ -0,0 +1,25 @@
++apiVersion: networking.k8s.io/v1
++kind: Ingress
++metadata:
++  name: admin
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: admin
++    app.kubernetes.io/part-of: shop
++spec:
++  ingressClassName: traefik
++  tls:
++    - secretName: admin-tls
++      hosts:
++        - admin.example.internal
++  rules:
++    - host: admin.example.internal
++      http:
++        paths:
++          - path: /
++            pathType: Prefix
++            backend:
++              service:
++                name: admin
++                port:
++                  number: 80
+diff --git a/k8s/admin/service.yaml b/k8s/admin/service.yaml
+new file mode 100644
+index 0000000..1f9d5e1
+--- /dev/null
++++ b/k8s/admin/service.yaml
+@@ -0,0 +1,16 @@
++apiVersion: v1
++kind: Service
++metadata:
++  name: admin
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: admin
++    app.kubernetes.io/part-of: shop
++spec:
++  type: ClusterIP
++  selector:
++    app.kubernetes.io/name: admin
++  ports:
++    - name: http
++      port: 80
++      targetPort: http
+diff --git a/k8s/api/deployment.yaml b/k8s/api/deployment.yaml
+new file mode 100644
+index 0000000..024c1c5
+--- /dev/null
++++ b/k8s/api/deployment.yaml
+@@ -0,0 +1,50 @@
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  name: api
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: api
++    app.kubernetes.io/part-of: shop
++spec:
++  replicas: 3
++  selector:
++    matchLabels:
++      app.kubernetes.io/name: api
++  template:
++    metadata:
++      labels:
++        app.kubernetes.io/name: api
++        app.kubernetes.io/part-of: shop
++    spec:
++      securityContext:
++        runAsNonRoot: true
++      containers:
++        - name: api
++          image: registry.local/api:2.1.0
++          securityContext:
++            allowPrivilegeEscalation: false
++          ports:
++            - name: http
++              containerPort: 9000
++          env:
++            - name: DB_HOST
++              value: db-host.shop.svc
++            - name: CACHE_HOST
++              value: cache-host.shop.svc
++          readinessProbe:
++            httpGet:
++              path: /ready
++              port: http
++          livenessProbe:
++            httpGet:
++              path: /healthz
++              port: http
++            initialDelaySeconds: 15
++          resources:
++            requests:
++              cpu: 250m
++              memory: 256Mi
++            limits:
++              cpu: 500m
++              memory: 512Mi
+diff --git a/k8s/api/ingress.yaml b/k8s/api/ingress.yaml
+new file mode 100644
+index 0000000..31e13ea
+--- /dev/null
++++ b/k8s/api/ingress.yaml
+@@ -0,0 +1,25 @@
++apiVersion: networking.k8s.io/v1
++kind: Ingress
++metadata:
++  name: api
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: api
++    app.kubernetes.io/part-of: shop
++spec:
++  ingressClassName: traefik
++  tls:
++    - secretName: api-tls
++      hosts:
++        - api.example.internal
++  rules:
++    - host: api.example.internal
++      http:
++        paths:
++          - path: /
++            pathType: Prefix
++            backend:
++              service:
++                name: api
++                port:
++                  number: 80
+diff --git a/k8s/api/service.yaml b/k8s/api/service.yaml
+new file mode 100644
+index 0000000..2fd7f57
+--- /dev/null
++++ b/k8s/api/service.yaml
+@@ -0,0 +1,16 @@
++apiVersion: v1
++kind: Service
++metadata:
++  name: api
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: api
++    app.kubernetes.io/part-of: shop
++spec:
++  type: ClusterIP
++  selector:
++    app.kubernetes.io/name: api
++  ports:
++    - name: http
++      port: 80
++      targetPort: http
+diff --git a/k8s/auth/deployment.yaml b/k8s/auth/deployment.yaml
+new file mode 100644
+index 0000000..4675597
+--- /dev/null
++++ b/k8s/auth/deployment.yaml
+@@ -0,0 +1,48 @@
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  name: auth
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: auth
++    app.kubernetes.io/part-of: shop
++spec:
++  replicas: 2
++  selector:
++    matchLabels:
++      app.kubernetes.io/name: auth
++  template:
++    metadata:
++      labels:
++        app.kubernetes.io/name: auth
++        app.kubernetes.io/part-of: shop
++    spec:
++      securityContext:
++        runAsNonRoot: true
++      containers:
++        - name: auth
++          image: registry.local/auth:3.2.0
++          securityContext:
++            allowPrivilegeEscalation: false
++          ports:
++            - name: http
++              containerPort: 9100
++          env:
++            - name: DB_HOST
++              value: db-host.shop.svc
++          readinessProbe:
++            httpGet:
++              path: /ready
++              port: http
++          livenessProbe:
++            httpGet:
++              path: /healthz
++              port: http
++            initialDelaySeconds: 15
++          resources:
++            requests:
++              cpu: 500m
++              memory: 512Mi
++            limits:
++              cpu: 1000m
++              memory: 1024Mi
+diff --git a/k8s/auth/ingress.yaml b/k8s/auth/ingress.yaml
+new file mode 100644
+index 0000000..67a4728
+--- /dev/null
++++ b/k8s/auth/ingress.yaml
+@@ -0,0 +1,25 @@
++apiVersion: networking.k8s.io/v1
++kind: Ingress
++metadata:
++  name: auth
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: auth
++    app.kubernetes.io/part-of: shop
++spec:
++  ingressClassName: traefik
++  tls:
++    - secretName: auth-tls
++      hosts:
++        - auth.example.internal
++  rules:
++    - host: auth.example.internal
++      http:
++        paths:
++          - path: /
++            pathType: Prefix
++            backend:
++              service:
++                name: auth
++                port:
++                  number: 80
+diff --git a/k8s/auth/service.yaml b/k8s/auth/service.yaml
+new file mode 100644
+index 0000000..21e69dc
+--- /dev/null
++++ b/k8s/auth/service.yaml
+@@ -0,0 +1,16 @@
++apiVersion: v1
++kind: Service
++metadata:
++  name: auth
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: auth
++    app.kubernetes.io/part-of: shop
++spec:
++  type: ClusterIP
++  selector:
++    app.kubernetes.io/name: auth
++  ports:
++    - name: http
++      port: 80
++      targetPort: http
+diff --git a/k8s/cart/deployment.yaml b/k8s/cart/deployment.yaml
+new file mode 100644
+index 0000000..ebc3091
+--- /dev/null
++++ b/k8s/cart/deployment.yaml
+@@ -0,0 +1,48 @@
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  name: cart
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: cart
++    app.kubernetes.io/part-of: shop
++spec:
++  replicas: 2
++  selector:
++    matchLabels:
++      app.kubernetes.io/name: cart
++  template:
++    metadata:
++      labels:
++        app.kubernetes.io/name: cart
++        app.kubernetes.io/part-of: shop
++    spec:
++      securityContext:
++        runAsNonRoot: true
++      containers:
++        - name: cart
++          image: registry.local/cart:2.4.0
++          securityContext:
++            allowPrivilegeEscalation: false
++          ports:
++            - name: http
++              containerPort: 9300
++          env:
++            - name: CACHE_HOST
++              value: cache-host.shop.svc
++          readinessProbe:
++            httpGet:
++              path: /ready
++              port: http
++          livenessProbe:
++            httpGet:
++              path: /healthz
++              port: http
++            initialDelaySeconds: 15
++          resources:
++            requests:
++              cpu: 250m
++              memory: 256Mi
++            limits:
++              cpu: 500m
++              memory: 512Mi
+diff --git a/k8s/cart/service.yaml b/k8s/cart/service.yaml
+new file mode 100644
+index 0000000..b7edd3d
+--- /dev/null
++++ b/k8s/cart/service.yaml
+@@ -0,0 +1,16 @@
++apiVersion: v1
++kind: Service
++metadata:
++  name: cart
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: cart
++    app.kubernetes.io/part-of: shop
++spec:
++  type: ClusterIP
++  selector:
++    app.kubernetes.io/name: cart
++  ports:
++    - name: http
++      port: 80
++      targetPort: http
+diff --git a/k8s/catalog/deployment.yaml b/k8s/catalog/deployment.yaml
+new file mode 100644
+index 0000000..a3513ea
+--- /dev/null
++++ b/k8s/catalog/deployment.yaml
+@@ -0,0 +1,48 @@
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  name: catalog
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: catalog
++    app.kubernetes.io/part-of: shop
++spec:
++  replicas: 2
++  selector:
++    matchLabels:
++      app.kubernetes.io/name: catalog
++  template:
++    metadata:
++      labels:
++        app.kubernetes.io/name: catalog
++        app.kubernetes.io/part-of: shop
++    spec:
++      securityContext:
++        runAsNonRoot: true
++      containers:
++        - name: catalog
++          image: registry.local/catalog:1.3.0
++          securityContext:
++            allowPrivilegeEscalation: false
++          ports:
++            - name: http
++              containerPort: 9200
++          env:
++            - name: DB_HOST
++              value: db-host.shop.svc
++          readinessProbe:
++            httpGet:
++              path: /ready
++              port: http
++          livenessProbe:
++            httpGet:
++              path: /healthz
++              port: http
++            initialDelaySeconds: 15
++          resources:
++            requests:
++              cpu: 100m
++              memory: 128Mi
++            limits:
++              cpu: 200m
++              memory: 256Mi
+diff --git a/k8s/catalog/service.yaml b/k8s/catalog/service.yaml
+new file mode 100644
+index 0000000..8927b04
+--- /dev/null
++++ b/k8s/catalog/service.yaml
+@@ -0,0 +1,16 @@
++apiVersion: v1
++kind: Service
++metadata:
++  name: catalog
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: catalog
++    app.kubernetes.io/part-of: shop
++spec:
++  type: ClusterIP
++  selector:
++    app.kubernetes.io/name: catalog
++  ports:
++    - name: http
++      port: 80
++      targetPort: http
+diff --git a/k8s/frontend/deployment.yaml b/k8s/frontend/deployment.yaml
+new file mode 100644
+index 0000000..7196fcb
+--- /dev/null
++++ b/k8s/frontend/deployment.yaml
+@@ -0,0 +1,48 @@
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  name: frontend
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: frontend
++    app.kubernetes.io/part-of: shop
++spec:
++  replicas: 3
++  selector:
++    matchLabels:
++      app.kubernetes.io/name: frontend
++  template:
++    metadata:
++      labels:
++        app.kubernetes.io/name: frontend
++        app.kubernetes.io/part-of: shop
++    spec:
++      securityContext:
++        runAsNonRoot: true
++      containers:
++        - name: frontend
++          image: registry.local/frontend:1.0.0
++          securityContext:
++            allowPrivilegeEscalation: false
++          ports:
++            - name: http
++              containerPort: 8080
++          env:
++            - name: API_URL
++              value: api-url.shop.svc
++          readinessProbe:
++            httpGet:
++              path: /ready
++              port: http
++          livenessProbe:
++            httpGet:
++              path: /healthz
++              port: http
++            initialDelaySeconds: 15
++          resources:
++            requests:
++              cpu: 100m
++              memory: 128Mi
++            limits:
++              cpu: 200m
++              memory: 256Mi
+diff --git a/k8s/frontend/ingress.yaml b/k8s/frontend/ingress.yaml
+new file mode 100644
+index 0000000..d40c1b6
+--- /dev/null
++++ b/k8s/frontend/ingress.yaml
+@@ -0,0 +1,25 @@
++apiVersion: networking.k8s.io/v1
++kind: Ingress
++metadata:
++  name: frontend
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: frontend
++    app.kubernetes.io/part-of: shop
++spec:
++  ingressClassName: traefik
++  tls:
++    - secretName: frontend-tls
++      hosts:
++        - shop.example.internal
++  rules:
++    - host: shop.example.internal
++      http:
++        paths:
++          - path: /
++            pathType: Prefix
++            backend:
++              service:
++                name: frontend
++                port:
++                  number: 80
+diff --git a/k8s/frontend/service.yaml b/k8s/frontend/service.yaml
+new file mode 100644
+index 0000000..1cee178
+--- /dev/null
++++ b/k8s/frontend/service.yaml
+@@ -0,0 +1,16 @@
++apiVersion: v1
++kind: Service
++metadata:
++  name: frontend
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: frontend
++    app.kubernetes.io/part-of: shop
++spec:
++  type: ClusterIP
++  selector:
++    app.kubernetes.io/name: frontend
++  ports:
++    - name: http
++      port: 80
++      targetPort: http
+diff --git a/k8s/mailer/deployment.yaml b/k8s/mailer/deployment.yaml
+new file mode 100644
+index 0000000..80c1396
+--- /dev/null
++++ b/k8s/mailer/deployment.yaml
+@@ -0,0 +1,50 @@
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  name: mailer
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: mailer
++    app.kubernetes.io/part-of: shop
++spec:
++  replicas: 1
++  selector:
++    matchLabels:
++      app.kubernetes.io/name: mailer
++  template:
++    metadata:
++      labels:
++        app.kubernetes.io/name: mailer
++        app.kubernetes.io/part-of: shop
++    spec:
++      securityContext:
++        runAsNonRoot: true
++      containers:
++        - name: mailer
++          image: registry.local/mailer:3.8.0
++          securityContext:
++            allowPrivilegeEscalation: false
++          ports:
++            - name: http
++              containerPort: 9700
++          env:
++            - name: QUEUE_HOST
++              value: queue-host.shop.svc
++            - name: SMTP_HOST
++              value: smtp-host.shop.svc
++          readinessProbe:
++            httpGet:
++              path: /ready
++              port: http
++          livenessProbe:
++            httpGet:
++              path: /healthz
++              port: http
++            initialDelaySeconds: 15
++          resources:
++            requests:
++              cpu: 500m
++              memory: 512Mi
++            limits:
++              cpu: 1000m
++              memory: 1024Mi
+diff --git a/k8s/mailer/service.yaml b/k8s/mailer/service.yaml
+new file mode 100644
+index 0000000..80feb49
+--- /dev/null
++++ b/k8s/mailer/service.yaml
+@@ -0,0 +1,16 @@
++apiVersion: v1
++kind: Service
++metadata:
++  name: mailer
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: mailer
++    app.kubernetes.io/part-of: shop
++spec:
++  type: ClusterIP
++  selector:
++    app.kubernetes.io/name: mailer
++  ports:
++    - name: http
++      port: 80
++      targetPort: http
+diff --git a/k8s/orders/deployment.yaml b/k8s/orders/deployment.yaml
+new file mode 100644
+index 0000000..aa3a397
+--- /dev/null
++++ b/k8s/orders/deployment.yaml
+@@ -0,0 +1,50 @@
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  name: orders
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: orders
++    app.kubernetes.io/part-of: shop
++spec:
++  replicas: 3
++  selector:
++    matchLabels:
++      app.kubernetes.io/name: orders
++  template:
++    metadata:
++      labels:
++        app.kubernetes.io/name: orders
++        app.kubernetes.io/part-of: shop
++    spec:
++      securityContext:
++        runAsNonRoot: true
++      containers:
++        - name: orders
++          image: registry.local/orders:3.5.0
++          securityContext:
++            allowPrivilegeEscalation: false
++          ports:
++            - name: http
++              containerPort: 9400
++          env:
++            - name: DB_HOST
++              value: db-host.shop.svc
++            - name: QUEUE_HOST
++              value: queue-host.shop.svc
++          readinessProbe:
++            httpGet:
++              path: /ready
++              port: http
++          livenessProbe:
++            httpGet:
++              path: /healthz
++              port: http
++            initialDelaySeconds: 15
++          resources:
++            requests:
++              cpu: 500m
++              memory: 512Mi
++            limits:
++              cpu: 1000m
++              memory: 1024Mi
+diff --git a/k8s/orders/service.yaml b/k8s/orders/service.yaml
+new file mode 100644
+index 0000000..fdea3b4
+--- /dev/null
++++ b/k8s/orders/service.yaml
+@@ -0,0 +1,16 @@
++apiVersion: v1
++kind: Service
++metadata:
++  name: orders
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: orders
++    app.kubernetes.io/part-of: shop
++spec:
++  type: ClusterIP
++  selector:
++    app.kubernetes.io/name: orders
++  ports:
++    - name: http
++      port: 80
++      targetPort: http
+diff --git a/k8s/payments/deployment.yaml b/k8s/payments/deployment.yaml
+new file mode 100644
+index 0000000..914ade9
+--- /dev/null
++++ b/k8s/payments/deployment.yaml
+@@ -0,0 +1,48 @@
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  name: payments
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: payments
++    app.kubernetes.io/part-of: shop
++spec:
++  replicas: 3
++  selector:
++    matchLabels:
++      app.kubernetes.io/name: payments
++  template:
++    metadata:
++      labels:
++        app.kubernetes.io/name: payments
++        app.kubernetes.io/part-of: shop
++    spec:
++      securityContext:
++        runAsNonRoot: true
++      containers:
++        - name: payments
++          image: registry.local/payments:1.6.0
++          securityContext:
++            allowPrivilegeEscalation: false
++          ports:
++            - name: http
++              containerPort: 9500
++          env:
++            - name: DB_HOST
++              value: db-host.shop.svc
++          readinessProbe:
++            httpGet:
++              path: /ready
++              port: http
++          livenessProbe:
++            httpGet:
++              path: /healthz
++              port: http
++            initialDelaySeconds: 15
++          resources:
++            requests:
++              cpu: 100m
++              memory: 128Mi
++            limits:
++              cpu: 200m
++              memory: 256Mi
+diff --git a/k8s/payments/service.yaml b/k8s/payments/service.yaml
+new file mode 100644
+index 0000000..8b3a260
+--- /dev/null
++++ b/k8s/payments/service.yaml
+@@ -0,0 +1,16 @@
++apiVersion: v1
++kind: Service
++metadata:
++  name: payments
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: payments
++    app.kubernetes.io/part-of: shop
++spec:
++  type: ClusterIP
++  selector:
++    app.kubernetes.io/name: payments
++  ports:
++    - name: http
++      port: 80
++      targetPort: http
+diff --git a/k8s/reports/deployment.yaml b/k8s/reports/deployment.yaml
+new file mode 100644
+index 0000000..4e87952
+--- /dev/null
++++ b/k8s/reports/deployment.yaml
+@@ -0,0 +1,48 @@
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  name: reports
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: reports
++    app.kubernetes.io/part-of: shop
++spec:
++  replicas: 1
++  selector:
++    matchLabels:
++      app.kubernetes.io/name: reports
++  template:
++    metadata:
++      labels:
++        app.kubernetes.io/name: reports
++        app.kubernetes.io/part-of: shop
++    spec:
++      securityContext:
++        runAsNonRoot: true
++      containers:
++        - name: reports
++          image: registry.local/reports:2.10.0
++          securityContext:
++            allowPrivilegeEscalation: false
++          ports:
++            - name: http
++              containerPort: 9900
++          env:
++            - name: DB_HOST
++              value: db-host.shop.svc
++          readinessProbe:
++            httpGet:
++              path: /ready
++              port: http
++          livenessProbe:
++            httpGet:
++              path: /healthz
++              port: http
++            initialDelaySeconds: 15
++          resources:
++            requests:
++              cpu: 250m
++              memory: 256Mi
++            limits:
++              cpu: 500m
++              memory: 512Mi
+diff --git a/k8s/reports/service.yaml b/k8s/reports/service.yaml
+new file mode 100644
+index 0000000..7590e0a
+--- /dev/null
++++ b/k8s/reports/service.yaml
+@@ -0,0 +1,16 @@
++apiVersion: v1
++kind: Service
++metadata:
++  name: reports
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: reports
++    app.kubernetes.io/part-of: shop
++spec:
++  type: ClusterIP
++  selector:
++    app.kubernetes.io/name: reports
++  ports:
++    - name: http
++      port: 80
++      targetPort: http
+diff --git a/k8s/search/deployment.yaml b/k8s/search/deployment.yaml
+new file mode 100644
+index 0000000..679b4d6
+--- /dev/null
++++ b/k8s/search/deployment.yaml
+@@ -0,0 +1,48 @@
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  name: search
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: search
++    app.kubernetes.io/part-of: shop
++spec:
++  replicas: 2
++  selector:
++    matchLabels:
++      app.kubernetes.io/name: search
++  template:
++    metadata:
++      labels:
++        app.kubernetes.io/name: search
++        app.kubernetes.io/part-of: shop
++    spec:
++      securityContext:
++        runAsNonRoot: true
++      containers:
++        - name: search
++          image: registry.local/search:1.9.0
++          securityContext:
++            allowPrivilegeEscalation: false
++          ports:
++            - name: http
++              containerPort: 9800
++          env:
++            - name: ES_HOST
++              value: es-host.shop.svc
++          readinessProbe:
++            httpGet:
++              path: /ready
++              port: http
++          livenessProbe:
++            httpGet:
++              path: /healthz
++              port: http
++            initialDelaySeconds: 15
++          resources:
++            requests:
++              cpu: 100m
++              memory: 128Mi
++            limits:
++              cpu: 200m
++              memory: 256Mi
+diff --git a/k8s/search/ingress.yaml b/k8s/search/ingress.yaml
+new file mode 100644
+index 0000000..b848b5b
+--- /dev/null
++++ b/k8s/search/ingress.yaml
+@@ -0,0 +1,25 @@
++apiVersion: networking.k8s.io/v1
++kind: Ingress
++metadata:
++  name: search
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: search
++    app.kubernetes.io/part-of: shop
++spec:
++  ingressClassName: traefik
++  tls:
++    - secretName: search-tls
++      hosts:
++        - search.example.internal
++  rules:
++    - host: search.example.internal
++      http:
++        paths:
++          - path: /
++            pathType: Prefix
++            backend:
++              service:
++                name: search
++                port:
++                  number: 80
+diff --git a/k8s/search/service.yaml b/k8s/search/service.yaml
+new file mode 100644
+index 0000000..d56755b
+--- /dev/null
++++ b/k8s/search/service.yaml
+@@ -0,0 +1,16 @@
++apiVersion: v1
++kind: Service
++metadata:
++  name: search
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: search
++    app.kubernetes.io/part-of: shop
++spec:
++  type: ClusterIP
++  selector:
++    app.kubernetes.io/name: search
++  ports:
++    - name: http
++      port: 80
++      targetPort: http
+diff --git a/k8s/shipping/deployment.yaml b/k8s/shipping/deployment.yaml
+new file mode 100644
+index 0000000..1cd6264
+--- /dev/null
++++ b/k8s/shipping/deployment.yaml
+@@ -0,0 +1,48 @@
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  name: shipping
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: shipping
++    app.kubernetes.io/part-of: shop
++spec:
++  replicas: 1
++  selector:
++    matchLabels:
++      app.kubernetes.io/name: shipping
++  template:
++    metadata:
++      labels:
++        app.kubernetes.io/name: shipping
++        app.kubernetes.io/part-of: shop
++    spec:
++      securityContext:
++        runAsNonRoot: true
++      containers:
++        - name: shipping
++          image: registry.local/shipping:2.7.0
++          securityContext:
++            allowPrivilegeEscalation: false
++          ports:
++            - name: http
++              containerPort: 9600
++          env:
++            - name: QUEUE_HOST
++              value: queue-host.shop.svc
++          readinessProbe:
++            httpGet:
++              path: /ready
++              port: http
++          livenessProbe:
++            httpGet:
++              path: /healthz
++              port: http
++            initialDelaySeconds: 15
++          resources:
++            requests:
++              cpu: 250m
++              memory: 256Mi
++            limits:
++              cpu: 500m
++              memory: 512Mi
+diff --git a/k8s/shipping/service.yaml b/k8s/shipping/service.yaml
+new file mode 100644
+index 0000000..4bbdc39
+--- /dev/null
++++ b/k8s/shipping/service.yaml
+@@ -0,0 +1,16 @@
++apiVersion: v1
++kind: Service
++metadata:
++  name: shipping
++  namespace: shop
++  labels:
++    app.kubernetes.io/name: shipping
++    app.kubernetes.io/part-of: shop
++spec:
++  type: ClusterIP
++  selector:
++    app.kubernetes.io/name: shipping
++  ports:
++    - name: http
++      port: 80
++      targetPort: http

@@ -1,0 +1,15 @@
+{
+  "id": "long-k8s-from-services",
+  "category": "long",
+  "difficulty": "medium",
+  "prompt": "we need kubernetes manifests for everything in services.json. conventions are in k8s/README.md, please follow them to the letter",
+  "timeout_s": 1800,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "kubernetes",
+    "many-files"
+  ],
+  "max_steps": 150
+}

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: blog
+  namespace: blog
+spec:
+  selector:
+    app: blog
+    component: frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

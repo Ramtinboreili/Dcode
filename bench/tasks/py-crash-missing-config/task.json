@@ -1,0 +1,14 @@
+{
+  "id": "py-crash-missing-config",
+  "category": "coding",
+  "difficulty": "easy",
+  "prompt": "the service crashed on startup in staging, trace is in crash.log. staging has no smtp section on purpose, email should just be off there. fix the cause",
+  "timeout_s": 300,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "python",
+    "stacktrace"
+  ]
+}

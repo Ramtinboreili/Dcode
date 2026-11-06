@@ -1,0 +1,14 @@
+{
+  "id": "py-cycle-detect-trace",
+  "category": "coding",
+  "difficulty": "medium",
+  "prompt": "got this when installing a plugin set: see trace.txt. circular deps should give a clear error (CycleError, message listing the cycle) not blow the stack. also resolve() order has to stay deps first",
+  "timeout_s": 450,
+  "requires": [
+    "python3"
+  ],
+  "tags": [
+    "python",
+    "stacktrace"
+  ]
+}

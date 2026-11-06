@@ -1,0 +1,15 @@
+{
+  "id": "js-retry-backoff",
+  "category": "coding",
+  "difficulty": "medium",
+  "prompt": "withRetry doesn't behave, tests in retry.test.js fail. should try maxAttempts times total, doubling the delay, and give back the last error. sleep is injected so the tests are fast",
+  "timeout_s": 450,
+  "requires": [
+    "node"
+  ],
+  "tags": [
+    "javascript",
+    "bugfix",
+    "async"
+  ]
+}

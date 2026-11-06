@@ -1,0 +1,31 @@
+from benchcheck import dig, finish, load_yaml, ok
+
+api = load_yaml("manifests/api.yaml")
+ok(api["apiVersion"] == "apps/v1", "Deployment is apps/v1")
+labels = dig(api, "spec", "template", "metadata", "labels")
+ok(labels == {"app": "api"}, "pod labels unchanged")
+ok(dig(api, "spec", "selector", "matchLabels") == labels, "apps/v1 requires a selector that matches")
+ok(dig(api, "spec", "replicas") == 3, "replicas unchanged")
+ok(dig(api, "spec", "template", "spec", "containers", 0, "image") == "registry.local/api:1.4", "image unchanged")
+
+ing = load_yaml("manifests/ingress.yaml")
+ok(ing["apiVersion"] == "networking.k8s.io/v1", "Ingress is networking.k8s.io/v1")
+path = dig(ing, "spec", "rules", 0, "http", "paths", 0, default={})
+ok(path.get("path") == "/v1", "path unchanged")
+ok(path.get("pathType") in ("Prefix", "ImplementationSpecific"), "v1 requires a pathType that keeps the prefix behaviour")
+ok(dig(path, "backend", "service", "name") == "api", "backend.service.name")
+ok(dig(path, "backend", "service", "port", "number") == 9000, "backend.service.port.number")
+ok("serviceName" not in path.get("backend", {}), "the old backend fields are gone")
+klass = dig(ing, "spec", "ingressClassName") or dig(ing, "metadata", "annotations", "kubernetes.io/ingress.class")
+ok(klass == "traefik", "still uses the traefik class")
+ok(dig(ing, "spec", "rules", 0, "host") == "api.example.internal", "host unchanged")
+
+cron = load_yaml("manifests/cleanup.yaml")
+ok(cron["apiVersion"] == "batch/v1", "CronJob is batch/v1")
+ok(dig(cron, "spec", "schedule") == "0 3 * * *", "schedule unchanged")
+ok(dig(cron, "spec", "jobTemplate", "spec", "template", "spec", "restartPolicy") == "OnFailure", "restartPolicy unchanged")
+
+pdb = load_yaml("manifests/budget.yaml")
+ok(pdb["apiVersion"] == "policy/v1", "PodDisruptionBudget is policy/v1")
+ok(dig(pdb, "spec", "minAvailable") == 2, "minAvailable unchanged")
+finish()

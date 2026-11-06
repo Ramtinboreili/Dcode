@@ -1,0 +1,93 @@
+diff --git a/semver/ranges.py b/semver/ranges.py
+index e3849e7..190c66e 100644
+--- a/semver/ranges.py
++++ b/semver/ranges.py
+@@ -1,9 +1,58 @@
+ """Which versions a range allows."""
++import re
++
+ from .version import Version
+ 
+ 
++def _caret(version):
++    if version.major:
++        upper = f"{version.major + 1}.0.0"
++    elif version.minor:
++        upper = f"0.{version.minor + 1}.0"
++    else:
++        upper = f"0.0.{version.patch + 1}"
++    return [(">=", version), ("<", Version(upper))]
++
++
++def _tilde(version):
++    return [(">=", version), ("<", Version(f"{version.major}.{version.minor + 1}.0"))]
++
++
++def _comparators(group):
++    out = []
++    for token in re.findall(r"(\^|~|>=|<=|>|<|=)?\s*([0-9][^\s]*)", group):
++        op, text = token
++        version = Version(text)
++        if op == "^":
++            out += _caret(version)
++        elif op == "~":
++            out += _tilde(version)
++        else:
++            out.append((op or "=", version))
++    return out
++
++
++_TESTS = {"=": lambda a, b: a == b, ">=": lambda a, b: a >= b, "<=": lambda a, b: a <= b,
++          ">": lambda a, b: a > b, "<": lambda a, b: a < b}
++
++
++def _allowed_prerelease(version, comparators):
++    """A prerelease matches only if the range names one on the same x.y.z."""
++    return any(bound.pre and (bound.major, bound.minor, bound.patch) == (version.major, version.minor, version.patch)
++               for _, bound in comparators)
++
++
+ def satisfies(version, spec):
+-    return Version(version) == Version(spec)
++    version = Version(version)
++    for group in spec.split("||"):
++        comparators = _comparators(group)
++        if not comparators:
++            continue
++        if version.pre and not _allowed_prerelease(version, comparators):
++            continue
++        if all(_TESTS[op](version, bound) for op, bound in comparators):
++            return True
++    return False
+ 
+ 
+ def best_match(versions, spec):
+diff --git a/semver/version.py b/semver/version.py
+index 87533f2..752575b 100644
+--- a/semver/version.py
++++ b/semver/version.py
+@@ -2,6 +2,15 @@
+ from functools import total_ordering
+ 
+ 
++def _pre_key(pre):
++    if not pre:
++        return (1,)  # a release sorts above its prereleases
++    parts = []
++    for part in pre.split("."):
++        parts.append((0, int(part), "") if part.isdigit() else (1, 0, part))
++    return (0, tuple(parts))
++
++
+ @total_ordering
+ class Version:
+     def __init__(self, text):
+@@ -11,7 +20,7 @@ class Version:
+         self.pre = pre
+ 
+     def _key(self):
+-        return (self.major, self.minor, self.patch, self.pre)
++        return (self.major, self.minor, self.patch, _pre_key(self.pre))
+ 
+     def __eq__(self, other):
+         return self._key() == other._key()

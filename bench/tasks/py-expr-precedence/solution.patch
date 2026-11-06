@@ -1,0 +1,115 @@
+diff --git a/calc/parser.py b/calc/parser.py
+index 7576995..1ddf542 100644
+--- a/calc/parser.py
++++ b/calc/parser.py
+@@ -1,4 +1,4 @@
+-from .tokenizer import tokenize
++from .tokenizer import TokenError, tokenize
+ 
+ 
+ class CalcError(Exception):
+@@ -19,30 +19,63 @@ class Parser:
+         return token
+ 
+     def expression(self):
+-        value = self.atom()
+-        while self.peek() in ("+", "-", "*", "/", "^"):
++        value = self.term()
++        while self.peek() in ("+", "-"):
+             op = self.next()
+-            right = self.atom()
+-            if op == "+":
+-                value += right
+-            elif op == "-":
+-                value -= right
+-            elif op == "*":
++            right = self.term()
++            value = value + right if op == "+" else value - right
++        return value
++
++    def term(self):
++        value = self.unary()
++        while self.peek() in ("*", "/"):
++            op = self.next()
++            right = self.unary()
++            if op == "*":
+                 value *= right
+-            elif op == "/":
+-                value /= right
+             else:
+-                value **= right
++                if right == 0:
++                    raise CalcError("division by zero")
++                value /= right
+         return value
+ 
++    def unary(self):
++        if self.peek() == "-":
++            self.next()
++            return -self.unary()
++        if self.peek() == "+":
++            self.next()
++            return self.unary()
++        return self.power()
++
++    def power(self):
++        base = self.atom()
++        if self.peek() == "^":
++            self.next()
++            return base ** self.unary()
++        return base
++
+     def atom(self):
+         token = self.next()
++        if token is None:
++            raise CalcError("unexpected end of input")
+         if token == "(":
+             value = self.expression()
+-            self.next()
++            if self.next() != ")":
++                raise CalcError("missing )")
+             return value
+-        return float(token)
++        try:
++            return float(token)
++        except ValueError as exc:
++            raise CalcError(f"unexpected {token!r}") from exc
+ 
+ 
+ def evaluate(text):
+-    return Parser(tokenize(text)).expression()
++    try:
++        parser = Parser(tokenize(text))
++    except TokenError as exc:
++        raise CalcError(str(exc)) from exc
++    value = parser.expression()
++    if parser.peek() is not None:
++        raise CalcError(f"unexpected {parser.peek()!r}")
++    return value
+diff --git a/calc/tokenizer.py b/calc/tokenizer.py
+index df1a4de..0ee4511 100644
+--- a/calc/tokenizer.py
++++ b/calc/tokenizer.py
+@@ -1,6 +1,10 @@
+ import re
+ 
+-TOKEN = re.compile(r"\s*(\d+\.?\d*|[-+*/^()])")
++TOKEN = re.compile(r"\s*(\d+\.?\d*|\.\d+|[-+*/^()])")
++
++
++class TokenError(Exception):
++    pass
+ 
+ 
+ def tokenize(text):
+@@ -9,7 +13,9 @@ def tokenize(text):
+     while position < len(text):
+         match = TOKEN.match(text, position)
+         if not match:
+-            break
++            if not text[position:].strip():
++                break
++            raise TokenError(f"unexpected text at {position}: {text[position:]!r}")
+         tokens.append(match.group(1))
+         position = match.end()
+     return tokens

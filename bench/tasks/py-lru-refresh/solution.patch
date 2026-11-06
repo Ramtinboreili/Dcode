@@ -1,0 +1,38 @@
+diff --git a/cache.py b/cache.py
+index 9903a0e..c9f70be 100644
+--- a/cache.py
++++ b/cache.py
+@@ -11,23 +11,31 @@ class LRUCache:
+         self.hits = 0
+         self.misses = 0
+ 
++    def _touch(self, key):
++        self.order.remove(key)
++        self.order.append(key)
++
+     def get(self, key, default=None):
+         if key in self.items:
+             self.hits += 1
++            self._touch(key)
+             return self.items[key]
+         self.misses += 1
+         return default
+ 
+     def put(self, key, value):
+-        if key not in self.items:
++        if key in self.items:
++            self._touch(key)
++        else:
+             self.order.append(key)
+         self.items[key] = value
+         if len(self.order) > self.capacity:
+-            oldest = self.order.pop()
++            oldest = self.order.pop(0)
+             del self.items[oldest]
+ 
+     def delete(self, key):
+         del self.items[key]
++        self.order.remove(key)
+ 
+     def __len__(self):
+         return len(self.items)
