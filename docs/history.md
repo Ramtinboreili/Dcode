@@ -232,3 +232,13 @@ The owner hit the manager's 32K/day limit on one question ("which containers run
 - **The binary leaked its libraries:** PyInstaller points `LD_LIBRARY_PATH` at its unpack folder, and every command inherited it, so bash and awk printed "libtinfo.so.6: no version information available" into each output. `__main__.restore_host_libraries` restores the host's path at start (the loader reads it only when a process starts).
 - **A retry repeated the message:** a call refused with 429 left the user's message in the history, and the retry added it again.
 - Still open: one task still re-sends its history on every call; a 32K/day limit is about one question. Options: higher limits, or the manager counting cached prompt tokens at a discount.
+
+## 17. A research instrument — 0.8.0 (November 6, 2026)
+
+The owner wanted to measure what each context mechanism costs and buys, instead of arguing from single runs.
+
+- **Experiment config:** every mechanism can be switched or tuned from one validated section, and its defaults send the same requests as before (`tests/test_golden_requests.py` checks this).
+- **Trace:** a JSONL record of every model attempt, tool call and decision, without prompts or file contents.
+- **Benchmark:** 42 tasks with hidden checks (16 coding, 18 devops, 8 long), a resumable runner, 12 arms and an analysis. Every check passes the oracle: it fails on the untouched repo and passes with the solution.
+- **Found while building:** a fresh home has no memories, so `recall_user` would have measured nothing against `baseline`. Both recall arms now start from the same seeded memories.
+- **Still open:** the benchmark has only run against the mock server, so it has no results yet. The owner asked to confirm before it uses local models. It has no sandbox, so a real run belongs on an isolated machine. There are no Go tasks, and `ansible --syntax-check` and the plots haven't been run, since those tools aren't on the build host.

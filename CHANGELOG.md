@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — a research instrument
+## 0.8.0 — a research instrument: tracing, experiments and a benchmark
 
 Off unless asked for, except the fixes and counting below. See `docs/research/`.
 

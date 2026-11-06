@@ -4,7 +4,7 @@ What it is and how to use it: [docs/manager.md](../../docs/manager.md).
 
 ```bash
 make docker                                   # builds dcode:<version> (packaging/Dockerfile)
-docker tag dcode:0.7.1 <registry>/dcode:0.7.1 && docker push <registry>/dcode:0.7.1
+docker tag dcode:0.8.0 <registry>/dcode:0.8.0 && docker push <registry>/dcode:0.8.0
 # edit kustomization.yaml (image), secret.yaml (admin password), rbac.yaml (model namespace)
 kubectl apply -k deploy/manager
 kubectl -n dcode rollout status deploy/dcode-manager
