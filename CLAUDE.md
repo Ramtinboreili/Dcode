@@ -38,6 +38,7 @@ make packages                                 # needs docker: portable binary (g
 - Databases: `db.py` (connections, `Link` = the only engine-specific code, schema, guarded `run_query`, exports). Scheduled jobs: `schedules.py` (cron parser, runs/logs, `Scheduler` thread in the hub) + `headless.py` (`dcode run`). Entry point: `__main__.py` (`hub` and `run` skip the terminal imports).
 - Phase 4: `transcripts.py` (chat → events, export md/html/json, import, `HelperLog`), `stats.py` (usage counts), `mcp.py` (stdio MCP client, names-only index), `attach.py` (`dcode attach`: `RemoteSession` + `AttachApp`), `acp.py` (`dcode acp` for editors), `openapi.py` (the hub API, one `ROUTES` table). `editors/vscode` is the extension; `packaging/` builds every package.
 - Phase 3: `checks.py` (post-edit checks), `mentions.py` (`@path`), `custom_agents.py` (`.dcode/agents`), `commands.py` (`.dcode/commands`), `rules.py` (allow/ask/deny), `hooks.py`.
+- Research instrument: `experiment.py` (the `experiment` config section: every switchable mechanism, validated, hashed), `trace.py` (`DCODE_TRACE`: JSONL of every call, tool and decision; task identity in a ContextVar). Docs: `docs/research/`. A deliberate prompt or schema change means re-recording `tests/golden/requests.json.gz` (see `tests/golden/scenario.py`).
 - `web/` — `index.html`/`app.js`/`app.css` (main UI), `artifact.html` (`/a/<id>`), `guide.html` (bilingual user guide, `/guide`).
 - Details: `docs/architecture.md`. History & every past bug: `docs/history.md`. Rationale: `docs/decisions.md`.
 
@@ -58,6 +59,8 @@ make packages                                 # needs docker: portable binary (g
 - Models: route once per task, never mid-task; plan mode and an approved plan stay on the main model; never return a profile's API key; the budget and output caps must follow the model that runs.
 - Manager: standard library only and no client/terminal imports (a test guards it). The `usage` table is the only counter (resets move the start, never delete). Never return a password hash, key hash or a model's upstream key. A cookie change needs the `X-Dcode-Manager` header; an API key reaches only `/v1` and read-only `/api/me*`. Cluster changes (scale, `--max-model-len`) only from an admin's click with a confirmation that says the impact. New model columns go into `store.MIGRATIONS`.
 - Keep the system prompt stable within a turn (local servers cache the prompt prefix): only refresh it at turn start and after compaction.
+
+- Research: `experiment` defaults must equal today's behaviour, and a new switch goes into `experiment.DEFAULTS` + `docs/research/experiment-config.md` (a test checks both). A new trace field goes into the schema in `tests/test_trace.py` + `docs/research/tracing.md`. A trace error must never break a task; a trace never holds a key, a prompt or file contents (snapshots do hold prompts).
 
 ## Gotchas (each one bit us)
 - **macOS hidden `.pth`:** repo is in iCloud-synced `~/Documents`; `.venv` editable `.pth` files get the `hidden` flag and Python 3.12.4 skips them → use `PYTHONPATH=<repo>` or the binary.

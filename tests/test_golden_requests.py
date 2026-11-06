@@ -40,6 +40,16 @@ def test_spelling_out_every_default_changes_nothing():
     _same(scenario.load_golden()[name], scenario.record(name, experiment=experiment.defaults()))
 
 
+def test_tracing_changes_nothing_on_the_wire(tmp_path):
+    name = "session-stream"
+    settings = {"path": str(tmp_path / "trace.jsonl"), "snapshots": True}
+    _same(scenario.load_golden()[name], scenario.record(name, trace=settings))
+    rows = [json.loads(line) for line in (tmp_path / "trace.jsonl").read_text().splitlines()]
+    sends = [row["http_sends"] for row in rows if row["type"] == "llm_call"]
+    assert sum(sends) == len(scenario.load_golden()[name])  # every request on the wire is in the trace, the SDK's own retry too
+    assert max(sends) == 2
+
+
 def test_the_recording_is_what_it_claims_to_be():
     """A guard against testing nothing: the scenarios really reach the paths they are there for."""
     golden = scenario.load_golden()

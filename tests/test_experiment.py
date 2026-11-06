@@ -22,6 +22,20 @@ def _agent(router, approve=True, **exp):
     return Agent(config, fake, NullHost(approve=approve)), fake
 
 
+def test_every_key_is_documented_tested_and_read_by_the_code():
+    from pathlib import Path
+
+    root = Path(__file__).parent.parent
+    doc = (root / "docs" / "research" / "experiment-config.md").read_text()
+    tests = (root / "tests" / "test_experiment.py").read_text() + (root / "tests" / "test_long_tasks.py").read_text()
+    code = "".join(path.read_text() for path in (root / "dcode").glob("*.py") if path.name != "experiment.py")
+    for key, default in experiment.DEFAULTS.items():
+        assert f"`{key}`" in doc, f"{key} isn't in the docs"
+        assert key in tests, f"{key} has no test"
+        assert f'"{key}"' in code, f"nothing reads {key}"
+        assert f"`{json.dumps(default)}`" in doc, f"the docs have the wrong default for {key}"
+
+
 # --- the section itself ------------------------------------------------------------------------------------
 
 def test_defaults_equal_the_constants_they_replace():
@@ -130,6 +144,41 @@ def test_compaction_thresholds_move():
     assert low.compact_threshold == 4_000 and low.target_after_compaction == 1_600
 
 
+def _chatty(n=6, chars=900):
+    return scripted(*[AssistantTurn(content=f"answer {i} " + "w" * chars) for i in range(n)])
+
+
+def _compactions(agent):
+    seen = []
+    emit = agent.host.emit
+    agent.host.emit = lambda kind, **data: (seen.append(data) if kind == "compaction" else None, emit(kind, **data))[1]
+    for n in range(6):
+        agent.run_turn(f"task {n}")
+    return seen
+
+
+def test_compaction_trigger_and_target_reach_the_running_agent(isolated):
+    def run(**exp):
+        agent, _ = _agent(_chatty(), **exp)
+        agent.config.context_window = 8000
+        agent.budget = Agent._new_budget(agent.config)
+        return agent, _compactions(agent)
+
+    agent, none = run()
+    assert not none and agent.budget.compact_threshold == int(agent.budget.input_budget * 0.75)
+    early, some = run(compact_trigger=0.2, compact_target=0.15)
+    assert some and early.budget.compact_threshold == int(early.budget.input_budget * 0.2)
+    assert early.budget.target_after_compaction == int(early.budget.input_budget * 0.15)
+
+    def left_after(target):
+        messages = [{"role": "system", "content": "s"}]
+        for n in range(12):
+            messages += [{"role": "user", "content": f"task {n} " + "w" * 900}, {"role": "assistant", "content": "ok " + "w" * 900}]
+        return context.compact(messages, context.ContextBudget(8000, 256, 0.75, target), lambda text: "sum")["after"]
+
+    assert left_after(0.1) < left_after(0.6)  # a lower target keeps fewer recent turns
+
+
 def _history(results=6, chars=2000):
     messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "go"}]
     for n in range(results):
@@ -184,6 +233,35 @@ def test_payload_stubbing_off_and_the_variant_for_file_writes(isolated):
     agent.run_turn("write")
     assert "tool result says whether it worked" in args(agent)["content"]
     assert (isolated / "b.txt").read_text() == "c" * 1000  # stubbed in history, written in full
+
+
+def test_payload_stub_min_chars_is_the_size_it_starts_at(isolated):
+    args = lambda agent: json.loads(next(m for m in agent.messages if m.get("tool_calls"))["tool_calls"][0]["function"]["arguments"])  # noqa: E731
+    saved = lambda: AssistantTurn(tool_calls=[call("artifact_save", json.dumps({"title": "t", "kind": "html", "content": "x" * 400}), "c1")])  # noqa: E731
+    agent, _ = _agent(scripted(saved(), AssistantTurn(content="ok")))
+    agent.run_turn("save")
+    assert "delivered and stored" in args(agent)["content"]
+    agent, _ = _agent(scripted(saved(), AssistantTurn(content="ok")), payload_stub_min_chars=500)
+    agent.run_turn("save")
+    assert args(agent)["content"] == "x" * 400
+
+
+def test_shrink_keys_through_compaction(isolated):
+    def history():
+        messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "go"}]
+        for n in range(8):
+            spec = ("write_file", {"path": f"f{n}", "content": "x" * 3000}) if n % 2 else ("skill_save", {"name": f"s{n}", "content": "y" * 3000})
+            messages.append({"role": "assistant", "content": "", "tool_calls": [call(spec[0], json.dumps(spec[1]), f"c{n}")]})
+            messages.append({"role": "tool", "tool_call_id": f"c{n}", "name": spec[0], "content": "ok"})
+        return messages
+
+    budget = context.ContextBudget(6000, 256)
+    shrunk = lambda **options: context.compact(history(), budget, lambda text: "- s", None, {"intra_task_summarize": False, **options})["args_shrunk"]  # noqa: E731
+    assert shrunk() > 0
+    assert shrunk(shrink_old_args=False) == 0
+    assert shrunk(shrink_args_tools=["edit_file"]) == 0                         # only the named tools
+    assert shrunk(shrink_args_tools=["write_file", "skill_save"]) > shrunk()    # a study may name others
+    assert shrunk(shrink_args_min_chars=5000) == 0                              # nothing that big
 
 
 def test_output_cap_keys_change_the_cap(isolated):

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased — a research instrument
+
+Off unless asked for, except the fixes and counting below. See `docs/research/`.
+
+- **Experiment config.** An `experiment` section (or `DCODE_EXPERIMENT=<file>`) switches or tunes every mechanism: elision, compaction, payload stubs, output caps, skills and MCP prompt size, reasoning cut-off, guards, delegation, sampling. A wrong key stops the run instead of quietly measuring the baseline. New: `recall_placement: user` keeps the system prompt stable across tasks.
+- **Trace.** `DCODE_TRACE=<file>` writes a JSONL record of every model attempt, tool call, compaction, elision, route, helper and task end, including how much of each prompt repeats the previous one. `trace.snapshots` also stores each exact request.
+- **Task identity.** Every request carries `X-Dcode-Task` (from `DCODE_TASK_ID`, or generated). The Dcode Manager stores it and can filter its request log by it.
+- **Counting.** A task's totals, the `usage` event and `stats.jsonl` now include retried attempts, titles, summaries and failed attempts, with new fields `steps`, `calls` and `cached`. A reply with no usage figures is estimated and marked.
+- **Long tasks no longer die.**
+  - A `!command`'s output reaches the model before it is ever stubbed.
+  - A server's "prompt too long" now compacts and retries once, and a second refusal ends the task with its own reason.
+  - Compaction can now shrink the arguments of old `write_file` and `edit_file` calls and summarize older steps of the running task, never splitting a call from its result.
+
 ## 0.7.1 — fewer tokens per task, and commands get the host's libraries
 
 - **Fewer tokens per task.** When a new turn starts, the big tool outputs of earlier turns (over 1,500 characters) become a short stub; the answer that used them stays. On a real chat ("which containers run here?", then "save this on memory") the second turn's prompt went from about 9,700 to 4,100 tokens.
