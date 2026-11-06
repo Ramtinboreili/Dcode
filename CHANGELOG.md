@@ -6,6 +6,7 @@ Off unless asked for, except the fixes and counting below. See `docs/research/`.
 
 - **Experiment config.** An `experiment` section (or `DCODE_EXPERIMENT=<file>`) switches or tunes every mechanism: elision, compaction, payload stubs, output caps, skills and MCP prompt size, reasoning cut-off, guards, delegation, sampling. A wrong key stops the run instead of quietly measuring the baseline. New: `recall_placement: user` keeps the system prompt stable across tasks.
 - **Trace.** `DCODE_TRACE=<file>` writes a JSONL record of every model attempt, tool call, compaction, elision, route, helper and task end, including how much of each prompt repeats the previous one. `trace.snapshots` also stores each exact request.
+- **Benchmark.** `bench/` has 42 tasks with hidden checks, a resumable runner over tasks × arms × models × repeats, and an analysis with paired comparisons, prefix stability and elision regret. `dcode run` gained `--task-id`, `--trace`, `--experiment`, `--max-steps` and `--json-summary`. See `docs/research/benchmark.md`.
 - **Task identity.** Every request carries `X-Dcode-Task` (from `DCODE_TASK_ID`, or generated). The Dcode Manager stores it and can filter its request log by it.
 - **Counting.** A task's totals, the `usage` event and `stats.jsonl` now include retried attempts, titles, summaries and failed attempts, with new fields `steps`, `calls` and `cached`. A reply with no usage figures is estimated and marked.
 - **Long tasks no longer die.**

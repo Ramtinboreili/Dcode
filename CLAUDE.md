@@ -39,6 +39,7 @@ make packages                                 # needs docker: portable binary (g
 - Phase 4: `transcripts.py` (chat → events, export md/html/json, import, `HelperLog`), `stats.py` (usage counts), `mcp.py` (stdio MCP client, names-only index), `attach.py` (`dcode attach`: `RemoteSession` + `AttachApp`), `acp.py` (`dcode acp` for editors), `openapi.py` (the hub API, one `ROUTES` table). `editors/vscode` is the extension; `packaging/` builds every package.
 - Phase 3: `checks.py` (post-edit checks), `mentions.py` (`@path`), `custom_agents.py` (`.dcode/agents`), `commands.py` (`.dcode/commands`), `rules.py` (allow/ask/deny), `hooks.py`.
 - Research instrument: `experiment.py` (the `experiment` config section: every switchable mechanism, validated, hashed), `trace.py` (`DCODE_TRACE`: JSONL of every call, tool and decision; task identity in a ContextVar). Docs: `docs/research/`. A deliberate prompt or schema change means re-recording `tests/golden/requests.json.gz` (see `tests/golden/scenario.py`).
+- Benchmark: `bench/` (`tasks/` = 42 tasks with hidden checks, `run.py` runner, `analyze.py` report, `validate_tasks.py` oracle, `smoke.py`, `common.py`, `lib/` = what checks import). Stdlib only. Doc: `docs/research/benchmark.md`. `make bench-validate`, `make bench-smoke`.
 - `web/` — `index.html`/`app.js`/`app.css` (main UI), `artifact.html` (`/a/<id>`), `guide.html` (bilingual user guide, `/guide`).
 - Details: `docs/architecture.md`. History & every past bug: `docs/history.md`. Rationale: `docs/decisions.md`.
 
