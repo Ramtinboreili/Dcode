@@ -74,6 +74,12 @@ def upstream_headers(model: dict[str, Any]) -> dict[str, str]:
     return headers
 
 
+def clean_task_id(value: str | None) -> str | None:
+    """A client's header, so not to be trusted: letters, digits and . _ : - only, 64 at most; None when empty."""
+    cleaned = re.sub(r"[^A-Za-z0-9._:-]", "_", (value or "").strip())[:64]
+    return cleaned or None
+
+
 @dataclass
 class Call:
     """One request through the gateway, filled in as it goes; becomes one usage row."""
@@ -93,6 +99,7 @@ class Call:
     guard: str = ""
     recorded: bool = False
     added: list[str] = field(default_factory=list)  # request fields the gateway added (reasoning, in the model's form)
+    task_id: str | None = None                      # the client's X-Dcode-Task: joins this row to the client's own trace
 
 
 class Gateway:
@@ -247,11 +254,11 @@ class Gateway:
         latency = (time.perf_counter() - call.started) * 1000
         self.store.run(
             "INSERT INTO usage (ts, user_id, model_id, key_id, endpoint, status, prompt_tokens, completion_tokens, "
-            "latency_ms, ttft_ms, stream, estimated, error, guard, client) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "latency_ms, ttft_ms, stream, estimated, error, guard, client, task_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (time.time(), call.user["id"] if call.user else None, call.model_id, call.key["id"] if call.key else None,
              call.endpoint, call.status, int(call.prompt_tokens or 0), int(call.completion_tokens or 0),
              round(latency, 1), None if call.ttft_ms is None else round(call.ttft_ms, 1), int(call.stream),
-             int(call.estimated), call.error[:500], call.guard[:120], call.client[:120]))
+             int(call.estimated), call.error[:500], call.guard[:120], call.client[:120], call.task_id))
 
     def learn(self, model: dict[str, Any], **lessons: Any) -> None:
         learned = dict(model.get("learned") or {}) | lessons

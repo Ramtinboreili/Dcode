@@ -93,7 +93,8 @@ CREATE TABLE IF NOT EXISTS usage (
   estimated INTEGER NOT NULL DEFAULT 0,
   error TEXT NOT NULL DEFAULT '',
   guard TEXT NOT NULL DEFAULT '',
-  client TEXT NOT NULL DEFAULT ''
+  client TEXT NOT NULL DEFAULT '',
+  task_id TEXT
 );
 CREATE INDEX IF NOT EXISTS usage_user_ts ON usage (user_id, ts);
 CREATE INDEX IF NOT EXISTS usage_model_ts ON usage (model_id, ts);
@@ -107,7 +108,8 @@ CREATE TABLE IF NOT EXISTS audit (
 );
 """
 
-MIGRATIONS = {"models": [("family", "family TEXT NOT NULL DEFAULT 'auto'")]}
+MIGRATIONS = {"models": [("family", "family TEXT NOT NULL DEFAULT 'auto'")],
+              "usage": [("task_id", "task_id TEXT")]}
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "name": "Dcode Manager",
@@ -140,10 +142,11 @@ class Store:
     def _migrate(self) -> None:
         """Columns added after a database was made (CREATE TABLE IF NOT EXISTS leaves old tables as they were)."""
         db = self.conn()
-        have = {row["name"] for row in db.execute("PRAGMA table_info(models)")}
-        for column, ddl in MIGRATIONS["models"]:
-            if column not in have:
-                db.execute(f"ALTER TABLE models ADD COLUMN {ddl}")
+        for table, columns in MIGRATIONS.items():
+            have = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
+            for column, ddl in columns:
+                if column not in have:
+                    db.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 
     # --- connections ------------------------------------------------------------------
     def conn(self) -> sqlite3.Connection:

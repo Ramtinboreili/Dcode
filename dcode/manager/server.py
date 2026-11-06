@@ -23,7 +23,7 @@ from typing import Any
 from .. import __version__
 from ..families import FAMILIES
 from . import auth, discovery, guards, limits, monitoring
-from .gateway import Call, Gateway, GatewayError, family_of
+from .gateway import Call, Gateway, GatewayError, clean_task_id, family_of
 from .store import Store, public_model, public_user
 
 WEB = Path(__file__).parent / "web"
@@ -580,6 +580,9 @@ class Manager:
             args.append(ctx.query["model"])
         if ctx.query.get("problems"):
             where.append("(g.status >= 400 OR g.error != '')")
+        if ctx.query.get("task"):
+            where.append("g.task_id = ?")
+            args.append(ctx.query["task"])
         sql = ("SELECT g.*, u.username FROM usage g LEFT JOIN users u ON u.id = g.user_id"
                + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY g.id DESC LIMIT ?")
         args.append(min(500, int(ctx.query.get("limit") or 100)))
@@ -621,7 +624,7 @@ class Manager:
         endpoint = {"/chat/completions": "chat", "/completions": "completion", "/embeddings": "embedding"}.get(
             suffix, suffix.strip("/").replace("/", ".")[:40] or "other")
         call = Call(user=user, key=key, model_id=str(body.get("model") or "")[:120], endpoint=endpoint,
-                    client=client[:120])
+                    client=client[:120], task_id=clean_task_id(ctx.headers.get("X-Dcode-Task")))
         try:
             model, guard = self.gateway.prepare(user, body, endpoint, call)
             self.gateway.check_with_guard_model(guard, body, user)

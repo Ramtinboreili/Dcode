@@ -742,11 +742,12 @@ class LLMClient:
             body, request = self._shape(kwargs, effort, max_tokens)
             if log is not None:
                 log.begin(request, body, effort, max_tokens)
+            headers = {trace.HEADER: trace.current_task_id()}  # joins a gateway's rows to the task; others ignore it
             try:
                 if body:
-                    response = self.client.chat.completions.create(extra_body=body, **request)
+                    response = self.client.chat.completions.create(extra_body=body, extra_headers=headers, **request)
                 else:
-                    response = self.client.chat.completions.create(**request)
+                    response = self.client.chat.completions.create(extra_headers=headers, **request)
                 if log is not None:
                     log.answered()
                 return response
@@ -770,7 +771,7 @@ class LLMClient:
         if log is not None:
             log.begin(request, {}, effort, max_tokens)
         try:
-            response = self.client.chat.completions.create(**request)
+            response = self.client.chat.completions.create(extra_headers={trace.HEADER: trace.current_task_id()}, **request)
         except Exception as exc:
             if log is not None:
                 log.finish(error=exc)

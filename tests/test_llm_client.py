@@ -362,3 +362,29 @@ def test_through_a_manager_reasoning_is_one_field_and_the_family_comes_from_it()
     assert api.requests[0]["reasoning_effort"] == "medium" and "chat_template_kwargs" not in api.requests[0]
     llm.complete_text([{"role": "user", "content": "title"}])
     assert api.requests[1]["reasoning_effort"] == "none"
+
+
+def test_every_request_carries_its_task_id(monkeypatch):
+    from dcode import trace
+
+    monkeypatch.setenv("DCODE_TASK_ID", "harness-7 bad/chars")
+    llm, api = client(reply("a"), reply("b"))
+    token = trace.enter_task()
+    try:
+        llm.chat([{"role": "user", "content": "hi"}])
+        llm.complete_text([{"role": "user", "content": "hi"}], purpose="title")
+    finally:
+        trace.leave_task(token)
+    assert [r["extra_headers"] for r in api.requests] == [{"X-Dcode-Task": "harness-7_bad_chars"}] * 2  # safe in a header
+
+
+def test_each_task_gets_its_own_id_when_nobody_sets_one():
+    from dcode import trace
+
+    seen = []
+    for _ in range(2):
+        token = trace.enter_task()
+        seen.append(trace.current_task_id())
+        trace.leave_task(token)
+    assert seen[0] != seen[1] and all(item.startswith("t-") for item in seen)
+    assert trace.current_task_id() == trace.current_task_id()  # outside any task: still one stable id

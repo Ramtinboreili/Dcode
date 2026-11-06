@@ -632,3 +632,39 @@ def test_tls_trusts_the_hosts_ca_bundle_even_when_openssl_looks_elsewhere(monkey
     monkeypatch.setattr(tls, "SYSTEM_BUNDLES", ())
     monkeypatch.setenv("DCODE_MANAGER_CA_BUNDLE", bundle)
     assert tls._build().cert_store_stats()["x509_ca"] > 10
+
+
+# --- joining a usage row to the client's task --------------------------------------------------------------
+
+def test_a_request_keeps_its_task_id_and_the_admin_log_can_filter_by_it(stack):
+    body = {"model": "coder", "messages": [{"role": "user", "content": "hi"}]}
+    send = lambda task: stack["user"].call("POST", "/v1/chat/completions", body, key=stack["key"], headers=task)  # noqa: E731
+    assert send({"X-Dcode-Task": "t-abc123"})[0] == 200
+    assert send({})[0] == 200
+    rows = stack["admin"].call("GET", "/api/admin/requests")[1]["requests"]
+    assert [r["task_id"] for r in rows] == [None, "t-abc123"]  # nullable: other clients send nothing
+    only = stack["admin"].call("GET", "/api/admin/requests?task=t-abc123")[1]["requests"]
+    assert len(only) == 1 and only[0]["task_id"] == "t-abc123"
+
+
+def test_a_task_id_cant_smuggle_anything_into_the_log(stack):
+    body = {"model": "coder", "messages": [{"role": "user", "content": "hi"}]}
+    stack["user"].call("POST", "/v1/chat/completions", body, key=stack["key"], headers={"X-Dcode-Task": "x'; DROP TABLE usage;--" + "y" * 90})
+    row = stack["admin"].call("GET", "/api/admin/requests")[1]["requests"][0]
+    assert len(row["task_id"]) == 64 and set(row["task_id"]) <= set("x_DROPTABLEusage;-y") - {";"}
+
+
+def test_the_task_id_column_is_added_to_an_old_database(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.execute("CREATE TABLE usage (id INTEGER PRIMARY KEY, ts REAL NOT NULL, user_id INTEGER, model_id TEXT NOT NULL, "
+                "key_id INTEGER, endpoint TEXT NOT NULL DEFAULT 'chat', status INTEGER NOT NULL, prompt_tokens INTEGER NOT NULL DEFAULT 0, "
+                "completion_tokens INTEGER NOT NULL DEFAULT 0, latency_ms REAL NOT NULL DEFAULT 0, ttft_ms REAL, stream INTEGER NOT NULL DEFAULT 0, "
+                "estimated INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '', guard TEXT NOT NULL DEFAULT '', client TEXT NOT NULL DEFAULT '')")
+    old.execute("INSERT INTO usage (ts, model_id, status, prompt_tokens) VALUES (1.0, 'coder', 200, 42)")
+    old.commit()
+    old.close()
+    store = Store(path)
+    assert store.all("SELECT prompt_tokens, task_id FROM usage") == [{"prompt_tokens": 42, "task_id": None}]
