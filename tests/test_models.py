@@ -169,7 +169,7 @@ def test_the_utility_model_sorts_tasks_and_names_the_chat():
     rig = Rig(models=dict(MODELS, utility="tiny"))
     verdicts = {"sorted": [], "titled": []}
 
-    def complete_text(messages, max_tokens=800):
+    def complete_text(messages, max_tokens=800, purpose="other"):
         system = messages[0]["content"]
         if "route tasks" in system:
             verdicts["sorted"].append(messages[1]["content"])
@@ -193,7 +193,7 @@ def test_router_falls_back_to_keywords_when_the_utility_model_fails():
     config = make_config(models=clean_models(dict(MODELS, utility="tiny")))
 
     class Broken(FakeLLM):
-        def complete_text(self, messages, max_tokens=800):
+        def complete_text(self, messages, max_tokens=800, purpose="other"):
             raise RuntimeError("server down")
 
     pool = ModelPool(config, FakeLLM(scripted(), config), factory=lambda cfg: Broken(scripted(), cfg))

@@ -61,7 +61,7 @@ class FakeLLM:
             on_delta(turn.content)
         return turn
 
-    def complete_text(self, messages, max_tokens=800) -> str:
+    def complete_text(self, messages, max_tokens=800, purpose="other") -> str:
         return "- summary of earlier work"
 
     def list_models(self) -> list[str]:

@@ -219,6 +219,8 @@ def compact(
     before = budget.usage(messages, tools)
     if before <= budget.compact_threshold:
         return None
+    stage = 1
+    folded: list[Message] = []
 
     elided = elide_tool_results(messages, keep_recent, min_chars)
     after = budget.usage(messages, tools)
@@ -244,14 +246,16 @@ def compact(
             summary_message = {"role": "user", "content": f"{SUMMARY_PREFIX}\n{summary_text}"}
             ack = {"role": "assistant", "content": "Understood. Continuing from the summary."}
             messages[1:] = [summary_message, ack] + recent
+            stage, folded = 2, old
         after = budget.usage(messages, tools)
 
     if after > budget.input_budget:
         # Last resort: elide every tool result, then drop oldest turns.
+        stage = 3
         elide_tool_results(messages, 0, min_chars)
         while budget.usage(messages, tools) > budget.input_budget and len(_turn_boundaries(messages)) > 1:
             boundaries = _turn_boundaries(messages)
             del messages[boundaries[0]:boundaries[1]]
         after = budget.usage(messages, tools)
 
-    return {"before": before, "after": after, "elided": elided, "summary": summary_text}
+    return {"before": before, "after": after, "elided": elided, "summary": summary_text, "stage": stage, "folded": folded}

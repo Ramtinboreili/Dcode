@@ -140,7 +140,7 @@ def test_first_message_names_the_chat():
     assert clean_title("way too long " * 10) == ""
 
     session = _session(scripted(AssistantTurn(content="hi")))
-    session.llm.complete_text = lambda messages, max_tokens=60: "- Deploy Pipeline Overview"
+    session.llm.complete_text = lambda messages, max_tokens=60, purpose="other": "- Deploy Pipeline Overview"
     try:
         session.submit("hey, explain the deploy pipeline")
         assert _wait(lambda: session.thread_name == "Deploy Pipeline Overview")

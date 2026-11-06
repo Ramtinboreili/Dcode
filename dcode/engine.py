@@ -8,7 +8,9 @@ session be driven from either one.
 
 from __future__ import annotations
 
+import contextvars
 import dataclasses
+import hashlib
 import itertools
 import json
 import re
@@ -22,7 +24,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from . import agents as roles
-from . import checks, hooks, mentions, tools
+from . import checks, hooks, mentions, tools, trace
 from . import db as databases
 from . import mcp as external
 from . import rules as permission_rules
@@ -92,6 +94,10 @@ FILE_ARG_TOOLS = {"read_file", "edit_file", "write_file", "delete_file", "create
                   "search_in_files", "git_diff"}
 
 
+def _call_signature(name: str, args: dict[str, Any]) -> str:
+    return f"{name}:{json.dumps(args, sort_keys=True)}"
+
+
 def _failed(output: str) -> bool:
     """A command result that says it went wrong (a refusal, a timeout or a non-zero exit)."""
     return "(return code:" in output or output.startswith(("Not run:", "Command timed out")) or "(stopped after" in output
@@ -135,6 +141,16 @@ def git_summary(cwd: Path | None = None) -> dict[str, Any]:
     }
 
 
+TOOL_ERROR_PREFIXES = ("Tool error:", "Missing required", "Unknown tool", "MCP error:", "Database error:", "Blocked:")
+
+
+def _error_kind(output: str) -> str:
+    """Which way a tool failed, without quoting its output: the trace holds no file contents."""
+    if output.startswith("Command timed out") or "(stopped after" in output:
+        return "timeout"
+    return "return_code" if "(return code:" in output else "tool_error"
+
+
 class Agent:
     def __init__(
         self,
@@ -166,6 +182,8 @@ class Agent:
         # was only asked to commit).
         self._seen_files: set[str] = set()
         self.todos: list[dict[str, str]] = []
+        self._tool_note = threading.local()  # why the tool call running on this thread was refused, how long it waited
+        self._stubbed: dict[str, str] = {}   # calls whose output left the context, for the trace's elision_regret
         self._db_names: dict[str, str] = {}  # saved connections (name -> engine), refreshed at turn start
         self._db_schemas: dict[str, tuple[float, dict[str, Any]]] = {}
         self._apply_limits(config)
@@ -389,8 +407,30 @@ class Agent:
 
     # --- main loop ----------------------------------------------------------------------
     def run_turn(self, user_text: str, max_steps: int | None = None) -> TurnResult:
+        """One task. Whoever owns the task (not a helper inside it) writes its end to the trace, however it ends."""
+        tracer = trace.for_config(self.config)
+        self._end_reason = "final_answer"
+        self._steps_done = 0
+        with trace.use(agent_id=self.agent_id) as scope:
+            try:
+                return self._run_loop(user_text, max_steps)
+            except Interrupted:
+                self._end_reason = "interrupted"
+                raise
+            except Exception:
+                self._end_reason = "error"
+                raise
+            finally:
+                if tracer is not None and not scope.helper:
+                    settle = getattr(self.host, "settle_side_jobs", None)
+                    if settle:
+                        settle()
+                    tracer.task_end(self._end_reason, self._steps_done, scope.started)
+
+    def _run_loop(self, user_text: str, max_steps: int | None = None) -> TurnResult:
         started = time.perf_counter()
         exp = self.config.experiment
+        tracer = trace.for_config(self.config)
         usage = {"prompt": 0, "completion": 0, "total": 0}
         max_steps = max_steps or (self.config.experiment["main_max_steps"] if self.is_main else int(self.config.agents.get("max_steps", 16)))
         self.current_task = user_text
@@ -409,7 +449,11 @@ class Agent:
             except Exception:
                 self.recalled = ""
         if exp["earlier_turn_elision"]:
-            elide_earlier_turns(self.messages, exp["earlier_turn_min_chars"])
+            before = self._tool_chars() if tracer else 0
+            count = elide_earlier_turns(self.messages, exp["earlier_turn_min_chars"])
+            if tracer:
+                tracer.emit("elision", count=count, chars_removed=before - self._tool_chars())
+                self._note_stubbed()
         self.refresh_system_message()
         sent_text = user_text
         if self.is_main and self.recalled and exp["recall_placement"] == "user":
@@ -435,6 +479,7 @@ class Agent:
                     {"role": "user", "content": "Step limit reached. Stop using tools and report progress now."}
                 )
                 tools = []
+                self._end_reason = "step_limit"
             elif self._stuck >= exp["stuck_limit"]:
                 # The model keeps making the same call although told it won't help: end the task, don't loop.
                 if self._stuck == exp["stuck_limit"]:
@@ -445,14 +490,16 @@ class Agent:
                     "You keep repeating the same call and it keeps failing. Stop using tools. Tell the user "
                     "what you tried, why it failed, and what you need from them.")})
                 tools = []
+                self._end_reason = "stuck_guard"
             self._maybe_compact(tools)
-            turn = self.llm.chat(
-                self.messages,
-                tools=tools or None,
-                on_delta=lambda text: self.host.emit("assistant_delta", agent=self.agent_id, text=text),
-                should_stop=self.host.should_stop,
-                max_tokens=self.budget.max_output_tokens,
-            )
+            with trace.use(step=steps, purpose="main_step" if self.is_main else "helper_step"):
+                turn = self.llm.chat(
+                    self.messages,
+                    tools=tools or None,
+                    on_delta=lambda text: self.host.emit("assistant_delta", agent=self.agent_id, text=text),
+                    should_stop=self.host.should_stop,
+                    max_tokens=self.budget.max_output_tokens,
+                )
             for key in usage:
                 usage[key] += turn.usage.get(key, 0)
             if turn.usage.get("prompt"):
@@ -498,8 +545,10 @@ class Agent:
 
             if turn.content.strip():
                 self.host.emit("assistant_note", agent=self.agent_id, text=turn.content.strip())
-            self._run_tool_calls(turn.tool_calls)
+            with trace.use(step=steps):
+                self._run_tool_calls(turn.tool_calls)
             steps += 1
+            self._steps_done = steps
 
         if self.is_main and not final and (steps or self._activity["files"] or self._activity["commands"]):
             final = self._final_report(usage)
@@ -572,8 +621,9 @@ class Agent:
         """The model stopped without summarizing: ask once, else build a factual report."""
         self.messages.append({"role": "user", "content": self.REPORT_REQUEST})
         try:
-            turn = self.llm.chat(self.messages, tools=None, should_stop=self.host.should_stop,
-                                 max_tokens=self.budget.max_output_tokens)
+            with trace.use(purpose="final_report"):
+                turn = self.llm.chat(self.messages, tools=None, should_stop=self.host.should_stop,
+                                     max_tokens=self.budget.max_output_tokens)
             for key in usage:
                 usage[key] += turn.usage.get(key, 0)
             text = turn.content.strip()
@@ -673,6 +723,7 @@ class Agent:
             summary = self.llm.complete_text(
                 [{"role": "system", "content": instructions}, {"role": "user", "content": transcript}],
                 max_tokens=min(900, self.budget.max_output_tokens),
+                purpose="compaction_summary",
             ).strip()
         except Exception:
             summary = ""
@@ -681,12 +732,18 @@ class Agent:
                 f"- {m['content'][:200]}" for m in history
                 if m.get("role") == "user" and isinstance(m.get("content"), str)
             )[:2500]
+        tracer = trace.for_config(self.config)
+        if tracer:
+            self._note_stubbed(history)
         self.messages[1:] = [
             {"role": "user", "content": f"{SUMMARY_PREFIX}\n{summary}"},
             {"role": "assistant", "content": "Understood. Continuing from the summary."},
         ]
         self.refresh_system_message()
         after = self.budget.usage(self.messages, self.tools())
+        if tracer:
+            tracer.emit("compaction", stage=2, trigger="forced", before_tokens=before, after_tokens=after, elided=0,
+                        summarized=len(history), summary_tokens=self.budget.counter.text(summary))
         self.host.emit("compaction", agent=self.agent_id, before=before, after=after, elided=0, summarized=True)
         self.host.emit("summary", agent=self.agent_id, text=summary)
         return {"before": before, "after": after, "summary": summary}
@@ -710,11 +767,18 @@ class Agent:
             return self.llm.complete_text(
                 [{"role": "system", "content": SUMMARY_INSTRUCTIONS}, {"role": "user", "content": transcript}],
                 max_tokens=min(700, self.budget.max_output_tokens),
+                purpose="compaction_summary",
             )
 
         report = compact(self.messages, self.budget, summarize, tools, self.config.experiment)
         if not report:
             return
+        tracer = trace.for_config(self.config)
+        if tracer:
+            self._note_stubbed(report["folded"])
+            tracer.emit("compaction", stage=report["stage"], trigger="auto", before_tokens=report["before"],
+                        after_tokens=report["after"], elided=report["elided"], summarized=len(report["folded"]),
+                        summary_tokens=self.budget.counter.text(report["summary"]) if report["summary"] else 0)
         if self.todos:
             self.refresh_system_message()  # the checklist must survive the compaction
         self.host.emit(
@@ -750,8 +814,10 @@ class Agent:
         workers = max(1, int(self.config.agents.get("max_parallel", 2)))
         for call in group:
             self._announce(call)
+        # Each worker runs in a copy of this context, so its helper's requests stay in this task.
+        contexts = [contextvars.copy_context() for _ in group]
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="dcode-agent") as pool:
-            outputs = list(pool.map(lambda c: self._safe_execute(c), group))
+            outputs = list(pool.map(lambda pair: pair[0].run(self._safe_execute, pair[1]), zip(contexts, group, strict=True)))
         for call, output in zip(group, outputs, strict=True):
             self._record(call, output)
 
@@ -807,14 +873,69 @@ class Agent:
                              "to save context. The tool result says whether it worked.]")
         function["arguments"] = json.dumps(args)
 
+    def _tool_chars(self) -> int:
+        return sum(len(m.get("content") or "") for m in self.messages
+                   if m.get("role") == "tool" and isinstance(m.get("content"), str))
+
+    def _note_stubbed(self, folded: list[dict[str, Any]] | None = None) -> None:
+        """Remember which calls' outputs just left the context, so calling one again can be traced as regret."""
+        def walk(messages: list[dict[str, Any]], every: bool) -> None:
+            signatures = {}
+            for message in messages:
+                for call in message.get("tool_calls") or []:
+                    function = call.get("function") or {}
+                    signatures[call.get("id")] = _call_signature(function.get("name", ""), parse_arguments(function.get("arguments")))
+            for message in messages:
+                if message.get("role") == "tool" and (every or str(message.get("content") or "").startswith("[elided")):
+                    signature = signatures.get(message.get("tool_call_id"))
+                    if signature:
+                        self._stubbed[signature] = "summarized" if every else "elided"
+
+        walk(self.messages, False)
+        if folded:
+            walk(folded, True)
+
+    def _refuse(self, reason: str, text: str) -> str:
+        """A tool result that says no: the call did nothing, and the trace should say why."""
+        self._tool_note.refused = reason
+        return text
+
     def _safe_execute(self, call: dict[str, Any]) -> str:
+        """Run one tool call, and when tracing write down what it cost."""
+        tracer = trace.for_config(self.config)
+        if tracer is None:
+            return self._execute_call(call)
+        function = call.get("function") or {}
+        name = function.get("name", "")
+        raw = function.get("arguments") or ""
+        note = self._tool_note
+        note.refused, note.waited = "", 0.0
+        tools.take_raw_chars()
+        started = time.perf_counter()
+        output = self._execute_call(call)
+        elapsed = time.perf_counter() - started - note.waited
+        kept, measured = len(output), tools.take_raw_chars()
+        truncated = (measured is not None and measured > kept) or "(truncated at " in output
+        refused = note.refused or ""
+        failed = not refused and (_failed(output) or output.startswith(TOOL_ERROR_PREFIXES))
+        tracer.emit("tool_call", name=name, arg_chars=len(raw), raw_output_chars=measured if measured is not None else (None if truncated else kept),
+                    kept_chars=kept, truncated=truncated, duration_ms=round(elapsed * 1000, 1),
+                    approval_wait_ms=round(note.waited * 1000, 1), ok=not (refused or failed), error=_error_kind(output) if failed else None,
+                    was_refused=bool(refused), refusal=refused or None)
+        signature = _call_signature(name, parse_arguments(raw))
+        how = self._stubbed.pop(signature, None)
+        if how:
+            tracer.emit("elision_regret", name=name, how=how, signature=hashlib.sha256(signature.encode()).hexdigest()[:trace.HASH_CHARS])
+        return output
+
+    def _execute_call(self, call: dict[str, Any]) -> str:
         function = call.get("function") or {}
         name = function.get("name", "")
         raw = function.get("arguments")
         args = parse_arguments(raw)
         if raw and raw.strip() not in ("", "{}") and not args:
-            return "Invalid JSON arguments. Call the tool again with valid JSON."
-        signature = f"{name}:{json.dumps(args, sort_keys=True)}"
+            return self._refuse("invalid_arguments", "Invalid JSON arguments. Call the tool again with valid JSON.")
+        signature = _call_signature(name, args)
         limit = self.config.experiment["repeat_limit"]
         self._repeat = (self._repeat + [signature])[-limit:]
         same = len(self._repeat) == limit and len(set(self._repeat)) == 1
@@ -823,21 +944,22 @@ class Agent:
             outputs = self._command_outputs[-(limit - 1):]
             if len(outputs) == limit - 1 and len(set(outputs)) == 1 and _failed(outputs[0]):
                 self._stuck += 1
-                return (f"You ran this command {limit - 1} times in a row and it failed the same way each "
-                        "time. Running it again won't help: read the error, change something, or ask the user.")
+                return self._refuse("repeat_guard", (
+                    f"You ran this command {limit - 1} times in a row and it failed the same way each "
+                    "time. Running it again won't help: read the error, change something, or ask the user."))
         elif same:
             self._stuck += 1
-            return (
+            return self._refuse("repeat_guard", (
                 f"You called {name} with identical arguments {limit} times; the result will not change. "
                 "Use the information you have or try a different approach."
-            )
+            ))
         if name not in self.tool_names():
-            return f"Tool '{name}' is not available. Available: {', '.join(self.tool_names())}"
+            return self._refuse("unavailable", f"Tool '{name}' is not available. Available: {', '.join(self.tool_names())}")
         if self.config.hooks:
             reason = hooks.before_tool(self.config.hooks, name, args, workspace_root(), self._session_id())
             if reason:
                 self.host.emit("notice", agent=self.agent_id, level="warning", text=f"A hook blocked {name}: {reason[:200]}")
-                return f"Blocked by the user's hook: {reason}"
+                return self._refuse("hook", f"Blocked by the user's hook: {reason}")
         try:
             return self._dispatch(name, args)
         except Interrupted:
@@ -870,7 +992,12 @@ class Agent:
         return str(getattr(self.host, "id", "") or "")
 
     def _approve(self, kind: str, detail: str) -> bool:
-        return self.host.request_approval(kind, detail, self.agent_id)
+        started = time.perf_counter()
+        approved = self.host.request_approval(kind, detail, self.agent_id)
+        self._tool_note.waited = getattr(self._tool_note, "waited", 0.0) + time.perf_counter() - started
+        if not approved:
+            self._tool_note.refused = "approval_denied"
+        return approved
 
     def _dispatch(self, name: str, args: dict[str, Any]) -> str:
         if name.startswith("mcp__") and self._mcp_full:
@@ -936,7 +1063,9 @@ class Agent:
                 return "ask_user needs a question."
             raw = args.get("options")
             options = [" ".join(str(o).split())[:120] for o in raw if str(o).strip()] if isinstance(raw, list) else []
+            started = time.perf_counter()
             answer = self.host.ask_user(question, options[:6], self.agent_id).strip()
+            self._tool_note.waited = getattr(self._tool_note, "waited", 0.0) + time.perf_counter() - started
             if not answer:
                 return "The user skipped the question. Decide sensibly yourself and say what you assumed."
             return f"The user answered: {answer}"
@@ -995,7 +1124,7 @@ class Agent:
 
         refusal, outside_ok = self._file_rules(name, args)
         if refusal:
-            return refusal
+            return self._refuse(getattr(self._tool_note, "refused", "") or "file_rule", refusal)
         with tools.outside_workspace_allowed(outside_ok):
             return self._dispatch_builtin(name, args)
 
@@ -1109,7 +1238,7 @@ class Agent:
         experimental = self.config.experimental
         mode = self.mode
         if mode == "plan" and name in roles.PLAN_BLOCKED_TOOLS:
-            return f"Plan mode: {name} is disabled. Finish the plan and ask the user to approve it."
+            return self._refuse("plan_mode", f"Plan mode: {name} is disabled. Finish the plan and ask the user to approve it.")
         auto = mode == "auto"
 
         if name == "run_command":
@@ -1118,8 +1247,8 @@ class Agent:
             detail = f"{command}   (background)" if background else command
             decision, pattern = self._ruleset().command(command)
             if decision == "deny":
-                return (f"Blocked: the rule '{pattern}' denies this command. Don't retry it — "
-                        "find another way or ask the user to run it.")
+                return self._refuse("command_rule", (f"Blocked: the rule '{pattern}' denies this command. Don't retry it — "
+                                                     "find another way or ask the user to run it."))
             if decision == "ask":
                 if not self._approve("rule", f"{detail}   (rule: {pattern})"):
                     return "Command cancelled by user."
@@ -1161,7 +1290,7 @@ class Agent:
         if name == "git_commit":
             explicit = "commit" in self.current_task.lower()
             if not experimental.get("auto_commit") and not explicit:
-                return "git_commit blocked: auto_commit is disabled and the user did not explicitly request a commit."
+                return self._refuse("commit_gate", "git_commit blocked: auto_commit is disabled and the user did not explicitly request a commit.")
             message = str(args.get("message", ""))
             if not auto and not self._approve("git_commit", message):
                 return "Git commit cancelled by user."
@@ -1172,7 +1301,7 @@ class Agent:
         if name == "write_file":
             refused = self._unread_overwrite(str(args.get("path", "")))
             if refused:
-                return refused
+                return self._refuse("blind_write", refused)
         if name in ("read_file", "edit_file", "write_file"):
             self._saw(args.get("path"))
         if name in ("write_file", "edit_file", "create_directory"):
@@ -1229,18 +1358,26 @@ class Agent:
         self.host.emit("agent_start", agent=agent_id, parent=self.agent_id, role=role, task=task,
                        model=config.model)
         sub = Agent(config, llm, self.host, self.memory, role=role, agent_id=agent_id, git=self.git, spec=spec)
+        ok = True
         try:
-            result = sub.run_turn(task, max_steps=spec.steps or None)
+            with trace.use(agent_id=agent_id, helper=True, step=None):
+                result = sub.run_turn(task, max_steps=spec.steps or None)
             report = result.text or "(sub-agent returned no report)"
         except Interrupted:
             self.host.emit("agent_end", agent=agent_id, role=role, ok=False, report="interrupted")
             raise
         except Exception as exc:
             report = f"Sub-agent failed: {exc}"
+            ok = False
         finally:
             self._apply_limits(self.config)  # a helper on a smaller model shrank the output caps
         # Cap what flows back into the (small) main context.
+        raw_report = len(report)
         report = _truncate(report, int(self.config.context_window * 3.5 * 0.08))
+        tracer = trace.for_config(self.config)
+        if tracer:
+            tracer.emit("delegate", role=role, helper_id=agent_id, model=config.model, ok=ok, steps=sub._steps_done,
+                        report_chars=raw_report, report_kept_chars=len(report))
         self.host.emit("agent_end", agent=agent_id, role=role, ok=True, report=report)
         return f"[{agent_id} report]\n{report}"
 

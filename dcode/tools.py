@@ -130,10 +130,23 @@ def _rel(path: Path) -> str:
         return str(path)
 
 
+def _note_raw(chars: int) -> None:
+    """What this tool produced before a cap cut it, for the research trace."""
+    _local.raw_chars = max(chars, getattr(_local, "raw_chars", 0))
+
+
+def take_raw_chars() -> int | None:
+    """The size noted since the last ask on this thread; None when nothing was cut."""
+    chars = getattr(_local, "raw_chars", None)
+    _local.raw_chars = 0
+    return chars or None
+
+
 def _truncate(text: str, limit: int | None = None) -> str:
     limit = MAX_OUTPUT_CHARS if limit is None else limit
     if len(text) <= limit:
         return text
+    _note_raw(len(text))
     return text[:limit] + f"\n... (truncated, {len(text) - limit} more chars)"
 
 
@@ -293,6 +306,7 @@ def _read_file(arguments: dict[str, Any]) -> str:
     body = "\n".join(f"{str(n).rjust(width)}| {lines[n - 1]}" for n in range(start, end + 1))
     body = _truncate(body)
     if start > 1 or end < total:
+        _note_raw(sum(len(line) + 1 for line in lines))
         body += f"\n[lines {start}-{end} of {total}; use start_line/end_line for more]"
     return body
 
@@ -474,6 +488,7 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
             # Keep the tail too: errors usually appear at the end of build/test output.
             output = output.strip()
             if len(output) > MAX_OUTPUT_CHARS:
+                _note_raw(len(output))
                 half = MAX_OUTPUT_CHARS // 2
                 output = output[:half] + f"\n... (truncated {len(output) - 2 * half} chars) ...\n" + output[-half:]
             return output or "(no output)"

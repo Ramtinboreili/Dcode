@@ -8,6 +8,7 @@ surface answers first resolves.
 from __future__ import annotations
 
 import collections
+import contextvars
 import json
 import os
 import queue
@@ -22,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import manager_client, tools
+from . import manager_client, tools, trace
 from .agents import DEFAULT_MODE, INIT_PROMPT, MODES
 from .checkpoints import CheckpointStore
 from .commands import expand, load_commands
@@ -31,7 +32,7 @@ from .engine import Agent, git_summary
 from .jobs import JobManager
 from .llm import Interrupted, LLMClient, error_text
 from .memory import MemoryStore
-from .models import ROUTES, ModelPool, decide
+from .models import ROUTES, ModelPool, explain
 from .tools import _truncate, workspace_root
 from .transcripts import SHELL_NOTE, HelperLog, transcript_from_messages
 
@@ -164,6 +165,8 @@ class Session:
         self._task_tools: collections.Counter[str] = collections.Counter()  # for the usage log (stats.py)
         self._helper_tokens = {"prompt": 0, "completion": 0}
         self.helpers = HelperLog()  # each helper's own steps, so its session can be opened later
+        self._title_thread: threading.Thread | None = None
+        self._side_jobs = trace.Ledger()  # tokens spent outside any agent's loop, until the next task's total takes them
         self.bus.subscribe(self._on_event)
         self._worker = threading.Thread(target=self._work, name="dcode-worker", daemon=True)
         self._worker.start()
@@ -436,6 +439,7 @@ class Session:
                 [{"role": "system", "content": prompt},
                  {"role": "user", "content": _truncate(f"{status}\n\n{diff}", int(self.config.context_window * 3.5 * 0.5))}],
                 max_tokens=200,
+                purpose="commit_msg",
             ).strip().strip("`")
         except Exception:
             text = ""
@@ -681,6 +685,7 @@ class Session:
             self._stop.clear()
             self._busy.set()
             self.emit("status", busy=True)
+            scope_token = trace.enter_task(self._side_jobs)  # every request of this item carries its task id
             try:
                 if kind == "task":
                     first = not any(m.get("role") == "user" for m in self.agent.messages)
@@ -729,6 +734,7 @@ class Session:
                     leftovers = list(self._approvals)
                 for approval_id in leftovers:
                     self.resolve_approval(approval_id, False, by="interrupt")
+                trace.leave_task(scope_token)
                 self._busy.clear()
                 self._stop.clear()
                 try:
@@ -761,6 +767,7 @@ class Session:
                 text = self.models.utility_llm().complete_text(
                     [{"role": "system", "content": TITLE_PROMPT}, {"role": "user", "content": first_message[:1500]}],
                     max_tokens=60,
+                    purpose="title",
                 )
             except Exception:
                 return
@@ -768,7 +775,15 @@ class Session:
             if title and self.thread_name == expected and not self._closed.is_set():
                 self._set_title(title)
 
-        threading.Thread(target=refine, name="dcode-title", daemon=True).start()
+        # In a copy of this context: its request belongs to the task that caused it.
+        self._title_thread = threading.Thread(target=contextvars.copy_context().run, args=(refine,), name="dcode-title", daemon=True)
+        self._title_thread.start()
+
+    def settle_side_jobs(self, timeout: float = 30.0) -> None:
+        """When tracing, a task's end waits for its title job, so that the task's totals are complete."""
+        title = self._title_thread
+        if title is not None and title.is_alive():
+            title.join(timeout)
 
     def _reasoning_model(self) -> str:
         target = self.models.role("reasoning")
@@ -777,12 +792,19 @@ class Session:
     def _run_task(self, text: str, routed: bool = True) -> Any:
         """Run one task, on the reasoning model when the router says it needs one. Plans stay on the main model."""
         target = None
+        verdict = {"hard": False, "reason": "plan mode" if self.mode == "plan" else "an approved plan", "source": "off",
+                   "utility_answer": None}
         if routed and self.mode != "plan":
-            hard, why = decide(self.models, text, self.route, self._reasoned)
-            target = self.models.role("reasoning") if hard else None
+            verdict = explain(self.models, text, self.route, self._reasoned)
+            target = self.models.role("reasoning") if verdict["hard"] else None
             if target is not None:
-                self.emit("route", model=target[0].model, role="reasoning", reason=why)
+                self.emit("route", model=target[0].model, role="reasoning", reason=verdict["reason"])
         self._reasoned = target is not None
+        tracer = trace.for_config(self.config)
+        if tracer:
+            tracer.emit("route", source=verdict["source"], reason=verdict["reason"], hard=verdict["hard"],
+                        model=target[0].model if target else self.config.model, utility_answer=verdict["utility_answer"],
+                        input_chars=len(text))
         if target is None:
             return self.agent.run_turn(text)
         self.agent.use(*target)

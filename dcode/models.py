@@ -178,25 +178,38 @@ class ModelPool:
                 ("helpers", label(helper)), ("utility", label(self.settings["utility"]))]
 
 
-def decide(pool: ModelPool, text: str, route: str, previous: bool) -> tuple[bool, str]:
-    """Should this task run on the reasoning model? Returns (yes, why)."""
+def explain(pool: ModelPool, text: str, route: str, previous: bool) -> dict[str, Any]:
+    """Should this task run on the reasoning model, and what settled it: hard, reason, source, utility_answer."""
+    def verdict(hard: bool, reason: str, source: str, answer: str | None = None) -> dict[str, Any]:
+        return {"hard": hard, "reason": reason, "source": source, "utility_answer": answer}
+
     if pool.role("reasoning") is None or route == "off":
-        return False, ""
+        return verdict(False, "", "off")
     if route == "always":
-        return True, "routing is set to always"
+        return verdict(True, "routing is set to always", "always")
     if previous and is_follow_up(text):
-        return True, "continuing the last task"
+        return verdict(True, "continuing the last task", "follow_up")
     utility = pool.role("utility")
+    raw: str | None = None
     if utility is not None:
         try:
-            answer = utility[1].complete_text(
+            raw = utility[1].complete_text(
                 [{"role": "system", "content": ROUTER_PROMPT}, {"role": "user", "content": text[:1500]}],
                 max_tokens=300,  # room for a reasoning model's thinking before its one word
-            ).strip().upper()
+                purpose="router",
+            )
+            answer = raw.strip().upper()
         except Exception:
             answer = ""
         if answer.startswith("HARD") or answer.endswith("HARD"):
-            return True, f"{utility[0].model} judged it hard"
+            return verdict(True, f"{utility[0].model} judged it hard", "utility", raw)
         if answer.startswith("EASY") or answer.endswith("EASY"):
-            return False, ""
-    return heuristic_route(text)
+            return verdict(False, "", "utility", raw)
+    hard, why = heuristic_route(text)
+    return verdict(hard, why, "heuristic", raw)
+
+
+def decide(pool: ModelPool, text: str, route: str, previous: bool) -> tuple[bool, str]:
+    """Should this task run on the reasoning model? Returns (yes, why)."""
+    result = explain(pool, text, route, previous)
+    return result["hard"], result["reason"]

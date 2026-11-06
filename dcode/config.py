@@ -145,6 +145,8 @@ class AppConfig:
     manager: dict[str, Any] = field(default_factory=lambda: {"url": "", "username": "", "models": {}})
     # What a study switches or tunes (dcode/experiment.py). Always complete; the defaults are normal behaviour.
     experiment: dict[str, Any] = field(default_factory=experiment_section.defaults)
+    # A research trace (dcode/trace.py): off unless a path is set here or in DCODE_TRACE.
+    trace: dict[str, Any] = field(default_factory=lambda: {"path": "", "snapshots": False})
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -277,6 +279,14 @@ def apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         data.setdefault("ui", {})
         if isinstance(data["ui"], dict):
             data["ui"]["enabled"] = False
+    trace_path, snapshots = _env("TRACE"), _env("TRACE_SNAPSHOTS")
+    if trace_path or snapshots:
+        saved = data.get("trace")
+        data["trace"] = dict(saved) if isinstance(saved, dict) else {}
+        if trace_path:
+            data["trace"]["path"] = trace_path
+        if snapshots:
+            data["trace"]["snapshots"] = snapshots.strip().lower() in {"1", "true", "yes", "on"}
     experiment_file = _env("EXPERIMENT")
     if experiment_file:
         saved = data.get("experiment")
@@ -351,7 +361,13 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig | None:
         enabled_skills=[str(name) for name in enabled_skills],
         manager=clean_manager(data.get("manager")),
         experiment=experiment_section.clean(data.get("experiment")),
+        trace=clean_trace(data.get("trace")),
     )
+
+
+def clean_trace(value: Any) -> dict[str, Any]:
+    value = value if isinstance(value, dict) else {}
+    return {"path": str(value.get("path") or ""), "snapshots": bool(value.get("snapshots"))}
 
 
 def clean_manager(value: Any) -> dict[str, Any]:
@@ -361,7 +377,7 @@ def clean_manager(value: Any) -> dict[str, Any]:
             "models": {str(k): dict(v) for k, v in models.items() if isinstance(v, dict)}}
 
 
-PASS_THROUGH_SECTIONS = ("experiment",)
+PASS_THROUGH_SECTIONS = ("experiment", "trace")
 
 
 def load_raw_config() -> dict[str, Any]:

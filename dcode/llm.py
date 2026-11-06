@@ -13,6 +13,7 @@ those differences so the engine sees one clean interface:
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
 import re
@@ -22,8 +23,9 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import families, manager_client, toolcalls
+from . import families, manager_client, toolcalls, trace
 from .config import AppConfig
+from .context import CHARS_PER_TOKEN, TokenCounter
 
 
 class Interrupted(Exception):
@@ -344,6 +346,169 @@ _MUST_THINK_RE = re.compile(
     r"|must be enabled|is required)|\b(mandatory|required)\b.{0,30}\b(reasoning|thinking)\b", re.IGNORECASE)
 
 
+def _nested(usage: Any, section: str, key: str) -> int | None:
+    """``usage.<section>.<key>``, an object or a dict depending on the SDK and the server; None when absent."""
+    part = getattr(usage, section, None)
+    if part is None:
+        part = (getattr(usage, "model_extra", None) or {}).get(section)
+    value = part.get(key) if isinstance(part, dict) else getattr(part, key, None)
+    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+class _Attempt:
+    """One HTTP request and what is known about it so far."""
+
+    def __init__(self, number: int, retry_reason: str, streamed: bool, messages: list[dict[str, Any]],
+                 tools: list[dict[str, Any]] | None, effort: str, max_tokens: int | None) -> None:
+        self.number, self.retry_reason, self.streamed = number, retry_reason, streamed
+        self.messages, self.tools, self.effort, self.max_tokens = messages, tools, effort, max_tokens
+        self.request_ts = time.time()
+        self.started = time.perf_counter()
+        self.first_delta: float | None = None
+        self.last_delta: float | None = None
+        self.out_chars = 0
+        self.answered = False      # the server took the request (a stream opened, or a reply came back)
+        self.http_sends = 0        # more than 1: the SDK retried by itself, which nothing else would show
+        self.http_statuses: list[int] = []
+        self.prefix: dict[str, Any] = {}
+        self.snapshot: str | None = None
+        self.done = False
+
+
+class _CallLog:
+    """One chat() or complete_text(): every HTTP attempt under it, written and added up."""
+
+    def __init__(self, client: LLMClient, purpose: str) -> None:
+        self.client = client
+        self.purpose = purpose
+        scope = trace.current()
+        self.next_reason = scope.retry_reason if scope else "none"
+        self.tracer = trace.for_config(client.config)
+        self.attempts = 0
+        self.current: _Attempt | None = None
+        self.totals: dict[str, Any] = {"prompt": 0, "completion": 0, "total": 0, "calls": 0, "cached": None}
+        self.estimated = False
+        self.last_reported_prompt = 0   # the last attempt's own figure: what calibration compares with
+
+    def begin(self, request: dict[str, Any], body: dict[str, Any], effort: str, max_tokens: int | None) -> None:
+        self.finish()  # an attempt nobody closed
+        attempt = _Attempt(self.attempts, self.next_reason, bool(request.get("stream")), request.get("messages") or [],
+                           request.get("tools"), effort, max_tokens)
+        self.attempts += 1
+        self.next_reason = "none"
+        self.current = attempt
+        if self.tracer is not None:
+            _watch_http(self.client)
+            scope = trace.current()
+            attempt.prefix = self.tracer.prefix(scope.agent_id if scope else "main", self.purpose, attempt.messages, attempt.tools)
+            attempt.snapshot = self.tracer.snapshot({**request, **body})
+        attempt.started = time.perf_counter()  # the hashing above is not the model's time
+
+    def answered(self) -> None:
+        if self.current is not None:
+            self.current.answered = True
+
+    def delta(self, chars: int) -> None:
+        attempt = self.current
+        if attempt is not None and chars:
+            now = time.perf_counter()
+            attempt.first_delta = attempt.first_delta or now
+            attempt.last_delta = now
+            attempt.out_chars += chars
+
+    def add_output(self, chars: int) -> None:
+        if self.current is not None:
+            self.current.out_chars += chars
+
+    def _estimate_prompt(self, attempt: _Attempt) -> int:
+        return TokenCounter().messages(attempt.messages, attempt.tools)
+
+    def finish(self, usage: Any = None, finish_reason: str = "", error: BaseException | None = None) -> None:
+        """Close the current attempt: count it, and write its record when tracing."""
+        attempt, self.current = self.current, None
+        if attempt is None or attempt.done:
+            return
+        attempt.done = True
+        try:
+            self._close(attempt, usage, finish_reason, error)
+        except Exception:
+            pass  # bookkeeping must never fail a request
+
+    def _close(self, attempt: _Attempt, usage: Any, finish_reason: str, error: BaseException | None) -> None:
+        now = time.perf_counter()
+        numbers = _usage_dict(usage) if usage is not None else {"prompt": 0, "completion": 0, "total": 0}
+        reported = bool(numbers["prompt"] or numbers["completion"])
+        cached = _nested(usage, "prompt_tokens_details", "cached_tokens") if usage is not None else None
+        reasoning = _nested(usage, "completion_tokens_details", "reasoning_tokens") if usage is not None else None
+        estimated_completion = int(attempt.out_chars / CHARS_PER_TOKEN)
+        estimated_prompt: int | None = None
+        if self.tracer is not None or (attempt.answered and not reported):
+            estimated_prompt = self._estimate_prompt(attempt)
+        if reported:
+            counted_prompt, counted_completion, estimated = numbers["prompt"], numbers["completion"], False
+        elif attempt.answered:  # cut off before the usage chunk, or a server that never sends one
+            counted_prompt, counted_completion, estimated = int(estimated_prompt or 0), estimated_completion, True
+        else:                   # refused: nothing was generated
+            counted_prompt, counted_completion, estimated = 0, 0, False
+        self.last_reported_prompt = numbers["prompt"]
+        self.estimated = self.estimated or estimated
+        trace.add_usage(self.totals, {"prompt": counted_prompt, "completion": counted_completion,
+                                      "total": counted_prompt + counted_completion, "calls": 1, "cached": cached})
+        if self.tracer is None:
+            return
+        scope = trace.current()
+        client = self.client
+        self.tracer.emit(
+            "llm_call", purpose=self.purpose, step=scope.step if scope else None, attempt=attempt.number,
+            retry_reason=attempt.retry_reason, model=client.config.model, server_kind=client.server,
+            effort=attempt.effort, max_tokens=attempt.max_tokens, message_count=len(attempt.messages),
+            tools_count=len(attempt.tools or []), estimated_prompt_tokens=estimated_prompt,
+            estimated_completion_tokens=estimated_completion,
+            reported_prompt_tokens=numbers["prompt"] if reported else None,
+            reported_completion_tokens=numbers["completion"] if reported else None,
+            reasoning_tokens=reasoning, cached_tokens=cached, usage_estimated=estimated,
+            counted_prompt_tokens=counted_prompt, counted_completion_tokens=counted_completion,
+            request_ts=round(attempt.request_ts, 3),
+            ttft_ms=_ms(attempt.started, attempt.first_delta), last_delta_ms=_ms(attempt.started, attempt.last_delta),
+            decode_ms=_ms(attempt.first_delta, attempt.last_delta), total_ms=_ms(attempt.started, now),
+            finish_reason=finish_reason or None, streamed=attempt.streamed, snapshot=attempt.snapshot,
+            rejected_fields=sorted(client._learned.get("rejected") or []) or None,
+            http_sends=attempt.http_sends or None, http_statuses=attempt.http_statuses or None,
+            **trace.error_fields(error), **attempt.prefix)
+
+
+def _ms(start: float | None, end: float | None) -> float | None:
+    return round((end - start) * 1000, 1) if start is not None and end is not None else None
+
+
+# The log of the call running on this thread: lets the layers below reach it without a new parameter each.
+_call_log: contextvars.ContextVar[_CallLog | None] = contextvars.ContextVar("dcode_call_log", default=None)
+
+
+def _on_http_request(request: Any) -> None:
+    log = _call_log.get()
+    if log is not None and log.current is not None:
+        log.current.http_sends += 1
+
+
+def _on_http_response(response: Any) -> None:
+    log = _call_log.get()
+    if log is not None and log.current is not None:
+        log.current.http_statuses.append(response.status_code)
+
+
+def _watch_http(client: LLMClient) -> None:
+    """The OpenAI SDK retries once by itself (max_retries=1) and says nothing. Only when tracing, watch what it sends."""
+    http = getattr(client.client, "_client", None)  # the SDK's httpx client; a test's stand-in has none
+    try:
+        hooks = http.event_hooks
+        if _on_http_request not in hooks["request"]:
+            hooks["request"].append(_on_http_request)
+            hooks["response"].append(_on_http_response)
+    except (AttributeError, KeyError, TypeError):
+        pass
+
+
 class ModelBusy(RuntimeError):
     """The server kept answering "rate limited" / "overloaded" after Dcode waited."""
 
@@ -566,23 +731,47 @@ class LLMClient:
         if self.config.model != self._learned_for:  # /model switched models on this client
             self._learned, self._thoughts, self._learned_for = self._server_lessons(), {}, self.config.model
         waits = list(BUSY_WAITS)
+        log = _call_log.get()
         for _ in range(6 + len(waits)):
             body, request = self._shape(kwargs, effort, max_tokens)
+            if log is not None:
+                log.begin(request, body, effort, max_tokens)
             try:
                 if body:
-                    return self.client.chat.completions.create(extra_body=body, **request)
-                return self.client.chat.completions.create(**request)
+                    response = self.client.chat.completions.create(extra_body=body, **request)
+                else:
+                    response = self.client.chat.completions.create(**request)
+                if log is not None:
+                    log.answered()
+                return response
             except Exception as exc:
+                if log is not None:
+                    log.finish(error=exc)
                 if _busy(exc):
                     if not waits:
                         raise ModelBusy(error_text(exc)) from exc
                     wait = _retry_after(exc) or waits[0]
                     waits.pop(0)
                     self._notes.append(f"The model server is busy; trying again in {wait:g}s")
+                    if log is not None:
+                        log.next_reason = "busy"
                     time.sleep(wait)
                 elif not self._learn(exc, body, request):
                     raise
-        return self.client.chat.completions.create(**self._shape(kwargs, effort, max_tokens)[1])
+                elif log is not None:
+                    log.next_reason = "learned_param"
+        request = self._shape(kwargs, effort, max_tokens)[1]
+        if log is not None:
+            log.begin(request, {}, effort, max_tokens)
+        try:
+            response = self.client.chat.completions.create(**request)
+        except Exception as exc:
+            if log is not None:
+                log.finish(error=exc)
+            raise
+        if log is not None:
+            log.answered()
+        return response
 
     # --- public API ---------------------------------------------------------------
     def chat(
@@ -597,21 +786,29 @@ class LLMClient:
         effort = self.config.reasoning_effort
         notes: list[str] = []
         retries = int(self.config.experiment.get("think_retries", THINK_RETRIES))
-        for attempt in range(retries + 1):
-            try:
-                turn = self._chat_once(messages, tools, on_delta, should_stop, max_tokens, effort)
-                if not (turn.finish_reason == "length" and not turn.content.strip() and not turn.tool_calls
-                        and turn.reasoning):
+        scope = trace.current()
+        log = _CallLog(self, scope.purpose if scope else "other")
+        token = _call_log.set(log)
+        try:
+            for attempt in range(retries + 1):
+                try:
+                    turn = self._chat_once(messages, tools, on_delta, should_stop, max_tokens, effort)
+                    if not (turn.finish_reason == "length" and not turn.content.strip() and not turn.tool_calls
+                            and turn.reasoning):
+                        break
+                    reason = "used its whole reply on thinking"
+                except _Overthinking as over:
+                    turn, reason = over.turn, over.reason
+                lower = self._less_effort(effort, reason)
+                if lower is None or attempt == retries:
+                    turn.finish_reason = "length"
                     break
-                reason = "used its whole reply on thinking"
-            except _Overthinking as over:
-                turn, reason = over.turn, over.reason
-            lower = self._less_effort(effort, reason)
-            if lower is None or attempt == retries:
-                turn.finish_reason = "length"
-                break
-            notes.append(f"The model {reason}; asking again with {'no' if lower == 'none' else lower} thinking")
-            effort = lower
+                notes.append(f"The model {reason}; asking again with {'no' if lower == 'none' else lower} thinking")
+                effort = lower
+                log.next_reason = "think_cutoff"
+        finally:
+            log.finish()
+            _call_log.reset(token)
         turn.notes = self._notes + notes + turn.notes
         self._notes = []
         return turn
@@ -651,6 +848,9 @@ class LLMClient:
                     raise
                 # Server can't stream tool calls — fall back permanently.
                 self._stream_tools_ok = False
+                log = _call_log.get()
+                if log is not None:
+                    log.next_reason = "learned_param"
         if should_stop and should_stop():
             raise Interrupted()
         response = self._create(effort=effort, max_tokens=max_tokens, **kwargs)
@@ -672,6 +872,11 @@ class LLMClient:
         usage = getattr(response, "usage", None)
         if usage is not None:
             turn.usage = _usage_dict(usage)
+        log = _call_log.get()
+        if log is not None:
+            log.add_output(len(turn.content) + len(turn.reasoning)
+                           + sum(len(c["function"]["arguments"]) for c in turn.tool_calls))
+            log.finish(usage, turn.finish_reason)
         if on_delta and turn.content:
             visible = strip_thinking(turn.content)
             if visible:
@@ -679,18 +884,30 @@ class LLMClient:
         return self._finish(turn, tools, bool(tools and self._learned.get("text_tools")),
                             self.config.experiment["text_tool_recovery"])
 
-    def complete_text(self, messages: list[dict[str, Any]], max_tokens: int = 800) -> str:
+    def complete_text(self, messages: list[dict[str, Any]], max_tokens: int = 800, purpose: str = "other") -> str:
         """One-shot, tool-less completion for side jobs (summaries, titles, routing): no thinking needed."""
-        response = self._create(effort="none", max_tokens=max_tokens, model=self.config.model, messages=messages)
-        choice = response.choices[0]
-        text = strip_thinking(choice.message.content or "")
-        if not text.strip() and getattr(choice, "finish_reason", None) == "length":
-            # A model that thinks anyway (GLM 5.3: "reasoning is mandatory") spent the whole cap on it:
-            # once more with room for the thinking, so a title isn't lost to a 60-token cap.
-            response = self._create(effort="none", max_tokens=max(max_tokens * 8, SIDE_JOB_ROOM),
-                                    model=self.config.model, messages=messages)
-            text = strip_thinking(response.choices[0].message.content or "")
-        return text
+        log = _CallLog(self, purpose)
+        token = _call_log.set(log)
+
+        def ask(limit: int) -> Any:
+            response = self._create(effort="none", max_tokens=limit, model=self.config.model, messages=messages)
+            choice = response.choices[0]
+            log.add_output(len(choice.message.content or ""))
+            log.finish(getattr(response, "usage", None), str(getattr(choice, "finish_reason", "") or ""))
+            return choice
+
+        try:
+            choice = ask(max_tokens)
+            text = strip_thinking(choice.message.content or "")
+            if not text.strip() and getattr(choice, "finish_reason", None) == "length":
+                # A model that thinks anyway (GLM 5.3: "reasoning is mandatory") spent the whole cap on it:
+                # once more with room for the thinking, so a title isn't lost to a 60-token cap.
+                log.next_reason = "think_cutoff"
+                text = strip_thinking(ask(max(max_tokens * 8, SIDE_JOB_ROOM)).message.content or "")
+            return text
+        finally:
+            log.finish()
+            _call_log.reset(token)
 
     def list_models(self) -> list[str]:
         response = self.client.models.list()
@@ -716,6 +933,9 @@ class LLMClient:
         reasoning_size, next_check = 0, check_every
         visible = _VisibleText()
         calls: dict[int, dict[str, Any]] = {}
+        log = _call_log.get()
+        raw_usage: Any = None
+        ended_by: BaseException | None = None
         try:
             for chunk in stream:
                 if should_stop and should_stop():
@@ -723,6 +943,7 @@ class LLMClient:
                 usage = getattr(chunk, "usage", None)
                 if usage is not None:
                     turn.usage = _usage_dict(usage)
+                    raw_usage = usage
                 choices = getattr(chunk, "choices", None) or []
                 if not choices:
                     continue
@@ -736,9 +957,13 @@ class LLMClient:
                 if thought:
                     reasoning_parts.append(thought)
                     reasoning_size += len(thought)
+                    if log is not None:
+                        log.delta(len(thought))
                 text = getattr(delta, "content", None)
                 if text:
                     content_parts.append(text)
+                    if log is not None:
+                        log.delta(len(text))
                     shown = visible.feed(text)
                     if on_delta and shown:
                         on_delta(shown)
@@ -764,6 +989,8 @@ class LLMClient:
                         arguments = getattr(function, "arguments", None)
                         if arguments:
                             entry["function"]["arguments"] += arguments
+                            if log is not None:
+                                log.delta(len(arguments))
                 if check_every and reasoning_size >= next_check and not visible.sent and not calls:
                     next_check += check_every
                     so_far = "".join(reasoning_parts) or thinking_text(visible.full)
@@ -772,7 +999,14 @@ class LLMClient:
                     if cut:
                         raise _Overthinking(cut, AssistantTurn(reasoning=so_far, finish_reason="length",
                                                                usage=turn.usage))
+        except BaseException as exc:
+            ended_by = exc
+            raise
         finally:
+            if log is not None:
+                # A reply cut off on purpose isn't a server error: its finish_reason says what happened.
+                cut_off = isinstance(ended_by, _Overthinking)
+                log.finish(raw_usage, str(ended_by) if cut_off else turn.finish_reason, None if cut_off else ended_by)
             close = getattr(stream, "close", None)
             if callable(close):
                 try:
