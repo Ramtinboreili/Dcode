@@ -1,0 +1,9 @@
+{
+  "qwen-32k": {
+    "base_url": "http://gpu-host:8010/v1",
+    "model": "qwen3-coder",
+    "api_key_env": "BENCH_API_KEY",
+    "context_window": 32768,
+    "max_output_tokens": 4096
+  }
+}

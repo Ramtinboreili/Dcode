@@ -1,0 +1,17 @@
+{
+  "arms": [
+    {"name": "baseline", "experiment": {}},
+    {"name": "no_earlier_elision", "experiment": {"earlier_turn_elision": false}},
+    {"name": "no_summarize", "experiment": {"summarization": false}},
+    {"name": "no_payload_stub", "experiment": {"payload_stubbing": false}},
+    {"name": "stub_write_args", "experiment": {"payload_stub_tools": ["artifact_save", "skill_save", "write_file", "edit_file"]}},
+    {"name": "no_delegation", "experiment": {"delegation": false}},
+    {"name": "recall_system", "experiment": {}, "seed_home": "seed_homes/memories",
+     "note": "The control for recall_user: the default placement, with memories to recall. A fresh home has none, so recall_user compared with baseline would measure nothing."},
+    {"name": "recall_user", "experiment": {"recall_placement": "user"}, "seed_home": "seed_homes/memories", "control": "recall_system"},
+    {"name": "no_reasoning_cutoff", "experiment": {"think_retries": 0, "loop_check_every": 0}},
+    {"name": "small_output_caps", "experiment": {"output_cap_share": 0.04, "output_cap_min": 1000, "output_cap_max": 8000}},
+    {"name": "window_16k", "experiment": {}, "context_window": 16384},
+    {"name": "window_32k", "experiment": {}, "context_window": 32768}
+  ]
+}
