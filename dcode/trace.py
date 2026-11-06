@@ -188,9 +188,13 @@ def prefix_fields(previous: dict[str, Any] | None, messages: list[dict[str, Any]
     if previous is not None:
         lcp = common_prefix(previous["hashes"], hashes)
         intact = lcp == len(previous["hashes"])
+        unchanged_tools = previous["tools"] == tools_id
+        # Servers render the tools before the messages: an unchanged list is part of the shared prefix.
+        tool_tokens = counter.raw(json.dumps(tools, separators=(",", ":"))) if tools and unchanged_tools else 0
         fields.update(
-            prev_messages=len(previous["hashes"]), lcp_messages=lcp, lcp_tokens=sum(sizes[:lcp]), prefix_intact=intact,
-            tools_changed=previous["tools"] != tools_id,
+            prev_messages=len(previous["hashes"]), lcp_messages=lcp,
+            lcp_tokens=(sum(sizes[:lcp]) + tool_tokens) if unchanged_tools else 0, prefix_intact=intact,
+            tools_changed=not unchanged_tools,
             first_changed_index=None if intact else lcp,
             first_changed_role=None if intact or lcp >= len(messages) else messages[lcp].get("role"))
     fields["_state"] = {"hashes": hashes, "tools": tools_id}

@@ -8,6 +8,7 @@ so each scenario is reproducible.
 
     python docs/dev/mock_llm.py 18080
     python docs/dev/mock_llm.py 18081 thinker    # a second server: its text replies start with "[thinker] "
+    python docs/dev/mock_llm.py 18080 --simulate-cache --max-context 8192 --long-chars 3000
     DCODE_BASE_URL=http://127.0.0.1:18080/v1 DCODE_API_KEY=x DCODE_MODEL=mock dcode
 
 Trigger words (in the user's message unless noted):
@@ -28,6 +29,14 @@ Trigger words (in the user's message unless noted):
     count the parts           → db_query SELECT on the connection "stock" (database tools)
     delete the old parts      → db_query DELETE on "stock" (a change: must ask, in every mode)
     use the notebook          → mcp_call add(20, 22) on the MCP server "notes" (external tools)
+    long task 40              → 40 write_file calls in a row, one per step, then a final answer (exercises
+                                compaction; 40 is the default count, --long-chars sets each file's size)
+
+Reported usage is computed from each request and reply (chars / 3.5), so token studies mean something:
+
+    --simulate-cache   usage.prompt_tokens_details.cached_tokens = the longest common prefix with the previous
+                       request, as a one-slot prefix cache would report. Without it the field is absent.
+    --max-context N    refuse a prompt over N tokens with vLLM's wording, like a server with --max-model-len N.
 
 After any tool result the mock answers "Done. Tool `x` returned N chars." Tool
 arguments stream in 400-character chunks (8-character chunks made long
@@ -37,7 +46,10 @@ artifacts take ~7 s per save and looked like a hang).
 from __future__ import annotations
 
 import json
+import os
+import re
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -56,7 +68,75 @@ h1{font-size:22px;margin:0 0 4px}.sub{color:#64748b;margin:0 0 22px}
 REPORT = "<!DOCTYPE html><html><body><h1>Repo report</h1>" + "<p>details</p>" * 200 + "</body></html>"
 
 
-def choose_reply(messages: list[dict]) -> dict:
+CHARS_PER_TOKEN = 3.5
+LONG_TASK = re.compile(r"\blong task(?: (\d+))?")
+LONG_DEFAULT = 40
+
+
+class Options:
+    """What the command line sets."""
+
+    name = ""
+    simulate_cache = False
+    max_context = 0
+    long_chars = 3000
+
+
+_lock = threading.Lock()
+_previous_prompt = ""            # what the simulated cache holds: the last request
+_long_tasks: dict[str, dict[str, int]] = {}  # per task: compaction may fold the message that started it
+
+
+def prompt_text(body: dict) -> str:
+    """What a server would render into the prompt, in order: tools come before the messages."""
+    return json.dumps(body.get("tools") or []) + json.dumps(body.get("messages") or [])
+
+
+def count_tokens(text: str) -> int:
+    return int(len(text) / CHARS_PER_TOKEN)
+
+
+def compute_usage(body: dict, reply: dict) -> dict:
+    """Usage from what was really asked and answered, not fixed numbers."""
+    global _previous_prompt
+    prompt = prompt_text(body)
+    prompt_tokens = count_tokens(prompt)
+    answer = reply.get("content") or ""
+    if "tool" in reply:
+        answer += reply["tool"][0] + json.dumps(reply["tool"][1])
+    completion_tokens = max(1, count_tokens(answer))
+    usage = {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
+             "total_tokens": prompt_tokens + completion_tokens}
+    if Options.simulate_cache:
+        with _lock:
+            shared = len(os.path.commonprefix([_previous_prompt, prompt]))
+            _previous_prompt = prompt
+        usage["prompt_tokens_details"] = {"cached_tokens": count_tokens(prompt[:shared])}
+    return usage
+
+
+def _long_task_reply(messages: list[dict], task: str) -> dict | None:
+    """The next write of a running long task. Keyed by the task's header: the history may have been compacted."""
+    last = messages[-1]
+    text = str(last.get("content") or "")
+    started = LONG_TASK.search(text) if last["role"] == "user" else None
+    with _lock:
+        state = _long_tasks.get(task)
+        if started and state is None:
+            state = _long_tasks[task] = {"left": int(started.group(1) or LONG_DEFAULT), "done": 0}
+        if state is None:
+            return None
+        if state["left"] <= 0:
+            del _long_tasks[task]
+            return {"content": f"Long task finished: wrote {state['done']} files."}
+        state["left"] -= 1
+        state["done"] += 1
+        number = state["done"]
+    body = f"# part {number}\n" + "value = 1\n" * (Options.long_chars // 10)
+    return {"tool": ("write_file", {"path": f"part_{number}.py", "content": body})}
+
+
+def choose_reply(messages: list[dict], task: str = "default") -> dict:
     """{"content": text} or {"tool": (name, args)} for the conversation so far."""
     last = messages[-1]
     system = str(messages[0].get("content", ""))
@@ -67,6 +147,9 @@ def choose_reply(messages: list[dict]) -> dict:
         return {"content": "Cluster dashboard demo"}
     if "Summarize" in system:
         return {"content": "- summary"}
+    long_task = _long_task_reply(messages, task)
+    if long_task is not None:
+        return long_task
     if last["role"] == "tool" and last.get("name") == "artifact_save" and "loop" in str(messages[1:]) and saves < 5:
         args = {"title": "Repo report", "kind": "html", "content": REPORT} if saves < 2 else {"content": REPORT}
         return {"tool": ("artifact_save", args)}
@@ -108,16 +191,13 @@ def choose_reply(messages: list[dict]) -> dict:
     return {"content": "<think>hidden reasoning</think>Echo: " + text[:60]}
 
 
-NAME = ""  # set from the command line
-
-
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args) -> None:
         pass
 
-    def _send(self, payload: dict) -> None:
+    def _send(self, payload: dict, status: int = 200) -> None:
         body = json.dumps(payload).encode()
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -128,10 +208,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # /v1/chat/completions
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        reply = choose_reply(body["messages"])
-        if NAME and reply.get("content"):  # a second server in a test: show which one answered
-            reply["content"] = reply["content"].replace("Echo: ", f"[{NAME}] Echo: ")
-        usage = {"prompt_tokens": 500, "completion_tokens": 20, "total_tokens": 520}
+        size = count_tokens(prompt_text(body))
+        if Options.max_context and size > Options.max_context:
+            return self._send({"error": {"message": (
+                f"This model's maximum context length is {Options.max_context} tokens. However, your request has "
+                f"{size} input tokens. Please reduce the length of the input messages."),
+                "type": "BadRequestError", "code": 400}}, 400)
+        reply = choose_reply(body["messages"], self.headers.get("X-Dcode-Task") or "default")
+        if Options.name and reply.get("content"):  # a second server in a test: show which one answered
+            reply["content"] = reply["content"].replace("Echo: ", f"[{Options.name}] Echo: ")
+        usage = compute_usage(body, reply)
         if not body.get("stream"):
             message = {"role": "assistant", "content": reply.get("content")}
             if "tool" in reply:
@@ -170,8 +256,27 @@ class Handler(BaseHTTPRequestHandler):
             pass  # the client stopped reading (interrupt)
 
 
-if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 18080
-    NAME = sys.argv[2] if len(sys.argv) > 2 else ""
+def serve(port: int = 0) -> ThreadingHTTPServer:
+    return ThreadingHTTPServer(("127.0.0.1", port), Handler)
+
+
+def main(argv: list[str]) -> None:
+    words, index = [], 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--simulate-cache":
+            Options.simulate_cache = True
+        elif arg in ("--max-context", "--long-chars"):
+            index += 1
+            setattr(Options, arg[2:].replace("-", "_"), int(argv[index]))
+        else:
+            words.append(arg)
+        index += 1
+    port = int(words[0]) if words else 18080
+    Options.name = words[1] if len(words) > 1 else ""
     print(f"mock model on http://127.0.0.1:{port}/v1", flush=True)
-    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    serve(port).serve_forever()
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
